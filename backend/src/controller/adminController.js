@@ -9,70 +9,58 @@ const Voucher = require('../model/Voucher');
 /**
  * Get dashboard statistics
  */
-exports.getDashboardStats = async (req, res, next) => {
+// ═══════════════════════════════════════════════════════════════════
+// THAY hàm getDashboardStats trong adminController.js
+// Fix: totalRevenue = tổng TẤT CẢ đơn (không chỉ delivered)
+//      Thêm: totalDeliveredRevenue = chỉ đơn đã giao thành công
+// ═══════════════════════════════════════════════════════════════════
+
+exports.getDashboardStats = async (req, res) => {
     try {
-        const totalUsers = await User.countDocuments();
-        const totalProducts = await Product.countDocuments();
-        const totalOrders = await Order.countDocuments();
-        const totalCategories = await Category.countDocuments();
+        const ACTIVE_STATUSES    = ['delivered','shipped','confirmed','processing'];
+        const COMPLETED_STATUSES = ['delivered'];
 
-        // Get total revenue from completed/delivered orders
-        const revenueData = await Order.aggregate([
-            {
-                $match: {
-                    status: { $in: ['delivered', 'shipped'] },
-                    paymentStatus: 'completed'
-                }
-            },
-            {
-                $group: {
-                    _id: null,
-                    totalRevenue: { $sum: '$total' },
-                    totalOrders: { $sum: 1 }
-                }
-            }
+        const [
+            totalUsers,
+            totalProducts,
+            totalOrders,
+            revenueAgg,        // tổng tất cả đơn active
+            deliveredAgg,      // chỉ đơn delivered (doanh thu thực nhận)
+            recentOrders,
+            ordersByStatus,
+        ] = await Promise.all([
+            User.countDocuments({ role: 'customer' }),
+            Product.countDocuments({ isActive: true }),
+            Order.countDocuments(),
+
+            // Tổng doanh thu: tất cả đơn không bị cancelled
+            Order.aggregate([
+                { $match: { status: { $in: ACTIVE_STATUSES } } },
+                { $group: { _id: null, total: { $sum: '$total' } } }
+            ]),
+
+            // Doanh thu thực: chỉ delivered (tiền đã nhận)
+            Order.aggregate([
+                { $match: { status: { $in: COMPLETED_STATUSES } } },
+                { $group: { _id: null, total: { $sum: '$total' } } }
+            ]),
+
+            Order.find()
+                .sort({ createdAt: -1 })
+                .limit(10)
+                .populate('userId', 'name email')
+                .lean(),
+
+            Order.aggregate([
+                { $group: { _id: '$status', count: { $sum: 1 } } }
+            ]),
         ]);
 
-        const totalRevenue = revenueData.length > 0 ? revenueData[0].totalRevenue : 0;
+        const totalRevenue          = revenueAgg[0]?.total   || 0;
+        const totalDeliveredRevenue = deliveredAgg[0]?.total || 0;
 
-        // Get monthly revenue
-        const monthlyRevenue = await Order.aggregate([
-            {
-                $match: {
-                    status: { $in: ['delivered', 'shipped'] },
-                    paymentStatus: 'completed'
-                }
-            },
-            {
-                $group: {
-                    _id: {
-                        year: { $year: '$createdAt' },
-                        month: { $month: '$createdAt' }
-                    },
-                    revenue: { $sum: '$total' },
-                    count: { $sum: 1 }
-                }
-            },
-            { $sort: { '_id.year': 1, '_id.month': 1 } },
-            { $limit: 12 }
-        ]);
-
-        // Get recent orders
-        const recentOrders = await Order.find()
-            .populate('userId', 'name email phone')
-            .sort({ createdAt: -1 })
-            .limit(10)
-            .select('_id userId items total status createdAt');
-
-        // Get order status breakdown
-        const orderStatusBreakdown = await Order.aggregate([
-            {
-                $group: {
-                    _id: '$status',
-                    count: { $sum: 1 }
-                }
-            }
-        ]);
+        const statusMap = {};
+        ordersByStatus.forEach(s => { statusMap[s._id] = s.count; });
 
         res.status(200).json({
             status: 'success',
@@ -81,20 +69,16 @@ exports.getDashboardStats = async (req, res, next) => {
                     totalUsers,
                     totalProducts,
                     totalOrders,
-                    totalRevenue,
-                    totalCategories
+                    totalRevenue,           // ✅ KPI card: tổng doanh thu (excl. cancelled)
+                    totalDeliveredRevenue,  // doanh thu thực đã nhận tiền
                 },
-                monthlyRevenue,
+                ordersByStatus: statusMap,
                 recentOrders,
-                orderStatusBreakdown
             }
         });
-    } catch (error) {
-        console.error('Dashboard stats error:', error);
-        res.status(500).json({
-            status: 'error',
-            message: 'Failed to fetch dashboard statistics'
-        });
+    } catch (e) {
+        console.error('[getDashboardStats]', e);
+        res.status(500).json({ status: 'error', message: e.message });
     }
 };
 // ============================================================
@@ -108,15 +92,17 @@ exports.getDashboardRevenue = async (req, res) => {
     try {
         const { period = 'month' } = req.query;
         const now = new Date();
-
         let groupBy, matchCurrent, matchPrev;
 
         if (period === 'week') {
-            const start = new Date(now); start.setDate(now.getDate() - 6); start.setHours(0,0,0,0);
-            const prev  = new Date(start); prev.setDate(prev.getDate() - 7);
+            const start = new Date(now);
+            start.setDate(now.getDate() - 6);
+            start.setHours(0, 0, 0, 0);
+            const prev = new Date(start);
+            prev.setDate(prev.getDate() - 7);
             matchCurrent = { createdAt: { $gte: start } };
             matchPrev    = { createdAt: { $gte: prev, $lt: start } };
-            groupBy      = { $dayOfMonth: '$createdAt' };
+            groupBy      = { day: { $dayOfMonth: '$createdAt' }, month: { $month: '$createdAt' } };
         } else if (period === 'month') {
             const start = new Date(now.getFullYear(), now.getMonth() - 11, 1);
             const prev  = new Date(now.getFullYear(), now.getMonth() - 23, 1);
@@ -124,22 +110,57 @@ exports.getDashboardRevenue = async (req, res) => {
             matchPrev    = { createdAt: { $gte: prev, $lt: start } };
             groupBy      = { month: { $month: '$createdAt' }, year: { $year: '$createdAt' } };
         } else {
+            // year
             const start = new Date(now.getFullYear() - 4, 0, 1);
             const prev  = new Date(now.getFullYear() - 9, 0, 1);
             matchCurrent = { createdAt: { $gte: start } };
             matchPrev    = { createdAt: { $gte: prev, $lt: start } };
-            groupBy      = { $year: '$createdAt' };
+            groupBy      = { year: { $year: '$createdAt' } };
         }
 
         const pipeline = (match) => [
-            { $match: { ...match, status: { $in: ['delivered','shipped','confirmed','processing'] } } },
-            { $group: {
-                _id:     groupBy,
-                revenue: { $sum: '$totalPrice' },
-                orders:  { $sum: 1 },
-                profit:  { $sum: { $multiply: ['$totalPrice', 0.35] } },
-            }},
-            { $sort: { '_id.year': 1, '_id.month': 1, _id: 1 } }
+            {
+                $match: {
+                    ...match,
+                    status: { $in: ['delivered', 'shipped', 'confirmed', 'processing'] }
+                }
+            },
+            { $unwind: '$items' },
+            {
+                $group: {
+                    _id: groupBy,
+                    // Doanh thu = tổng (giá bán × số lượng)
+                    revenue: {
+                        $sum: { $multiply: ['$items.price', '$items.quantity'] }
+                    },
+                    // Lợi nhuận thực:
+                    //   Nếu item có costPrice > 0 → dùng thực tế
+                    //   Nếu costPrice = 0 (đơn cũ) → fallback 30%
+                    profit: {
+                        $sum: {
+                            $multiply: [
+                                '$items.quantity',
+                                {
+                                    $cond: [
+                                        { $gt: ['$items.costPrice', 0] },
+                                        // lợi nhuận thực = giá bán - giá vốn
+                                        { $subtract: ['$items.price', '$items.costPrice'] },
+                                        // fallback: 30% giá bán
+                                        { $multiply: ['$items.price', 0.30] }
+                                    ]
+                                }
+                            ]
+                        }
+                    },
+                    orders: { $addToSet: '$_id' }, // đếm số đơn duy nhất
+                }
+            },
+            {
+                $addFields: {
+                    orders: { $size: '$orders' }
+                }
+            },
+            { $sort: { '_id.year': 1, '_id.month': 1, '_id.day': 1, _id: 1 } }
         ];
 
         const [current, previous] = await Promise.all([
@@ -147,23 +168,31 @@ exports.getDashboardRevenue = async (req, res) => {
             Order.aggregate(pipeline(matchPrev)),
         ]);
 
-        const totalRev     = current.reduce((s, d) => s + d.revenue, 0);
-        const totalRevPrev = previous.reduce((s, d) => s + d.revenue, 0);
-        const totalProfit  = current.reduce((s, d) => s + d.profit, 0);
-        const totalProfitPrev = previous.reduce((s, d) => s + d.profit, 0);
+        const totalRev        = current.reduce((s, d) => s + (d.revenue || 0), 0);
+        const totalRevPrev    = previous.reduce((s, d) => s + (d.revenue || 0), 0);
+        const totalProfit     = current.reduce((s, d) => s + (d.profit || 0), 0);
+        const totalProfitPrev = previous.reduce((s, d) => s + (d.profit || 0), 0);
 
-        res.json({ status: 'success', data: {
-            current,
-            totalRevenue:   totalRev,
-            totalProfit:    totalProfit,
-            revenueChange:  totalRevPrev > 0 ? parseFloat(((totalRev - totalRevPrev) / totalRevPrev * 100).toFixed(1)) : null,
-            profitChange:   totalProfitPrev > 0 ? parseFloat(((totalProfit - totalProfitPrev) / totalProfitPrev * 100).toFixed(1)) : null,
-        }});
+        res.json({
+            status: 'success',
+            data: {
+                current,
+                totalRevenue:  totalRev,
+                totalProfit:   totalProfit,
+                revenueChange: totalRevPrev > 0
+                    ? parseFloat(((totalRev - totalRevPrev) / totalRevPrev * 100).toFixed(1))
+                    : null,
+                profitChange: totalProfitPrev > 0
+                    ? parseFloat(((totalProfit - totalProfitPrev) / totalProfitPrev * 100).toFixed(1))
+                    : null,
+            }
+        });
     } catch (e) {
-        console.error(e);
+        console.error('[getDashboardRevenue]', e);
         res.status(500).json({ status: 'error', message: e.message });
     }
 };
+
 
 /**
  * GET /api/admin/dashboard/categories
@@ -173,26 +202,46 @@ exports.getDashboardCategories = async (req, res) => {
         const data = await Order.aggregate([
             { $match: { status: { $in: ['delivered','shipped','confirmed','processing'] } } },
             { $unwind: '$items' },
-            { $lookup: { from:'products', localField:'items.productId', foreignField:'_id', as:'product' } },
-            { $unwind: { path:'$product', preserveNullAndEmpty: false } },
-            { $lookup: { from:'categories', localField:'product.category', foreignField:'_id', as:'category' } },
-            { $unwind: { path:'$category', preserveNullAndEmpty: false } },
+            { $lookup: {
+                from: 'products',
+                localField: 'items.productId',
+                foreignField: '_id',
+                as: 'product'
+            }},
+            // ✅ FIX: preserveNullAndEmptyArrays (không phải preserveNullAndEmpty)
+            { $unwind: { path: '$product', preserveNullAndEmptyArrays: false } },
+            // ✅ FIX: lookup linh hoạt — dùng $ifNull để thử cả 'category' và 'categoryId'
+            { $lookup: {
+                from: 'categories',
+                let: { catRef: { $ifNull: ['$product.category', '$product.categoryId'] } },
+                pipeline: [{ $match: { $expr: { $eq: ['$_id', '$$catRef'] } } }],
+                as: 'catDoc'
+            }},
+            { $unwind: { path: '$catDoc', preserveNullAndEmptyArrays: false } },
             { $group: {
-                _id:      '$category._id',
-                name:     { $first: '$category.name' },
+                _id:      '$catDoc._id',
+                name:     { $first: '$catDoc.name' },
                 revenue:  { $sum: { $multiply: ['$items.price', '$items.quantity'] } },
                 quantity: { $sum: '$items.quantity' },
             }},
             { $sort: { revenue: -1 } },
             { $limit: 8 },
         ]);
+
         const total = data.reduce((s, d) => s + d.revenue, 0);
-        const result = data.map(d => ({ ...d, percentage: total > 0 ? parseFloat((d.revenue/total*100).toFixed(1)) : 0 }));
+        const result = data.map(d => ({
+            ...d,
+            _id: d._id?.toString() || 'unknown',
+            percentage: total > 0 ? parseFloat((d.revenue / total * 100).toFixed(1)) : 0
+        }));
+
         res.json({ status: 'success', data: result });
     } catch (e) {
+        console.error('[getDashboardCategories]', e.message);
         res.status(500).json({ status: 'error', message: e.message });
     }
 };
+
 
 /**
  * GET /api/admin/dashboard/top-products?limit=10
@@ -213,17 +262,24 @@ exports.getDashboardTopProducts = async (req, res) => {
             }},
             { $sort: { revenue: -1 } },
             { $limit: limit },
-            { $lookup: { from:'products', localField:'_id', foreignField:'_id', as:'product' } },
+            { $lookup: { from: 'products', localField: '_id', foreignField: '_id', as: 'product' } },
             { $addFields: {
                 image: { $arrayElemAt: [{ $arrayElemAt: ['$product.images', 0] }, 0] },
                 name:  { $ifNull: [{ $arrayElemAt: ['$product.name', 0] }, '$name'] },
             }},
             { $project: { product: 0 } }
         ]);
+
         const maxRev = data[0]?.revenue || 1;
-        const result = data.map((d, i) => ({ ...d, rank: i+1, percentage: parseFloat((d.revenue/maxRev*100).toFixed(1)) }));
+        const result = data.map((d, i) => ({
+            ...d,
+            rank: i + 1,
+            percentage: parseFloat((d.revenue / maxRev * 100).toFixed(1))
+        }));
+
         res.json({ status: 'success', data: result });
     } catch (e) {
+        console.error('[getDashboardTopProducts]', e.message);
         res.status(500).json({ status: 'error', message: e.message });
     }
 };

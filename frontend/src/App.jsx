@@ -32,6 +32,7 @@ import AdminUserManagement from '@pages/AdminUserManagement';
 import AdminReviewManagement from '@pages/AdminReviewManagement';
 import AdminVoucherManagement from '@pages/AdminVoucherManagement';
 import AdminBannerManagement from '@pages/AdminBannerManagement';
+import AdminInventoryManagement from '@pages/AdminInventoryManagement';
 
 // ✅ ProtectedAdminRoute dùng useAuth — phải được gọi bên trong AuthProvider
 function ProtectedAdminRoute({ children }) {
@@ -83,6 +84,7 @@ function AppRoutes() {
         <Route path="admin/reviews" element={<AdminReviewManagement />} />
         <Route path="admin/vouchers" element={<AdminVoucherManagement />} />
         <Route path="/admin/banners" element={<AdminBannerManagement/>}/>
+        <Route path="/admin/inventory" element={<AdminInventoryManagement/>}/>
       </Route>
 
       {/* Catch all */}

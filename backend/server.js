@@ -16,6 +16,7 @@ const adminRoute = require("./src/route/adminRoute");
 const uploadRoute = require('./src/route/uploadRoute');
 const app = express();
 const userRoute = require("./src/route/userRoute");
+const inventoryRoute = require("./src/route/inventoryRoute");
 
 // Connect to database
 connectDB();
@@ -72,6 +73,7 @@ app.use('/api/upload', uploadRoute);
 app.use('/api/banners', require('./src/route/bannerRoute'));
 app.use('/api/promotions', require('./src/route/promotionRoute'));
 app.use('/api/user', userRoute);
+app.use("/api/admin/inventory", inventoryRoute);
 // 404 handler
 app.use((req, res) => {
     res.status(404).json({ status: "error", message: "Route not found" });

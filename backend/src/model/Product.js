@@ -102,6 +102,12 @@ const productSchema = new mongoose.Schema({
         type: Date,
         default: Date.now,
     },
+    avgCost:   { 
+        type: Number, default: 0 
+    }, // giá vốn trung bình
+    costPrice: { 
+        type: Number, default: 0 
+    }, // giá nhập gần nhất
 });
 
 productSchema.index({ name: 'text', description: 'text' });

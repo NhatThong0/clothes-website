@@ -91,9 +91,12 @@ function AreaChart({ series, period }) {
 
   const xLabels = series.length <= 12
     ? series.map((d, i) => ({ i, label: getLabel(d) }))
-    : series.filter((_, i) => i % Math.ceil(series.length / 7) === 0 || i === series.length - 1).map(d => ({ i: series.indexOf(d), label: getLabel(d) }));
+    : series.reduce((acc, d, i) => {
+        if (i % Math.ceil(series.length / 7) === 0 || i === series.length - 1) acc.push({ i, label: getLabel(d) });
+        return acc;
+      }, []);
 
-  const yTicks = [0, 0.25, 0.5, 0.75, 1].map(p => ({ v: Math.round(p * maxVal), y: yS(p * maxVal) }));
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map(p => ({ pct: p, v: Math.round(p * maxVal), y: yS(p * maxVal) }));
 
   return (
     <div className="relative select-none">
@@ -117,19 +120,16 @@ function AreaChart({ series, period }) {
             <stop offset="100%" stopColor="#10B981" stopOpacity="0"/>
           </linearGradient>
         </defs>
-
-        {yTicks.map(({ v, y }) => (
-          <g key={v}>
+        {yTicks.map(({ pct, v, y }) => (
+          <g key={pct}>
             <line x1={PAD.l} y1={y} x2={W - PAD.r} y2={y} stroke="#E2E8F0" strokeWidth="1"/>
             <text x={PAD.l - 5} y={y + 4} textAnchor="end" fontSize="9" fill="#94A3B8">{fmtShort(v)}</text>
           </g>
         ))}
-
         <path d={toArea('revenue')} fill="url(#gRev)"/>
         <path d={toArea('profit')}  fill="url(#gPro)"/>
         <path d={toPath('revenue')} fill="none" stroke="#3B82F6" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
         <path d={toPath('profit')}  fill="none" stroke="#10B981" strokeWidth="2"   strokeLinecap="round" strokeLinejoin="round"/>
-
         {hovered !== null && (
           <>
             <line x1={xS(hovered)} y1={PAD.t} x2={xS(hovered)} y2={PAD.t+iH} stroke="#CBD5E1" strokeWidth="1" strokeDasharray="4 3"/>
@@ -137,7 +137,6 @@ function AreaChart({ series, period }) {
             <circle cx={xS(hovered)} cy={yS(series[hovered].profit||0)}  r="4" fill="#10B981" stroke="white" strokeWidth="2"/>
           </>
         )}
-
         {xLabels.map(({ i, label }) => (
           <text key={i} x={xS(i)} y={H - 2} textAnchor="middle" fontSize="9"
             fill={hovered === i ? '#3B82F6' : '#94A3B8'} fontWeight={hovered === i ? '700' : '500'}>{label}</text>
@@ -287,34 +286,64 @@ function TopProductsChart({ data }) {
   );
 }
 
+// ── Nav items ─────────────────────────────────────────────────────────────────
+const NAV_ITEMS = [
+  { label:'Sản phẩm',   icon:'📦', to:'/admin/products',   color:'#3B82F6', desc:'Quản lý kho' },
+  { label:'Danh mục',   icon:'🗂️', to:'/admin/categories', color:'#8B5CF6', desc:'Phân loại' },
+  { label:'Đơn hàng',   icon:'🛒', to:'/admin/orders',     color:'#06B6D4', desc:'Xử lý đơn' },
+  { label:'Người dùng', icon:'👥', to:'/admin/users',      color:'#10B981', desc:'Tài khoản' },
+  { label:'Đánh giá',   icon:'⭐', to:'/admin/reviews',    color:'#F59E0B', desc:'Phản hồi' },
+  { label:'Voucher',    icon:'🎟️', to:'/admin/vouchers',   color:'#EF4444', desc:'Khuyến mãi' },
+];
+
 // ── Main ───────────────────────────────────────────────────────────────────────
 const AdminDashboard = () => {
   const { fetchDashboardStats, dashboardStats, loading } = useAdmin();
   const [now]       = useState(new Date());
-  const [revPeriod, setRevPeriod]  = useState('month');
-  const [revData,   setRevData]    = useState(null);   // { current:[], totalRevenue, totalProfit, revenueChange, profitChange }
-  const [revLoading,setRevLoading] = useState(false);
-  const [catData,   setCatData]    = useState(null);
-  const [topData,   setTopData]    = useState(null);
-  const [topLimit,  setTopLimit]   = useState(8);
+  const [revPeriod, setRevPeriod]   = useState('month');
+  const [revData,   setRevData]     = useState(null);
+  const [revLoading,setRevLoading]  = useState(false);
+  const [catData,   setCatData]     = useState(null);
+  const [topData,   setTopData]     = useState(null);
+  const [topLimit,  setTopLimit]    = useState(8);
 
   useEffect(() => { fetchDashboardStats(); }, []);
 
-  // ✅ FIX: đổi /analytics/ → /dashboard/
+  // ✅ FIX: /admin/analytics → /admin/dashboard
   useEffect(() => {
     setRevLoading(true);
     apiClient.get(`/admin/dashboard/revenue?period=${revPeriod}`)
-      .then(r => setRevData(r.data.data))
+      .then(r => {
+        const d = r.data.data;
+        // Backend trả về: { current[], totalRevenue, totalProfit, revenueChange, profitChange }
+        // Map sang format mà AreaChart + summary cần
+        setRevData({
+          series: (d.current || []).map(item => ({
+            _id:     item._id,
+            revenue: item.revenue || 0,
+            profit:  item.profit  || 0,
+            orders:  item.orders  || 0,
+          })),
+          summary: {
+            currentRevenue: d.totalRevenue  || 0,
+            currentProfit:  d.totalProfit   || 0,
+            revenueChange:  d.revenueChange,
+            profitChange:   d.profitChange,
+          },
+        });
+      })
       .catch(console.error)
       .finally(() => setRevLoading(false));
   }, [revPeriod]);
 
+  // ✅ FIX: /admin/analytics → /admin/dashboard
   useEffect(() => {
     apiClient.get('/admin/dashboard/categories')
       .then(r => setCatData(r.data.data))
       .catch(console.error);
   }, []);
 
+  // ✅ FIX: /admin/analytics → /admin/dashboard
   useEffect(() => {
     apiClient.get(`/admin/dashboard/top-products?limit=${topLimit}`)
       .then(r => setTopData(r.data.data))
@@ -333,17 +362,9 @@ const AdminDashboard = () => {
     </div>
   );
 
-  const stats        = dashboardStats?.summary    || {};
+  const stats        = dashboardStats?.summary      || {};
   const recentOrders = dashboardStats?.recentOrders || [];
-
-  // ✅ FIX: đọc đúng field từ backend response
-  // Backend trả: { current:[], totalRevenue, totalProfit, revenueChange, profitChange }
-  const revSeries     = revData?.current        || [];
-  const totalRevenue  = revData?.totalRevenue   || 0;
-  const totalProfit   = revData?.totalProfit    || 0;
-  const revenueChange = revData?.revenueChange  ?? null;
-  const profitChange  = revData?.profitChange   ?? null;
-
+  const summary      = revData?.summary             || {};
   const hour = now.getHours();
   const greeting = hour < 12 ? '☀️ Chào buổi sáng' : hour < 18 ? '🌤️ Chào buổi chiều' : '🌙 Chào buổi tối';
   const dateStr = now.toLocaleDateString('vi-VN', { weekday:'long', day:'2-digit', month:'long', year:'numeric' });
@@ -384,33 +405,35 @@ const AdminDashboard = () => {
 
         {/* KPI */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <KpiCard label="Người dùng"    rawValue={stats.totalUsers    ||0} sub="tài khoản đăng ký" icon="👤" gradient="linear-gradient(135deg,#1D4ED8,#3B82F6)" delay={0}/>
-          <KpiCard label="Sản phẩm"      rawValue={stats.totalProducts ||0} sub="đang kinh doanh"   icon="📦" gradient="linear-gradient(135deg,#6D28D9,#8B5CF6)" delay={80}/>
+          <KpiCard label="Người dùng"    rawValue={stats.totalUsers    ||0} sub="tài khoản đăng ký"  icon="👤" gradient="linear-gradient(135deg,#1D4ED8,#3B82F6)" delay={0}/>
+          <KpiCard label="Sản phẩm"      rawValue={stats.totalProducts ||0} sub="đang kinh doanh"    icon="📦" gradient="linear-gradient(135deg,#6D28D9,#8B5CF6)" delay={80}/>
           <KpiCard label="Đơn hàng"      rawValue={stats.totalOrders   ||0} sub="tổng tất cả đơn"   icon="🛒" gradient="linear-gradient(135deg,#0E7490,#06B6D4)" delay={160}/>
-          <KpiCard label="Doanh thu (K)"  rawValue={Math.round((stats.totalRevenue||0)/1000)} sub={fmt(stats.totalRevenue||0)} icon="💰" gradient="linear-gradient(135deg,#047857,#10B981)" delay={240}/>
+          <KpiCard label="Tổng Doanh Thu" rawValue={Math.round((stats.totalRevenue||0)/1000)} sub={stats.totalDeliveredRevenue ? `Đã nhận: ${fmt(stats.totalDeliveredRevenue)}` : fmt(stats.totalRevenue||0)} icon="💰" gradient="linear-gradient(135deg,#047857,#10B981)" delay={240}/>
         </div>
 
-        {/* Revenue Chart */}
+        {/* Revenue & Profit Chart */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 fade-in">
           <div className="flex flex-wrap items-start justify-between gap-4 mb-5">
             <div>
               <h2 className="text-base font-bold text-slate-900">Doanh thu & Lợi nhuận</h2>
-              <p className="text-xs text-slate-400 mt-0.5">Biểu đồ miền — lợi nhuận ước tính 35%</p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                `Lợi nhuận thực từ giá vốn sản phẩm`
+              </p>
             </div>
+
             <div className="flex items-center gap-4 flex-wrap">
-              {/* ✅ FIX: dùng đúng biến revSeries, totalRevenue, totalProfit */}
               {!revLoading && revData && (
                 <div className="flex items-center gap-4">
                   <div className="text-right">
-                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">Doanh thu kỳ này</p>
-                    <p className="text-sm font-bold text-slate-800">{fmtShort(totalRevenue)}₫</p>
-                    <ChangeBadge value={revenueChange}/>
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">Tổng doanh thu</p>
+                    <p className="text-sm font-bold text-slate-800">{fmtShort(summary.currentRevenue||0)}₫</p>
+                    <ChangeBadge value={summary.revenueChange}/>
                   </div>
                   <div className="w-px h-10 bg-slate-200"/>
                   <div className="text-right">
                     <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">Lợi nhuận</p>
-                    <p className="text-sm font-bold text-emerald-600">{fmtShort(totalProfit)}₫</p>
-                    <ChangeBadge value={profitChange}/>
+                    <p className="text-sm font-bold text-emerald-600">{fmtShort(summary.currentProfit||0)}₫</p>
+                    <ChangeBadge value={summary.profitChange}/>
                   </div>
                 </div>
               )}
@@ -424,9 +447,10 @@ const AdminDashboard = () => {
               </div>
             </div>
           </div>
+
           {revLoading
             ? <div className="h-56 flex items-center justify-center"><div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"/></div>
-            : <AreaChart series={revSeries} period={revPeriod}/>
+            : <AreaChart series={revData?.series||[]} period={revPeriod}/>
           }
         </div>
 
@@ -446,7 +470,7 @@ const AdminDashboard = () => {
             <div className="flex items-center justify-between mb-5">
               <div>
                 <h2 className="text-base font-bold text-slate-900">Sản phẩm bán chạy</h2>
-                <p className="text-xs text-slate-400 mt-0.5">Xếp hạng theo doanh thu</p>
+                <p className="text-xs text-slate-400 mt-0.5">Xếp hạng theo số lượng đã bán</p>
               </div>
               <select value={topLimit} onChange={e => setTopLimit(Number(e.target.value))}
                 className="text-xs border border-slate-200 rounded-xl px-2.5 py-1.5 text-slate-600 font-semibold bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer">
@@ -535,6 +559,24 @@ const AdminDashboard = () => {
                 })}
               </tbody>
             </table>
+          </div>
+        </div>
+
+        {/* Quick Nav */}
+        <div>
+          <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Quản lý nhanh</h3>
+          <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+            {NAV_ITEMS.map(item => (
+              <Link key={item.to} to={item.to}
+                className="group bg-white rounded-2xl p-4 shadow-sm hover:shadow-md border border-slate-100 hover:border-blue-100 flex flex-col items-center gap-2.5 transition-all duration-200 hover:-translate-y-0.5">
+                <div className="w-11 h-11 rounded-2xl flex items-center justify-center text-xl group-hover:scale-110 transition-transform duration-200"
+                  style={{ background: item.color + '15' }}>{item.icon}</div>
+                <div className="text-center">
+                  <p className="text-xs font-bold text-slate-700 group-hover:text-slate-900">{item.label}</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">{item.desc}</p>
+                </div>
+              </Link>
+            ))}
           </div>
         </div>
 
