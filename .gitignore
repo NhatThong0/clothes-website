@@ -1,0 +1,29 @@
+# Dependency directories (Loại bỏ các thư mục thư viện nặng)
+backend/node_modules/
+frontend/node_modules/
+
+# Environment files (Loại bỏ các file chứa mật khẩu, API key)
+backend/.env
+frontend/.env
+*.env
+*.env.local
+
+# Build folders (Loại bỏ các thư mục sản phẩm sau khi build)
+frontend/dist/
+frontend/build/
+backend/dist/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+backend/logs/
+
+# Editor folders (Loại bỏ các file cấu hình của trình soạn thảo)
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
