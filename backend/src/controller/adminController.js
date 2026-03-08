@@ -31,7 +31,7 @@ exports.getDashboardStats = async (req, res) => {
         ] = await Promise.all([
             User.countDocuments({ role: 'customer' }),
             Product.countDocuments({ isActive: true }),
-            Order.countDocuments(),
+            Order.countDocuments({ status: 'delivered' }),
 
             // Tổng doanh thu: tất cả đơn không bị cancelled
             Order.aggregate([

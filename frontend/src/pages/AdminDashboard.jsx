@@ -407,7 +407,7 @@ const AdminDashboard = () => {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <KpiCard label="Người dùng"    rawValue={stats.totalUsers    ||0} sub="tài khoản đăng ký"  icon="👤" gradient="linear-gradient(135deg,#1D4ED8,#3B82F6)" delay={0}/>
           <KpiCard label="Sản phẩm"      rawValue={stats.totalProducts ||0} sub="đang kinh doanh"    icon="📦" gradient="linear-gradient(135deg,#6D28D9,#8B5CF6)" delay={80}/>
-          <KpiCard label="Đơn hàng"      rawValue={stats.totalOrders   ||0} sub="tổng tất cả đơn"   icon="🛒" gradient="linear-gradient(135deg,#0E7490,#06B6D4)" delay={160}/>
+          <KpiCard label="Đơn hàng"      rawValue={stats.totalOrders   ||0} sub="tổng tất cả đơn giao thành công"   icon="🛒" gradient="linear-gradient(135deg,#0E7490,#06B6D4)" delay={160}/>
           <KpiCard label="Tổng Doanh Thu" rawValue={Math.round((stats.totalRevenue||0)/1000)} sub={stats.totalDeliveredRevenue ? `Đã nhận: ${fmt(stats.totalDeliveredRevenue)}` : fmt(stats.totalRevenue||0)} icon="💰" gradient="linear-gradient(135deg,#047857,#10B981)" delay={240}/>
         </div>
 
