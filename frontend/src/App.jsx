@@ -33,6 +33,8 @@ import AdminReviewManagement from '@pages/AdminReviewManagement';
 import AdminVoucherManagement from '@pages/AdminVoucherManagement';
 import AdminBannerManagement from '@pages/AdminBannerManagement';
 import AdminInventoryManagement from '@pages/AdminInventoryManagement';
+import ChatWidget from '@components/ChatWidget';
+import AdminChat from '@pages/AdminChat';
 
 // ✅ ProtectedAdminRoute dùng useAuth — phải được gọi bên trong AuthProvider
 function ProtectedAdminRoute({ children }) {
@@ -45,6 +47,7 @@ function ProtectedAdminRoute({ children }) {
 // ✅ AppRoutes tách riêng — nằm bên trong AuthProvider nên useAuth() hoạt động
 function AppRoutes() {
   return (
+    <>
     <Routes>
       {/* Main routes */}
       <Route element={<MainLayout />}>
@@ -85,11 +88,14 @@ function AppRoutes() {
         <Route path="admin/vouchers" element={<AdminVoucherManagement />} />
         <Route path="/admin/banners" element={<AdminBannerManagement/>}/>
         <Route path="/admin/inventory" element={<AdminInventoryManagement/>}/>
+        <Route path="/admin/chat" element={<AdminChat/>}/>
       </Route>
 
       {/* Catch all */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    <ChatWidget />  
+    </>
   );
 }
 

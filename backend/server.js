@@ -2,6 +2,9 @@ const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
 const connectDB = require("./src/db/db");
+const http    = require('http');
+const { Server } = require('socket.io');
+const jwt     = require('jsonwebtoken');
 
 // Import middleware
 const errorHandler = require("./src/middleWare/errorHandler");
@@ -17,7 +20,16 @@ const uploadRoute = require('./src/route/uploadRoute');
 const app = express();
 const userRoute = require("./src/route/userRoute");
 const inventoryRoute = require("./src/route/inventoryRoute");
+const { startChatChangeStream } = require('./src/chatChangeStream');
 
+// Create HTTP server and Socket.IO server
+const server = http.createServer(app);
+const io = new Server(server, {
+    cors: {
+        origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+        credentials: true,
+    },
+});
 // Connect to database
 connectDB();
 
@@ -74,6 +86,10 @@ app.use('/api/banners', require('./src/route/bannerRoute'));
 app.use('/api/promotions', require('./src/route/promotionRoute'));
 app.use('/api/user', userRoute);
 app.use("/api/admin/inventory", inventoryRoute);
+
+// ── Mount chat REST route ────────────────────────────────────────────────────
+const chatRoute = require('./src/route/chatRoute');
+app.use('/api/chat', chatRoute);
 // 404 handler
 app.use((req, res) => {
     res.status(404).json({ status: "error", message: "Route not found" });
@@ -81,9 +97,28 @@ app.use((req, res) => {
 
 // Error handling middleware (must be last)
 app.use(errorHandler);
+// Socket.IO authentication middleware
+// ── Socket auth middleware ────────────────────────────────────────────────────
+io.use((socket, next) => {
+    const token = socket.handshake.auth?.token;
+    if (!token) return next(new Error('Unauthorized'));
+
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        socket.data.userId = decoded.userId || decoded.id || decoded._id;
+        socket.data.role   = decoded.role || 'user';
+        next();
+    } catch {
+        next(new Error('Invalid token'));
+    }
+});
+// ── Register chat handlers ───────────────────────────────────────────────────
+const { registerChatHandlers } = require('./src/controller/chatController');
+io.on('connection', socket => {
+    registerChatHandlers(io, socket);
+});
+
+
 
 const PORT = process.env.PORT || 5000;
-
-app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
-});
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));

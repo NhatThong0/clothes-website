@@ -12,6 +12,7 @@ const NAV_ITEMS = [
   { label: 'Voucher',         icon: '◈',  path: '/admin/vouchers' },
   { label: 'Banner',          icon: '◆', path: '/admin/banners' },
   { label: 'Kho hàng',        icon: '▣',  path: '/admin/inventory' },
+  { label: 'Chat',            icon: '💬', path: '/admin/chat' }
 ];
 
 const AdminLayout = () => {
