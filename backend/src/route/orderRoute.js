@@ -1,7 +1,6 @@
-
-const express    = require('express');
-const router     = express.Router();
-const auth       = require('../middleWare/authenticateToken');
+const express  = require('express');
+const router   = express.Router();
+const auth     = require('../middleWare/authenticateToken');
 const {
     createOrder,
     getUserOrders,
@@ -10,23 +9,21 @@ const {
     updateOrderStatus,
     processPayment,
     getAdminOrders,
+    requestReturn,
 } = require('../controller/orderController');
 
-// ── Tất cả route đều cần đăng nhập ───────────────────────────
 router.use(auth);
 
-// ── Customer ──────────────────────────────────────────────────
-router.post('/',              createOrder);      // tạo đơn (có validate voucher bên trong)
-router.get('/',               getUserOrders);    // danh sách đơn của user
-router.get('/:id',            getOrderById);     // chi tiết đơn
-router.post('/:id/cancel',    cancelOrder);      // hủy đơn
+// ── Customer ──────────────────────────────────────────────────────
+router.post('/',                    createOrder);
+router.get('/',                     getUserOrders);
+router.post('/payment/process',     processPayment);  // static trước /:id
+router.get('/:id',                  getOrderById);
+router.post('/:id/cancel',          cancelOrder);
+router.post('/:id/return-request',  requestReturn);   // ✅ hoàn trả
 
-// ── Payment ───────────────────────────────────────────────────
-// QUAN TRỌNG: route tĩnh phải khai báo TRƯỚC route động /:id
+// ── Admin ─────────────────────────────────────────────────────────
+router.get('/admin/all',            getAdminOrders);
+router.put('/:id/status',           updateOrderStatus);
 
-
-// ── Admin ─────────────────────────────────────────────────────
-router.get('/admin/all',      getAdminOrders);   // admin xem tất cả đơn
-router.put('/:id/status',     updateOrderStatus); // admin cập nhật trạng thái
-router.post('/payment/process', processPayment);
 module.exports = router;

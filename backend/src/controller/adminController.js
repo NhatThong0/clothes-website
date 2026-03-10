@@ -525,7 +525,7 @@ exports.adminGetAllCategories = async (req, res, next) => {
  */
 exports.createCategory = async (req, res, next) => {
     try {
-        const { name, description, image } = req.body;
+        const { name, description, image, isFeatured } = req.body;
 
         if (!name) {
             return res.status(400).json({
@@ -644,53 +644,100 @@ exports.deleteCategory = async (req, res, next) => {
  */
 exports.adminGetAllOrders = async (req, res, next) => {
     try {
-        const { page = 1, limit = 10, status, search } = req.query;
+        const { page = 1, limit = 10, status, search, dateFrom, dateTo } = req.query;
+        const mongoose = require('mongoose');
 
-        let filter = {};
-        if (status) {
-            filter.status = status;
+        const conditions = [];
+        if (status) conditions.push({ status });
+
+        if (dateFrom || dateTo) {
+            const d = {};
+            if (dateFrom) d.$gte = new Date(dateFrom + 'T00:00:00.000Z');
+            if (dateTo)   d.$lte = new Date(dateTo   + 'T23:59:59.999Z');
+            conditions.push({ createdAt: d });
         }
 
-        // Search by order ID or user email/name
-        if (search) {
-            const users = await User.find({
+        if (search && search.trim()) {
+            const q = search.trim();
+            const searchOr = [];
+
+            const matchedUsers = await User.find({
                 $or: [
-                    { email: new RegExp(search, 'i') },
-                    { name: new RegExp(search, 'i') }
+                    { name:  { $regex: q, $options: 'i' } },
+                    { email: { $regex: q, $options: 'i' } },
+                    { phone: { $regex: q, $options: 'i' } },
                 ]
-            }).select('_id');
+            }).select('_id').lean();
+            if (matchedUsers.length > 0)
+                searchOr.push({ userId: { $in: matchedUsers.map(u => u._id) } });
 
-            filter.userId = { $in: users.map(u => u._id) };
+            if (/^[0-9a-fA-F]{24}$/.test(q))
+                searchOr.push({ _id: new mongoose.Types.ObjectId(q) });
+
+            if (/^[0-9a-fA-F]{6,23}$/.test(q))
+                searchOr.push({ $expr: { $regexMatch: { input: { $toString: '$_id' }, regex: `^${q}`, options: 'i' } } });
+
+            searchOr.push({ 'shippingAddress.fullName': { $regex: q, $options: 'i' } });
+            searchOr.push({ 'shippingAddress.phone':    { $regex: q, $options: 'i' } });
+
+            if (searchOr.length > 0) conditions.push({ $or: searchOr });
         }
 
+        const filter = conditions.length > 0 ? { $and: conditions } : {};
         const skip = (page - 1) * limit;
-        const orders = await Order.find(filter)
-            .populate('userId', 'name email phone')
-            .populate('items.productId', 'name price')
-            .sort({ createdAt: -1 })
-            .skip(skip)
-            .limit(parseInt(limit));
 
-        const total = await Order.countDocuments(filter);
-        const pages = Math.ceil(total / limit);
+        const [orders, total] = await Promise.all([
+            Order.find(filter)
+                .populate('userId', 'name email phone')
+                .sort({ createdAt: -1 })
+                .skip(skip)
+                .limit(parseInt(limit))
+                .lean(),
+            Order.countDocuments(filter),
+        ]);
 
         res.status(200).json({
             status: 'success',
             data: {
                 orders,
-                pagination: {
-                    current: parseInt(page),
-                    pages,
-                    total
-                }
+                pagination: { current: parseInt(page), pages: Math.ceil(total/limit), total }
             }
         });
-    } catch (error) {
-        console.error('Get orders error:', error);
-        res.status(500).json({
-            status: 'error',
-            message: 'Failed to fetch orders'
-        });
+    } catch (err) {
+        console.error('[adminGetAllOrders]', err);
+        res.status(500).json({ status: 'error', message: err.message });
+    }
+};
+
+
+// ── FIX 3: thêm confirmReturn — đặt sau exports.updateOrderStatus ─
+exports.confirmReturn = async (req, res) => {
+    try {
+        const order = await Order.findById(req.params.id);
+        if (!order)
+            return res.status(404).json({ status: 'error', message: 'Không tìm thấy đơn hàng.' });
+        if (order.status !== 'return_requested')
+            return res.status(400).json({ status: 'error', message: 'Đơn hàng chưa có yêu cầu hoàn trả.' });
+
+        order.status      = 'returned';
+        order.returnedAt  = new Date();
+        order.updatedAt   = new Date();
+
+        await Promise.all(order.items.map(item =>
+            Product.findByIdAndUpdate(item.productId, { $inc: { stock: item.quantity } })
+        ));
+        if (order.revenueRecorded) {
+            order.revenueRecorded = false;
+            await Promise.all(order.items.map(item =>
+                Product.findByIdAndUpdate(item.productId, { $inc: { soldCount: -item.quantity } })
+            ));
+        }
+
+        await order.save();
+        res.status(200).json({ status: 'success', message: 'Xác nhận hoàn trả thành công.', data: order });
+    } catch (err) {
+        console.error('[confirmReturn]', err);
+        res.status(500).json({ status: 'error', message: err.message });
     }
 };
 
@@ -733,44 +780,69 @@ exports.updateOrderStatus = async (req, res, next) => {
         const { id } = req.params;
         const { status, trackingNumber } = req.body;
 
-        const validStatuses = ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled'];
-        if (!validStatuses.includes(status)) {
-            return res.status(400).json({
-                status: 'error',
-                message: 'Invalid status'
-            });
+        const validStatuses = [
+            'pending','confirmed','processing','shipped',
+            'delivered','cancelled','return_requested','returned'
+        ];
+        if (!validStatuses.includes(status))
+            return res.status(400).json({ status: 'error', message: 'Invalid status' });
+
+        const order = await Order.findById(id);
+        if (!order)
+            return res.status(404).json({ status: 'error', message: 'Order not found' });
+
+        const prevStatus = order.status;
+        order.status     = status;
+        order.updatedAt  = new Date();
+        if (trackingNumber) order.trackingNumber = trackingNumber;
+
+        // ── delivered → set paymentStatus + deliveredAt + ghi nhận doanh thu ──
+        if (status === 'delivered' && prevStatus !== 'delivered') {
+            order.paymentStatus = 'completed';   // ✅ tự động đánh dấu đã thanh toán
+            order.deliveredAt   = new Date();    // ✅ mốc để tính 5 ngày hoàn trả
+
+            if (!order.revenueRecorded) {
+                order.revenueRecorded = true;
+                await Promise.all(order.items.map(item =>
+                    Product.findByIdAndUpdate(item.productId, { $inc: { soldCount: item.quantity } })
+                ));
+            }
         }
 
-        // ✅ Lấy order trước để giữ trackingNumber cũ
-        const existingOrder = await Order.findById(id);
-        if (!existingOrder) {
-            return res.status(404).json({
-                status: 'error',
-                message: 'Order not found'
-            });
+        // ── returned → hoàn kho + rollback doanh thu ────────────────────────
+        if (status === 'returned' && prevStatus !== 'returned') {
+            order.returnedAt = new Date();
+            await Promise.all(order.items.map(item =>
+                Product.findByIdAndUpdate(item.productId, { $inc: { stock: item.quantity } })
+            ));
+            if (order.revenueRecorded) {
+                order.revenueRecorded = false;
+                await Promise.all(order.items.map(item =>
+                    Product.findByIdAndUpdate(item.productId, { $inc: { soldCount: -item.quantity } })
+                ));
+            }
         }
 
-        const order = await Order.findByIdAndUpdate(
-            id,
-            {
-                status,
-                trackingNumber: trackingNumber || existingOrder.trackingNumber, // ✅ dùng existingOrder
-                updatedAt: Date.now()
-            },
-            { new: true }
-        ).populate('userId', 'name email phone');
+        // ── cancelled → hoàn stock ───────────────────────────────────────────
+        if (status === 'cancelled' && prevStatus !== 'cancelled') {
+            await Promise.all(order.items.map(item =>
+                Product.findByIdAndUpdate(item.productId, { $inc: { stock: item.quantity } })
+            ));
+            if (order.revenueRecorded) {
+                order.revenueRecorded = false;
+                await Promise.all(order.items.map(item =>
+                    Product.findByIdAndUpdate(item.productId, { $inc: { soldCount: -item.quantity } })
+                ));
+            }
+        }
 
-        res.status(200).json({
-            status: 'success',
-            message: 'Order status updated successfully',
-            data: order
-        });
-    } catch (error) {
-        console.error('Update order status error:', error);
-        res.status(500).json({
-            status: 'error',
-            message: 'Failed to update order status'
-        });
+        await order.save();
+
+        const populated = await Order.findById(order._id).populate('userId', 'name email phone');
+        res.status(200).json({ status: 'success', message: 'Order status updated', data: populated });
+    } catch (err) {
+        console.error('[updateOrderStatus]', err);
+        res.status(500).json({ status: 'error', message: err.message });
     }
 };
 

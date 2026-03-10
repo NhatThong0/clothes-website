@@ -10,7 +10,7 @@ const NAV_ITEMS = [
   { label: 'Người dùng',      icon: '◯',  path: '/admin/users' },
   { label: 'Đánh giá',        icon: '◇',  path: '/admin/reviews' },
   { label: 'Voucher',         icon: '◈',  path: '/admin/vouchers' },
-  { label: 'Banner', icon: '    ', path: '/admin/banners' },
+  { label: 'Banner',          icon: '◆', path: '/admin/banners' },
   { label: 'Kho hàng',        icon: '▣',  path: '/admin/inventory' },
 ];
 

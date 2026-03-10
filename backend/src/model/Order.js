@@ -6,7 +6,7 @@ const orderSchema = new mongoose.Schema({
         productId: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },
         name:      String,
         price:     Number,
-        costPrice: { type: Number, default: 0 }, // ✅ giá vốn tại thời điểm mua
+        costPrice: { type: Number, default: 0 },
         discount:  Number,
         quantity:  Number,
         color:     String,
@@ -33,13 +33,22 @@ const orderSchema = new mongoose.Schema({
     total:          { type: Number, required: true },
     status: {
         type: String,
-        enum: ['pending','confirmed','processing','shipped','delivered','cancelled'],
+        enum: [
+            'pending','confirmed','processing','shipped','delivered',
+            'return_requested',  // user gửi yêu cầu hoàn trả
+            'returned',          // admin xác nhận hoàn trả
+            'cancelled'
+        ],
         default: 'pending',
     },
-    notes:           { type: String, default: '' },
-    trackingNumber:  { type: String, default: null },
-    // ✅ Flag chống double-count doanh thu
-    revenueRecorded: { type: Boolean, default: false },
+    notes:             { type: String, default: '' },
+    trackingNumber:    { type: String, default: null },
+    revenueRecorded:   { type: Boolean, default: false },
+    deliveredAt:       { type: Date, default: null },      // mốc giao → tính 5 ngày hoàn trả
+    returnRequestedAt: { type: Date, default: null },
+    returnedAt:        { type: Date, default: null },
+    returnReason:      { type: String, default: '' },
+    returnImages:      { type: [String], default: [] },  // ✅ ảnh minh chứng hoàn trả
 }, { timestamps: true });
 
 module.exports = mongoose.model('Order', orderSchema);

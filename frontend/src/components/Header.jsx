@@ -222,7 +222,7 @@ function SearchBox({ onClose }) {
 // ── LOGO ──────────────────────────────────────────────────────────────────────
 // Đặt file logo vào public/logo.png hoặc src/assets/logo.png
 // Nếu không có file logo thì sẽ fallback về chữ "F"
-const LOGO_SRC = '  public/Daclothes.png'; // ✅ Thay đường dẫn logo của bạn ở đây
+const LOGO_SRC = '/Daclothes.png'; // ✅ Thay đường dẫn logo của bạn ở đây
 
 function Logo() {
   const [logoError, setLogoError] = useState(false);
