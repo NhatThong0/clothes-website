@@ -19,7 +19,7 @@ const orderSchema = new mongoose.Schema({
     },
     paymentMethod: {
         type: String,
-        enum: ['cod','card','bank_transfer','e_wallet','credit-card','bank-transfer'],
+        enum: ['cod', 'vnpay'],   // ✅ lowercase vnpay
         required: true,
     },
     paymentStatus: {
@@ -35,20 +35,21 @@ const orderSchema = new mongoose.Schema({
         type: String,
         enum: [
             'pending','confirmed','processing','shipped','delivered',
-            'return_requested',  // user gửi yêu cầu hoàn trả
-            'returned',          // admin xác nhận hoàn trả
+            'return_requested',
+            'returned',
             'cancelled'
         ],
         default: 'pending',
     },
     notes:             { type: String, default: '' },
     trackingNumber:    { type: String, default: null },
+    vnpayTxnRef:       { type: String, default: null },   // ✅ lưu txnRef để map khi VNPay return
     revenueRecorded:   { type: Boolean, default: false },
-    deliveredAt:       { type: Date, default: null },      // mốc giao → tính 5 ngày hoàn trả
+    deliveredAt:       { type: Date, default: null },
     returnRequestedAt: { type: Date, default: null },
     returnedAt:        { type: Date, default: null },
     returnReason:      { type: String, default: '' },
-    returnImages:      { type: [String], default: [] },  // ✅ ảnh minh chứng hoàn trả
+    returnImages:      { type: [String], default: [] },
 }, { timestamps: true });
 
 module.exports = mongoose.model('Order', orderSchema);

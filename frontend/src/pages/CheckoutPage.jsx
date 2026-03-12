@@ -3,10 +3,8 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useCart } from '@hooks/useCart';
 import { useAuth } from '@hooks/useAuth';
 import { formatPrice } from '@utils/helpers';
-import { orderAPI, paymentAPI } from '@services/api';
 import apiClient from '@services/apiClient';
 
-// ── helpers ───────────────────────────────────────────────────────────────────
 const inputCls =
   'w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white transition placeholder:text-slate-400';
 
@@ -29,10 +27,10 @@ function SectionCard({ title, icon, children }) {
   );
 }
 
+// ✅ Chỉ COD và VNPay
 const PAYMENT_METHODS = [
-  { id: 'cod',           label: 'Thanh toán khi nhận hàng', icon: '💵', desc: 'Trả tiền mặt khi nhận hàng' },
-  { id: 'bank-transfer', label: 'Chuyển khoản ngân hàng',   icon: '🏦', desc: 'Chuyển khoản qua tài khoản ngân hàng' },
-  { id: 'credit-card',   label: 'Thẻ tín dụng / Ghi nợ',   icon: '💳', desc: 'Visa, Mastercard, JCB...' },
+  { id: 'cod',   label: 'Thanh toán khi nhận hàng', icon: '💵', desc: 'Trả tiền mặt khi nhận hàng' },
+  { id: 'vnpay', label: 'VNPay',                    icon: '🏦', desc: 'Thanh toán qua VNPay (ATM, QR, Ví VNPay)' },
 ];
 
 function DiscountTypeBadge({ voucher }) {
@@ -40,9 +38,7 @@ function DiscountTypeBadge({ voucher }) {
   const isPercent = voucher.discountType === 'percentage';
   return (
     <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${
-      isPercent
-        ? 'bg-blue-50 text-blue-600 border-blue-200'
-        : 'bg-violet-50 text-violet-600 border-violet-200'
+      isPercent ? 'bg-blue-50 text-blue-600 border-blue-200' : 'bg-violet-50 text-violet-600 border-violet-200'
     }`}>
       {isPercent
         ? `Giảm ${voucher.discountValue}%${voucher.maxDiscountAmount ? ` (tối đa ${formatPrice(voucher.maxDiscountAmount)})` : ''}`
@@ -53,7 +49,6 @@ function DiscountTypeBadge({ voucher }) {
 
 const ADDR_ICON = { 'Nhà riêng': '🏠', 'Văn phòng': '🏢', 'Khác': '📍' };
 
-// ─── component ────────────────────────────────────────────────────────────────
 export default function CheckoutPage() {
   const navigate = useNavigate();
   const { cartItems, removeFromCart } = useCart();
@@ -62,23 +57,20 @@ export default function CheckoutPage() {
   const [loading,     setLoading]     = useState(false);
   const [orderPlaced, setOrderPlaced] = useState(false);
 
-  // ── Saved addresses ───────────────────────────────────────────────────────
-  const [savedAddresses,   setSavedAddresses]   = useState([]);
-  const [selectedAddrId,   setSelectedAddrId]   = useState(null);  // _id of chosen saved address
-  const [useManual,        setUseManual]         = useState(false); // false = use saved, true = manual form
+  const [savedAddresses, setSavedAddresses] = useState([]);
+  const [selectedAddrId, setSelectedAddrId] = useState(null);
+  const [useManual,      setUseManual]       = useState(false);
 
-  // ── Voucher ───────────────────────────────────────────────────────────────
   const [voucherCode,    setVoucherCode]    = useState('');
   const [voucherLoading, setVoucherLoading] = useState(false);
   const [appliedVoucher, setAppliedVoucher] = useState(null);
   const [voucherError,   setVoucherError]   = useState('');
   const [voucherSuccess, setVoucherSuccess] = useState('');
 
-  // ── Form (manual or editable override) ───────────────────────────────────
   const [formData, setFormData] = useState({
-    fullName:      user?.name    || '',
-    email:         user?.email   || '',
-    phone:         user?.phone   || '',
+    fullName:      user?.name  || '',
+    email:         user?.email || '',
+    phone:         user?.phone || '',
     address:       '',
     city:          '',
     district:      '',
@@ -87,7 +79,6 @@ export default function CheckoutPage() {
     paymentMethod: 'cod',
   });
 
-  // ── checkout items ────────────────────────────────────────────────────────
   const checkoutItems = (() => {
     try {
       const saved = sessionStorage.getItem('checkoutItems');
@@ -109,56 +100,38 @@ export default function CheckoutPage() {
   const discountAmount = calcDiscount(appliedVoucher, subtotal);
   const total          = subtotal - discountAmount;
 
-  // ── Load saved addresses ──────────────────────────────────────────────────
   useEffect(() => {
-    const loadAddresses = async () => {
+    const load = async () => {
       try {
         const res  = await apiClient.get('/user/addresses');
         const data = res.data?.data || [];
         setSavedAddresses(Array.isArray(data) ? data : []);
-
-        // Pre-select default
         const def = data.find(a => a.isDefault) || data[0];
-        if (def) {
-          setSelectedAddrId(def._id);
-          setUseManual(false);
-        } else {
-          setUseManual(true); // no saved address → manual mode
-        }
-      } catch {
-        setUseManual(true);
-      }
+        if (def) { setSelectedAddrId(def._id); setUseManual(false); }
+        else      { setUseManual(true); }
+      } catch { setUseManual(true); }
     };
-    loadAddresses();
+    load();
   }, []);
 
-  // ── When a saved address is selected → fill formData ─────────────────────
   useEffect(() => {
     if (!useManual && selectedAddrId) {
       const addr = savedAddresses.find(a => a._id === selectedAddrId);
-      if (addr) {
-        setFormData(f => ({
-          ...f,
-          fullName: addr.fullName,
-          phone:    addr.phone,
-          address:  addr.address,
-          ward:     addr.ward     || '',
-          district: addr.district || '',
-          city:     addr.city,
-        }));
-      }
+      if (addr) setFormData(f => ({
+        ...f,
+        fullName: addr.fullName, phone: addr.phone,
+        address:  addr.address,  ward:  addr.ward     || '',
+        district: addr.district || '',  city: addr.city,
+      }));
     }
   }, [selectedAddrId, useManual, savedAddresses]);
 
   const handleChange = e => setFormData(p => ({ ...p, [e.target.name]: e.target.value }));
 
-  // ── Voucher ───────────────────────────────────────────────────────────────
   const handleApplyVoucher = async () => {
     const code = voucherCode.trim().toUpperCase();
     if (!code) return;
-    setVoucherError('');
-    setVoucherSuccess('');
-    setVoucherLoading(true);
+    setVoucherError(''); setVoucherSuccess(''); setVoucherLoading(true);
     try {
       const res     = await apiClient.post('/promotions/validate', { code, orderAmount: subtotal, itemCount: checkoutItems.length });
       const voucher = res.data?.data;
@@ -167,16 +140,12 @@ export default function CheckoutPage() {
     } catch (err) {
       setAppliedVoucher(null);
       setVoucherError(err.response?.data?.message || 'Mã không hợp lệ hoặc đã hết hạn.');
-    } finally {
-      setVoucherLoading(false);
-    }
+    } finally { setVoucherLoading(false); }
   };
 
   const handleRemoveVoucher = () => {
-    setAppliedVoucher(null);
-    setVoucherCode('');
-    setVoucherError('');
-    setVoucherSuccess('');
+    setAppliedVoucher(null); setVoucherCode('');
+    setVoucherError('');     setVoucherSuccess('');
   };
 
   // ── Submit ────────────────────────────────────────────────────────────────
@@ -202,25 +171,36 @@ export default function CheckoutPage() {
         ward:     formData.ward,
       };
 
-      const order = await orderAPI.createOrder({
+      // Bước 1: Tạo đơn hàng
+      const orderRes     = await apiClient.post('/orders', {
         items,
         shippingAddress,
         paymentMethod:  formData.paymentMethod,
+        subtotal,
+        total,
         notes:          formData.notes,
         voucherCode:    appliedVoucher?.code || undefined,
         discountAmount: discountAmount,
       });
+      const createdOrder = orderRes.data.data;
 
-      await paymentAPI.processPayment({
-        orderId:       order.data.data._id,
-        amount:        total,
-        paymentMethod: formData.paymentMethod,
-      });
-
-      setOrderPlaced(true);
+      // Xoá giỏ hàng
       checkoutItems.forEach(item => removeFromCart(item.id));
       sessionStorage.removeItem('checkoutItems');
-      setTimeout(() => navigate(`/orders/${order.data.data._id}`), 2500);
+
+      // Bước 2: Xử lý theo phương thức thanh toán
+      if (formData.paymentMethod === 'vnpay') {
+        // ✅ Gọi API tạo URL VNPay → redirect sang trang thanh toán VNPay
+        const payRes     = await apiClient.post('/payment/vnpay-create', { orderId: createdOrder._id });
+        const paymentUrl = payRes.data?.data?.paymentUrl;
+        if (!paymentUrl) throw new Error('Không nhận được paymentUrl từ server');
+        window.location.href = paymentUrl; // rời khỏi SPA → sang VNPay sandbox
+        return;
+      }
+
+      // COD: hiện màn hình thành công
+      setOrderPlaced(true);
+      setTimeout(() => navigate(`/orders/${createdOrder._id}`), 2500);
     } catch (err) {
       alert('Lỗi khi tạo đơn hàng: ' + (err.response?.data?.message || err.message));
     } finally {
@@ -244,28 +224,23 @@ export default function CheckoutPage() {
   if (orderPlaced) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center p-6">
-        <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-10 max-w-sm w-full text-center"
-          style={{ animation: 'fadeUp .5s ease' }}>
+        <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-10 max-w-sm w-full text-center">
           <div className="w-20 h-20 rounded-full bg-emerald-50 flex items-center justify-center mx-auto mb-5">
             <svg className="w-10 h-10 text-emerald-500" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/>
             </svg>
           </div>
           <h2 className="text-2xl font-black text-slate-900 mb-2">Đặt hàng thành công!</h2>
-          <p className="text-slate-500 text-sm leading-relaxed mb-4">
-            Đơn hàng đã được xác nhận. Chúng tôi sẽ liên hệ bạn sớm nhất có thể.
-          </p>
+          <p className="text-slate-500 text-sm leading-relaxed mb-4">Đơn hàng đã được xác nhận. Chúng tôi sẽ liên hệ bạn sớm nhất.</p>
           <div className="flex items-center justify-center gap-2 text-slate-400 text-xs">
             <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"/>
             Đang chuyển hướng...
           </div>
         </div>
-        <style>{`@keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}`}</style>
       </div>
     );
   }
 
-  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-slate-50 py-8">
       <div className="max-w-6xl mx-auto px-4 md:px-6">
@@ -283,34 +258,26 @@ export default function CheckoutPage() {
         <form onSubmit={handleSubmit}>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-            {/* ── LEFT col ──────────────────────────────────────────────── */}
+            {/* LEFT */}
             <div className="lg:col-span-2 space-y-4">
 
-              {/* ── Shipping address section ── */}
+              {/* Địa chỉ */}
               <SectionCard title="Địa chỉ giao hàng" icon="📦">
-
-                {/* Saved addresses list */}
                 {savedAddresses.length > 0 && (
                   <div className="space-y-2">
                     <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Địa chỉ đã lưu</p>
                     <div className="space-y-2">
                       {savedAddresses.map(addr => (
-                        <label key={addr._id}
-                          className={`flex items-start gap-3 p-3.5 rounded-xl border-2 cursor-pointer transition-all ${
-                            !useManual && selectedAddrId === addr._id
-                              ? 'border-blue-500 bg-blue-50'
-                              : 'border-slate-200 hover:border-blue-300'
-                          }`}>
+                        <label key={addr._id} className={`flex items-start gap-3 p-3.5 rounded-xl border-2 cursor-pointer transition-all ${
+                          !useManual && selectedAddrId === addr._id ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-blue-300'
+                        }`}>
                           <input type="radio" name="savedAddr" className="mt-0.5 accent-blue-600"
                             checked={!useManual && selectedAddrId === addr._id}
-                            onChange={() => { setSelectedAddrId(addr._id); setUseManual(false); }}
-                          />
+                            onChange={() => { setSelectedAddrId(addr._id); setUseManual(false); }}/>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="text-xs font-bold text-slate-500">{ADDR_ICON[addr.label]} {addr.label}</span>
-                              {addr.isDefault && (
-                                <span className="text-[10px] font-bold px-1.5 py-0.5 bg-blue-100 text-blue-600 rounded-full">Mặc định</span>
-                              )}
+                              {addr.isDefault && <span className="text-[10px] font-bold px-1.5 py-0.5 bg-blue-100 text-blue-600 rounded-full">Mặc định</span>}
                             </div>
                             <p className="text-sm font-semibold text-slate-800 mt-0.5">{addr.fullName} · {addr.phone}</p>
                             <p className="text-xs text-slate-500 mt-0.5 truncate">
@@ -319,68 +286,39 @@ export default function CheckoutPage() {
                           </div>
                         </label>
                       ))}
-
-                      {/* Option: manual input */}
                       <label className={`flex items-center gap-3 p-3.5 rounded-xl border-2 cursor-pointer transition-all ${
                         useManual ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-blue-300'
                       }`}>
                         <input type="radio" name="savedAddr" className="accent-blue-600"
-                          checked={useManual}
-                          onChange={() => setUseManual(true)}
-                        />
+                          checked={useManual} onChange={() => setUseManual(true)}/>
                         <span className="text-sm font-semibold text-slate-700">✏️ Nhập địa chỉ mới</span>
                       </label>
                     </div>
-
-                    {/* Link to manage addresses */}
                     <a href="/profile" target="_blank" rel="noreferrer"
                       className="inline-flex items-center gap-1 text-xs text-blue-500 hover:text-blue-700 mt-1 transition-colors">
                       ⚙️ Quản lý địa chỉ →
                     </a>
                   </div>
                 )}
-
-                {/* Editable form — always shown, prefilled if saved addr selected */}
                 <div className={`pt-2 space-y-4 ${!useManual && savedAddresses.length > 0 ? 'opacity-70' : ''}`}>
                   {!useManual && savedAddresses.length > 0 && (
-                    <p className="text-xs text-slate-400 italic">Thông tin bên dưới được tự động điền từ địa chỉ đã chọn. Bạn có thể chỉnh sửa nếu cần.</p>
+                    <p className="text-xs text-slate-400 italic">Thông tin tự động điền từ địa chỉ đã chọn.</p>
                   )}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <Label required>Họ và tên</Label>
-                      <input name="fullName" type="text" required value={formData.fullName}
-                        onChange={handleChange} placeholder="Nguyễn Văn A" className={inputCls}/>
-                    </div>
-                    <div>
-                      <Label required>Email</Label>
-                      <input name="email" type="email" required value={formData.email}
-                        onChange={handleChange} placeholder="example@email.com" className={inputCls}/>
-                    </div>
-                    <div>
-                      <Label required>Số điện thoại</Label>
-                      <input name="phone" type="tel" required value={formData.phone}
-                        onChange={handleChange} placeholder="0901 234 567" className={inputCls}/>
-                    </div>
-                    <div>
-                      <Label required>Địa chỉ</Label>
-                      <input name="address" type="text" required value={formData.address}
-                        onChange={handleChange} placeholder="Số nhà, tên đường" className={inputCls}/>
-                    </div>
-                    <div>
-                      <Label required>Tỉnh / Thành phố</Label>
-                      <input name="city" type="text" required value={formData.city}
-                        onChange={handleChange} placeholder="TP. Hồ Chí Minh" className={inputCls}/>
-                    </div>
-                    <div>
-                      <Label>Quận / Huyện</Label>
-                      <input name="district" type="text" value={formData.district}
-                        onChange={handleChange} placeholder="Quận 1" className={inputCls}/>
-                    </div>
-                    <div className="sm:col-span-2">
-                      <Label>Phường / Xã</Label>
-                      <input name="ward" type="text" value={formData.ward}
-                        onChange={handleChange} placeholder="Phường Bến Nghé" className={inputCls}/>
-                    </div>
+                    <div><Label required>Họ và tên</Label>
+                      <input name="fullName" type="text" required value={formData.fullName} onChange={handleChange} placeholder="Nguyễn Văn A" className={inputCls}/></div>
+                    <div><Label required>Email</Label>
+                      <input name="email" type="email" required value={formData.email} onChange={handleChange} placeholder="example@email.com" className={inputCls}/></div>
+                    <div><Label required>Số điện thoại</Label>
+                      <input name="phone" type="tel" required value={formData.phone} onChange={handleChange} placeholder="0901 234 567" className={inputCls}/></div>
+                    <div><Label required>Địa chỉ</Label>
+                      <input name="address" type="text" required value={formData.address} onChange={handleChange} placeholder="Số nhà, tên đường" className={inputCls}/></div>
+                    <div><Label required>Tỉnh / Thành phố</Label>
+                      <input name="city" type="text" required value={formData.city} onChange={handleChange} placeholder="TP. Hồ Chí Minh" className={inputCls}/></div>
+                    <div><Label>Quận / Huyện</Label>
+                      <input name="district" type="text" value={formData.district} onChange={handleChange} placeholder="Quận 1" className={inputCls}/></div>
+                    <div className="sm:col-span-2"><Label>Phường / Xã</Label>
+                      <input name="ward" type="text" value={formData.ward} onChange={handleChange} placeholder="Phường Bến Nghé" className={inputCls}/></div>
                   </div>
                 </div>
               </SectionCard>
@@ -421,8 +359,7 @@ export default function CheckoutPage() {
                           onChange={e => { setVoucherCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '')); setVoucherError(''); }}
                           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleApplyVoucher(); }}}
                           placeholder="Nhập mã giảm giá" maxLength={20}
-                          className={`${inputCls} pl-10 font-mono tracking-[0.2em] uppercase ${voucherError ? 'border-rose-300' : ''}`}
-                        />
+                          className={`${inputCls} pl-10 font-mono tracking-[0.2em] uppercase ${voucherError ? 'border-rose-300' : ''}`}/>
                       </div>
                       <button type="button" onClick={handleApplyVoucher} disabled={voucherLoading || !voucherCode.trim()}
                         className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl text-sm font-bold transition-colors whitespace-nowrap flex items-center gap-2 min-w-[100px] justify-center">
@@ -439,14 +376,13 @@ export default function CheckoutPage() {
                 )}
               </SectionCard>
 
-              {/* Payment */}
+              {/* Thanh toán */}
               <SectionCard title="Phương thức thanh toán" icon="💳">
                 <div className="space-y-2.5">
                   {PAYMENT_METHODS.map(m => (
-                    <label key={m.id}
-                      className={`flex items-center gap-4 p-4 rounded-xl border-2 cursor-pointer transition-all ${
-                        formData.paymentMethod === m.id ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-blue-300 bg-white'
-                      }`}>
+                    <label key={m.id} className={`flex items-center gap-4 p-4 rounded-xl border-2 cursor-pointer transition-all ${
+                      formData.paymentMethod === m.id ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-blue-300 bg-white'
+                    }`}>
                       <input type="radio" name="paymentMethod" value={m.id}
                         checked={formData.paymentMethod === m.id} onChange={handleChange} className="sr-only"/>
                       <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-colors ${
@@ -464,7 +400,7 @@ export default function CheckoutPage() {
                 </div>
               </SectionCard>
 
-              {/* Notes */}
+              {/* Ghi chú */}
               <SectionCard title="Ghi chú đơn hàng" icon="📝">
                 <div>
                   <Label>Ghi chú (tuỳ chọn)</Label>
@@ -475,11 +411,9 @@ export default function CheckoutPage() {
               </SectionCard>
             </div>
 
-            {/* ── RIGHT col: summary ────────────────────────────────────── */}
+            {/* RIGHT: summary */}
             <div className="lg:col-span-1">
               <div className="sticky top-20 space-y-4">
-
-                {/* Items */}
                 <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
                   <h2 className="text-base font-bold text-slate-800 mb-4">
                     Đơn hàng <span className="text-slate-400 font-normal">({checkoutItems.length} sản phẩm)</span>
@@ -502,7 +436,6 @@ export default function CheckoutPage() {
                   </div>
                 </div>
 
-                {/* Price breakdown */}
                 <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-3">
                   <div className="flex justify-between text-sm text-slate-600">
                     <span>Tạm tính</span>
@@ -539,12 +472,12 @@ export default function CheckoutPage() {
                   )}
                 </div>
 
-                {/* CTA */}
                 <button type="submit" disabled={loading}
                   className="w-full py-4 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-2xl font-bold text-sm transition-all shadow-sm flex items-center justify-center gap-2">
                   {loading
-                    ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/> Đang xử lý...</>
-                    : <><span>Đặt hàng ngay</span><span className="text-blue-200 text-lg">→</span></>}
+                    ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>
+                        {formData.paymentMethod === 'vnpay' ? 'Đang chuyển đến VNPay...' : 'Đang xử lý...'}</>
+                    : <><span>{formData.paymentMethod === 'vnpay' ? 'Thanh toán qua VNPay' : 'Đặt hàng ngay'}</span><span className="text-blue-200 text-lg">→</span></>}
                 </button>
 
                 <p className="text-center text-xs text-slate-400 flex items-center justify-center gap-1.5">
@@ -561,7 +494,6 @@ export default function CheckoutPage() {
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 99px; }
-        @keyframes fadeUp { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:translateY(0); } }
       `}</style>
     </div>
   );
