@@ -82,10 +82,15 @@ export default function CartPage() {
                   </div>
 
                   {/* Image */}
+                  
                   <img
-                    src={item.image || 'https://via.placeholder.com/100x100?text=Product'}
+                    src={item.image}
                     alt={item.name}
-                    className="w-24 h-24 object-cover rounded-lg bg-light"
+                    onError={(e) => {
+                      e.target.onerror = null; // prevent infinite loop
+                      e.target.src = '/images/placeholder.png'; // your local fallback
+                    }}
+                    className="w-20 h-20 object-cover rounded"
                   />
 
                   {/* Details */}

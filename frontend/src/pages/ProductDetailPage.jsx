@@ -28,7 +28,7 @@ export default function ProductDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { addToCart } = useCart();
-  const { user } = useAuth();
+  const { user, isAuthenticated } = useAuth();
 
   const [product,        setProduct]        = useState(null);
   const [loading,        setLoading]        = useState(true);
@@ -138,26 +138,42 @@ export default function ProductDetailPage() {
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
 
-  const handleAddToCart = () => {
+  // ProductDetailPage.jsx — chỉ sửa 2 hàm này
+
+// Xóa toàn bộ handleBuyNow cũ, thay bằng:
+  const handleAddToCart = async () => {
     if (!product) return;
     if (product.stock === 0) {
       showToast('Sản phẩm đã hết hàng, vui lòng quay lại sau', 'error');
       return;
     }
-    addToCart({ ...product, image: product.images[0] }, quantity);
-    showToast(`Đã thêm ${quantity} sản phẩm vào giỏ hàng`);
+    try {
+      await addToCart({ ...product, image: product.images[0] }, quantity, selectedColor, selectedSize);
+      if (isAuthenticated) {
+        showToast(`Đã thêm ${quantity} sản phẩm vào giỏ hàng`);
+      }
+    } catch (err) {
+      showToast(err.message || 'Không thể thêm vào giỏ hàng', 'error');
+    }
   };
 
-  const handleBuyNow = () => {
+  const handleBuyNow = async () => {  // 👈 xóa useAuth() bên trong
     if (!product) return;
     if (product.stock === 0) {
       showToast('Sản phẩm đã hết hàng, vui lòng quay lại sau', 'error');
       return;
     }
-    addToCart({ ...product, image: product.images[0] }, quantity);
-    navigate('/cart');
+    if (!isAuthenticated) {
+      await addToCart({ ...product, image: product.images[0] }, quantity, selectedColor, selectedSize);
+      return;
+    }
+    try {
+      await addToCart({ ...product, image: product.images[0] }, quantity, selectedColor, selectedSize);
+      navigate('/cart');
+    } catch (err) {
+      showToast(err.message || 'Không thể thêm vào giỏ hàng', 'error');
+    }
   };
-
   const handleDeleteMyReview = async () => {
     if (!window.confirm('Xóa đánh giá này?')) return;
     try {

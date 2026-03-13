@@ -1,91 +1,183 @@
-import { createContext, useState, useCallback, useEffect } from 'react';
+import { createContext, useState, useCallback, useEffect, useContext } from 'react';
+import { AuthContext } from './AuthContext';
+import LoginRequiredModal from '@components/LoginRequiredModal';
 
 export const CartContext = createContext();
 
+const API_BASE = '/api/cart';
+
+const apiFetch = async (url, options = {}, token) => {
+  const res = await fetch(url, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token && { Authorization: `Bearer ${token}` }),
+      ...options.headers,
+    },
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Request failed');
+  return data;
+};
+
 export function CartProvider({ children }) {
+  const { isAuthenticated } = useContext(AuthContext);
   const [cartItems, setCartItems] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [showLoginModal, setShowLoginModal] = useState(false); // 👈 modal state
 
-  // Load cart from localStorage
-  useEffect(() => {
+  const getToken = () => localStorage.getItem('token');
+
+  const normalizeItems = (items = []) =>
+    items.map(item => {
+      const product = item.productId;
+      return {
+        id: product._id ?? product,
+        name: product.name ?? 'Unknown Product',
+        price: product.price ?? 0,
+        image: product.image || product.thumbnail || product.images?.[0] || null,
+        color: item.color,
+        size: item.size,
+        quantity: item.quantity,
+        addedAt: item.addedAt,
+      };
+    });
+
+  const fetchCart = useCallback(async () => {
+    setLoading(true);
+    setError(null);
     try {
-      const storedCart = localStorage.getItem('cart');
-      if (storedCart) {
-        setCartItems(JSON.parse(storedCart));
-      }
+      const data = await apiFetch(API_BASE, {}, getToken());
+      setCartItems(normalizeItems(data.data.items));
     } catch (err) {
-      console.error('Error loading cart:', err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
     }
   }, []);
 
-  // Save cart to localStorage
   useEffect(() => {
-    localStorage.setItem('cart', JSON.stringify(cartItems));
-  }, [cartItems]);
+    if (isAuthenticated) {
+      fetchCart();
+    } else {
+      setCartItems([]);
+    }
+  }, [isAuthenticated, fetchCart]);
 
-  const addToCart = useCallback((product, quantity = 1) => {
-    setCartItems(prevItems => {
-      const existingItem = prevItems.find(item => item.id === product.id);
-      
-      if (existingItem) {
-        return prevItems.map(item =>
-          item.id === product.id
-            ? { ...item, quantity: item.quantity + quantity }
-            : item
-        );
-      }
-      
-      return [...prevItems, { ...product, quantity }];
-    });
-  }, []);
-
-  const removeFromCart = useCallback((productId) => {
-    setCartItems(prevItems => prevItems.filter(item => item.id !== productId));
-  }, []);
-
-  const updateQuantity = useCallback((productId, quantity) => {
-    if (quantity <= 0) {
-      removeFromCart(productId);
+  // ─── Add to cart ──────────────────────────────────────────────────────────
+  const addToCart = useCallback(async (product, quantity = 1, color = '', size = '') => {
+    if (!isAuthenticated) {
+      setShowLoginModal(true); // 👈 hiện modal thay vì redirect
       return;
     }
-    
-    setCartItems(prevItems =>
-      prevItems.map(item =>
-        item.id === productId
-          ? { ...item, quantity }
-          : item
-      )
-    );
-  }, [removeFromCart]);
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await apiFetch(
+        `${API_BASE}/add`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ productId: product.id ?? product._id, quantity, color, size }),
+        },
+        getToken()
+      );
+      setCartItems(normalizeItems(data.data.items));
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, [isAuthenticated]);
 
-  const clearCart = useCallback(() => {
-    setCartItems([]);
-  }, []);
+  const updateQuantity = useCallback(async (productId, quantity) => {
+    if (!isAuthenticated) { setShowLoginModal(true); return; }
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await apiFetch(
+        `${API_BASE}/update`,
+        { method: 'PUT', body: JSON.stringify({ productId, quantity }) },
+        getToken()
+      );
+      setCartItems(normalizeItems(data.data.items));
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, [isAuthenticated]);
 
-  const getTotalPrice = useCallback(() => {
-    return cartItems.reduce((total, item) => {
-      return total + (item.price * item.quantity);
-    }, 0);
-  }, [cartItems]);
+  const removeFromCart = useCallback(async (productId) => {
+    if (!isAuthenticated) { setShowLoginModal(true); return; }
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await apiFetch(
+        `${API_BASE}/remove`,
+        { method: 'POST', body: JSON.stringify({ productId }) },
+        getToken()
+      );
+      setCartItems(normalizeItems(data.data.items));
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, [isAuthenticated]);
 
-  const getTotalItems = useCallback(() => {
-    return cartItems.reduce((total, item) => total + item.quantity, 0);
-  }, [cartItems]);
+  const clearCart = useCallback(async () => {
+    if (!isAuthenticated) { setShowLoginModal(true); return; }
+    setLoading(true);
+    setError(null);
+    try {
+      await apiFetch(`${API_BASE}/clear`, { method: 'DELETE' }, getToken());
+      setCartItems([]);
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, [isAuthenticated]);
 
-  const value = {
-    cartItems,
-    loading,
-    addToCart,
-    removeFromCart,
-    updateQuantity,
-    clearCart,
-    getTotalPrice,
-    getTotalItems,
-  };
+  const getTotalPrice = useCallback(
+    () => cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0),
+    [cartItems]
+  );
+
+  const getTotalItems = useCallback(
+    () => cartItems.reduce((sum, item) => sum + item.quantity, 0),
+    [cartItems]
+  );
 
   return (
-    <CartContext.Provider value={value}>
+    <CartContext.Provider
+      value={{
+        cartItems,
+        loading,
+        error,
+        addToCart,
+        removeFromCart,
+        updateQuantity,
+        clearCart,
+        getTotalPrice,
+        getTotalItems,
+        refreshCart: fetchCart,
+      }}
+    >
       {children}
+
+      {/* 👇 Modal render ở đây — bao phủ toàn app */}
+      <LoginRequiredModal
+        isOpen={showLoginModal}
+        onClose={() => setShowLoginModal(false)}
+      />
     </CartContext.Provider>
   );
 }
+
+export const useCart = () => useContext(CartContext);

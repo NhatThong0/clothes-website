@@ -45,16 +45,17 @@ function ProtectedAdminRoute({ children }) {
 }
 
 function AppRoutes() {
+  
   return (
     <>
       <Routes>
         {/* Main routes */}
         <Route element={<MainLayout />}>
           <Route index element={<HomePage />} />
-          <Route path="products" element={<ProductListPage />} />
-          <Route path="products/:id" element={<ProductDetailPage />} />
-          <Route path="cart" element={<CartPage />} />
-          <Route path="checkout" element={<CheckoutPage />} />
+          <Route path="/products" element={<ProductListPage />} />
+          <Route path="/products/:id" element={<ProductDetailPage />} />
+          <Route path="/cart" element={<CartPage />} />
+          <Route path="/checkout" element={<CheckoutPage />} />
         </Route>
 
         {/* Auth routes */}

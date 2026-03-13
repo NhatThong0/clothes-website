@@ -114,8 +114,12 @@ exports.updateCartItem = async (req, res, next) => {
             return res.status(404).json({ status: 'error', message: 'Cart not found' });
         }
 
-        const cartItem = cart.items.find(item => item.productId.toString() === productId);
-
+        
+const cartItem = cart.items.find(
+  item =>
+    item.productId.toString() === productId &&
+    item.color === color &&   // add color/size to req.body
+    item.size === size);
         if (!cartItem) {
             return res.status(404).json({ status: 'error', message: 'Item not in cart' });
         }

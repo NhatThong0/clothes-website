@@ -3,6 +3,7 @@ import { formatPrice } from '@utils/helpers';
 
 export default function ProductCard({ product, onAddToCart }) {
   const outOfStock = product.stock === 0;
+  
 
   return (
     <Link to={`/products/${product.id}`} className="group">

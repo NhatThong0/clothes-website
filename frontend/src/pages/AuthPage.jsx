@@ -1,12 +1,17 @@
+// src/pages/AuthPage.jsx
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '@hooks/useAuth';
 import apiClient from '@services/apiClient';
 import { validateEmail, validatePassword } from '@utils/helpers';
 
 export default function AuthPage() {
   const navigate = useNavigate();
-  const { login, register } = useAuth();
+  const location = useLocation();
+  const { login } = useAuth();
+
+  // Quay về trang trước sau khi đăng nhập, mặc định về '/'
+  const from = location.state?.from || '/';
 
   const [isLogin, setIsLogin] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -21,10 +26,7 @@ export default function AuthPage() {
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value,
-    }));
+    setFormData(prev => ({ ...prev, [name]: value }));
     setError('');
   };
 
@@ -35,19 +37,15 @@ export default function AuthPage() {
 
     try {
       if (isLogin) {
-        // Login with real API
         if (!validateEmail(formData.email)) {
           setError('Email không hợp lệ');
-          setLoading(false);
           return;
         }
         if (!formData.password) {
           setError('Vui lòng nhập mật khẩu');
-          setLoading(false);
           return;
         }
 
-        // Call backend login endpoint
         const response = await apiClient.post('/auth/login', {
           email: formData.email,
           password: formData.password,
@@ -57,44 +55,35 @@ export default function AuthPage() {
           const userData = response.data.data.user;
           const token = response.data.data.token;
 
-          // Ensure it's not an admin trying to login here
           if (userData.role === 'admin') {
             setError('Vui lòng sử dụng Admin Portal để đăng nhập');
-            setLoading(false);
             return;
           }
 
-          // Save to context and localStorage
           login(userData, token);
           setFormData({ email: '', password: '', fullName: '', confirmPassword: '' });
-          navigate('/');
+          navigate(from, { replace: true }); // 👈 quay về trang trước
         } else {
           setError(response.data.message || 'Đăng nhập thất bại');
         }
       } else {
-        // Register with real API
         if (!formData.fullName) {
           setError('Vui lòng nhập họ và tên');
-          setLoading(false);
           return;
         }
         if (!validateEmail(formData.email)) {
           setError('Email không hợp lệ');
-          setLoading(false);
           return;
         }
         if (!validatePassword(formData.password)) {
           setError('Mật khẩu phải có ít nhất 6 ký tự');
-          setLoading(false);
           return;
         }
         if (formData.password !== formData.confirmPassword) {
           setError('Mật khẩu không khớp');
-          setLoading(false);
           return;
         }
 
-        // Call backend register endpoint
         const response = await apiClient.post('/auth/register', {
           name: formData.fullName,
           email: formData.email,
@@ -106,18 +95,15 @@ export default function AuthPage() {
           const userData = response.data.data.user;
           const token = response.data.data.token;
 
-          // Save to context and localStorage
           login(userData, token);
           setFormData({ email: '', password: '', fullName: '', confirmPassword: '' });
-          navigate('/');
+          navigate(from, { replace: true }); // 👈 quay về trang trước
         } else {
           setError(response.data.message || 'Đăng ký thất bại');
         }
       }
     } catch (err) {
-      const errorMessage = err.response?.data?.message || err.message || 'Đã có lỗi xảy ra';
-      setError(errorMessage);
-      console.error('Auth error:', err);
+      setError(err.response?.data?.message || err.message || 'Đã có lỗi xảy ra');
     } finally {
       setLoading(false);
     }
@@ -135,7 +121,6 @@ export default function AuthPage() {
           <p className="text-xs text-gray-600 mt-1">Khách hàng</p>
         </div>
 
-        {/* Title */}
         <h2 className="text-3xl font-bold text-dark mb-2 text-center">
           {isLogin ? 'Đăng nhập' : 'Đăng ký'}
         </h2>
@@ -143,16 +128,13 @@ export default function AuthPage() {
           {isLogin ? 'Chào mừng trở lại!' : 'Tạo tài khoản mới'}
         </p>
 
-        {/* Error message */}
         {error && (
           <div className="p-4 bg-red-50 border border-red-200 rounded-lg mb-6 text-red-600 text-sm">
             {error}
           </div>
         )}
 
-        {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-5">
-          {/* Register only fields */}
           {!isLogin && (
             <input
               type="text"
@@ -165,7 +147,6 @@ export default function AuthPage() {
             />
           )}
 
-          {/* Email */}
           <input
             type="email"
             name="email"
@@ -177,7 +158,6 @@ export default function AuthPage() {
             className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all disabled:opacity-50"
           />
 
-          {/* Password */}
           <input
             type="password"
             name="password"
@@ -189,7 +169,6 @@ export default function AuthPage() {
             className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all disabled:opacity-50"
           />
 
-          {/* Confirm password - Register only */}
           {!isLogin && (
             <input
               type="password"
@@ -203,7 +182,6 @@ export default function AuthPage() {
             />
           )}
 
-          {/* Submit button */}
           <button
             type="submit"
             disabled={loading}
@@ -213,15 +191,11 @@ export default function AuthPage() {
           </button>
         </form>
 
-        {/* Toggle */}
         <div className="mt-8 text-center">
           <p className="text-gray-600">
             {isLogin ? 'Chưa có tài khoản?' : 'Đã có tài khoản?'}
             <button
-              onClick={() => {
-                setIsLogin(!isLogin);
-                setError('');
-              }}
+              onClick={() => { setIsLogin(!isLogin); setError(''); }}
               disabled={loading}
               className="ml-2 text-primary font-bold hover:text-secondary transition-all disabled:opacity-50"
             >
@@ -230,7 +204,6 @@ export default function AuthPage() {
           </p>
         </div>
 
-        {/* Admin login link */}
         <div className="mt-6 pt-6 border-t border-gray-200">
           <p className="text-center text-gray-600 text-sm mb-3">Bạn là quản trị viên?</p>
           <Link
