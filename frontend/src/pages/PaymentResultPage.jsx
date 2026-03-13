@@ -1,10 +1,7 @@
-// ════════════════════════════════════════════════════════════════════════════
-// PaymentResultPage.jsx  —  src/pages/PaymentResultPage.jsx
-// VNPay redirect về đây sau thanh toán
-// Route: /payment-result?status=success|failed|error&orderId=...
-// ════════════════════════════════════════════════════════════════════════════
-import { useEffect } from 'react';
+// src/pages/PaymentResultPage.jsx
+import { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate, Link } from 'react-router-dom';
+import apiClient from '@services/apiClient';
 
 const VNPAY_CODES = {
     '07': 'Trừ tiền thành công nhưng giao dịch bị nghi ngờ gian lận.',
@@ -21,14 +18,14 @@ const VNPAY_CODES = {
 };
 
 export default function PaymentResultPage() {
-    const [params]  = useSearchParams();
-    const navigate  = useNavigate();
+    const [params]       = useSearchParams();
+    const navigate       = useNavigate();
+    const [retryLoading, setRetryLoading] = useState(false);
 
-    const status  = params.get('status');   // success | failed | error
-    const orderId = params.get('orderId');
-    const code    = params.get('code');
-    const msg     = params.get('message');
-
+    const status    = params.get('status');
+    const orderId   = params.get('orderId');
+    const code      = params.get('code');
+    const msg       = params.get('message');
     const isSuccess = status === 'success';
 
     useEffect(() => {
@@ -37,6 +34,21 @@ export default function PaymentResultPage() {
             return () => clearTimeout(t);
         }
     }, [isSuccess, orderId, navigate]);
+
+    const handleRetry = async () => {
+        if (!orderId) return;
+        setRetryLoading(true);
+        try {
+            await apiClient.post(`/orders/${orderId}/retry-payment`);
+            const payRes     = await apiClient.post('/payment/vnpay-create', { orderId });
+            const paymentUrl = payRes.data?.data?.paymentUrl;
+            if (!paymentUrl) throw new Error('Không nhận được URL thanh toán');
+            window.location.href = paymentUrl;
+        } catch (err) {
+            alert(err.response?.data?.message || 'Không thể tạo lại thanh toán');
+            setRetryLoading(false);
+        }
+    };
 
     const errorMsg = code
         ? (VNPAY_CODES[code] || `Giao dịch thất bại (mã lỗi: ${code})`)
@@ -49,7 +61,6 @@ export default function PaymentResultPage() {
 
                 {isSuccess ? (
                     <>
-                        {/* Success icon */}
                         <div className="w-24 h-24 rounded-full bg-emerald-50 flex items-center justify-center mx-auto mb-6">
                             <svg className="w-12 h-12 text-emerald-500" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/>
@@ -74,15 +85,13 @@ export default function PaymentResultPage() {
                             Đang chuyển đến trang đơn hàng...
                         </div>
                         {orderId && (
-                            <Link to={`/orders/${orderId}`}
-                                className="text-sm text-blue-600 hover:underline">
+                            <Link to={`/orders/${orderId}`} className="text-sm text-blue-600 hover:underline">
                                 Xem ngay →
                             </Link>
                         )}
                     </>
                 ) : (
                     <>
-                        {/* Failed icon */}
                         <div className="w-24 h-24 rounded-full bg-rose-50 flex items-center justify-center mx-auto mb-6">
                             <svg className="w-12 h-12 text-rose-400" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/>
@@ -93,13 +102,25 @@ export default function PaymentResultPage() {
 
                         <div className="flex flex-col sm:flex-row gap-3 justify-center">
                             {orderId && (
+                                <button
+                                    onClick={handleRetry}
+                                    disabled={retryLoading}
+                                    className="px-5 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center gap-2 justify-center"
+                                >
+                                    {retryLoading
+                                        ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/> Đang xử lý...</>
+                                        : '🔄 Thử lại thanh toán'
+                                    }
+                                </button>
+                            )}
+                            {orderId && (
                                 <Link to={`/orders/${orderId}`}
                                     className="px-5 py-2.5 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors">
                                     Xem đơn hàng
                                 </Link>
                             )}
                             <Link to="/"
-                                className="px-5 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 transition-colors">
+                                className="px-5 py-2.5 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors">
                                 Về trang chủ
                             </Link>
                         </div>

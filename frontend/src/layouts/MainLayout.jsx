@@ -1,12 +1,14 @@
 import { useEffect } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom'; // 👈 thêm useLocation
 import Header from '@components/Header';
 import Footer from '@components/Footer';
 
 export default function MainLayout() {
+  const location = useLocation(); // 👈 thêm
+
   useEffect(() => {
-    window.scrollTo(0, 0);
-  }, []);
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }, [location.pathname]); // 👈 chạy mỗi khi đổi route
 
   return (
     <div className="flex flex-col min-h-screen">

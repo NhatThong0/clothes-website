@@ -305,7 +305,7 @@ function ReceiptFormModal({ initial, onClose, onSaved }) {
                   </div>
                   {/* Giá nhập */}
                   <div className="w-36">
-                    <label className="block text-[10px] font-semibold text-slate-400 uppercase mb-1">Giá nhập (₫)</label>
+                    <label className="block text-[10px] font-semibold text-slate-400 uppercase mb-1">Đơn giá (₫)</label>
                     <input className={inputCls} type="number" min="0" value={item.costPrice}
                       onChange={e => setItem(i, 'costPrice', parseFloat(e.target.value) || 0)}/>
                   </div>

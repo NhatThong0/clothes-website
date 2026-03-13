@@ -333,9 +333,34 @@ const getAdminOrders = async (req, res) => {
         res.status(500).json({ status: 'error', message: err.message });
     }
 };
+// ── POST /api/orders/:id/retry-payment ───────────────────────────────────────
+const retryPayment = async (req, res) => {
+    try {
+        const userId = req.user.userId || req.userId;
+        const order  = await Order.findById(req.params.id);
 
+        if (!order)
+            return res.status(404).json({ status: 'error', message: 'Không tìm thấy đơn hàng.' });
+        if (order.userId.toString() !== userId.toString())
+            return res.status(403).json({ status: 'error', message: 'Không có quyền.' });
+        if (order.paymentMethod !== 'vnpay')
+            return res.status(400).json({ status: 'error', message: 'Chỉ áp dụng cho đơn VNPay.' });
+        if (order.paymentStatus === 'completed')
+            return res.status(400).json({ status: 'error', message: 'Đơn hàng đã được thanh toán.' });
+        if (order.status === 'cancelled')
+            return res.status(400).json({ status: 'error', message: 'Đơn hàng đã bị hủy.' });
+
+        // Reset paymentStatus về pending để cho thanh toán lại
+        order.paymentStatus = 'pending';
+        await order.save();
+
+        res.status(200).json({ status: 'success', data: order });
+    } catch (err) {
+        res.status(500).json({ status: 'error', message: err.message });
+    }
+};
 module.exports = {
     createOrder, getUserOrders, getOrderById, cancelOrder,
     updateOrderStatus, processPayment, getAdminOrders,
-    validateVoucherCode, calcVoucherDiscount, requestReturn,
+    validateVoucherCode, calcVoucherDiscount, requestReturn, retryPayment,
 };

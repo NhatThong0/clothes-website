@@ -157,23 +157,39 @@ export default function ProductDetailPage() {
     }
   };
 
-  const handleBuyNow = async () => {  // 👈 xóa useAuth() bên trong
-    if (!product) return;
-    if (product.stock === 0) {
-      showToast('Sản phẩm đã hết hàng, vui lòng quay lại sau', 'error');
-      return;
-    }
-    if (!isAuthenticated) {
-      await addToCart({ ...product, image: product.images[0] }, quantity, selectedColor, selectedSize);
-      return;
-    }
-    try {
-      await addToCart({ ...product, image: product.images[0] }, quantity, selectedColor, selectedSize);
-      navigate('/cart');
-    } catch (err) {
-      showToast(err.message || 'Không thể thêm vào giỏ hàng', 'error');
-    }
-  };
+  const handleBuyNow = async () => {
+  if (!product) return;
+  if (product.stock === 0) {
+    showToast('Sản phẩm đã hết hàng, vui lòng quay lại sau', 'error');
+    return;
+  }
+  if (!isAuthenticated) {
+    await addToCart({ ...product, image: product.images[0] }, quantity, selectedColor, selectedSize);
+    return;
+  }
+  try {
+    // Thêm vào cart trên server
+    await addToCart({ ...product, image: product.images[0] }, quantity, selectedColor, selectedSize);
+
+    // Lưu item này vào sessionStorage để CheckoutPage dùng
+    const checkoutItem = {
+      id:       product.id,
+      _id:      product._id,
+      name:     product.name,
+      price:    product.discountedPrice || product.price,
+      image:    product.images[0],
+      color:    selectedColor,
+      size:     selectedSize,
+      quantity,
+    };
+    sessionStorage.setItem('checkoutItems', JSON.stringify([checkoutItem]));
+
+    navigate('/checkout'); // 👈 thẳng đến checkout, không qua /cart
+  } catch (err) {
+    showToast(err.message || 'Không thể thêm vào giỏ hàng', 'error');
+  }
+};
+
   const handleDeleteMyReview = async () => {
     if (!window.confirm('Xóa đánh giá này?')) return;
     try {

@@ -377,13 +377,6 @@ const AdminOrderDetail = () => {
                     </select>
                   </div>
 
-                  {success && (
-                    <div className="mb-3 flex items-center gap-2 p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
-                      <span className="text-emerald-500">✓</span>
-                      <span className="text-xs font-semibold text-emerald-700">Cập nhật thành công!</span>
-                    </div>
-                  )}
-
                   <button onClick={handleUpdate} disabled={newStatus === order.status || updating}
                     className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 shadow-sm">
                     {updating && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>}

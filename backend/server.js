@@ -5,6 +5,7 @@ const connectDB  = require("./src/db/db");
 const http       = require('http');
 const { Server } = require('socket.io');
 const jwt        = require('jsonwebtoken');
+const autoCancelUnpaidOrders = require('./src/jobs/autoCancelOrders');
 
 const errorHandler = require("./src/middleWare/errorHandler");
 
@@ -93,6 +94,9 @@ io.use((socket, next) => {
 });
 
 io.on('connection', socket => registerChatHandlers(io, socket));
+// ── Job: Tự động hủy đơn chưa thanh toán sau 30 phút ─────────────────────────
+autoCancelUnpaidOrders();
+setInterval(autoCancelUnpaidOrders, 5 * 60 * 1000);
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 5000;

@@ -9,6 +9,7 @@ const {
     updateOrderStatus,
     processPayment,
     getAdminOrders,
+    retryPayment,
     requestReturn,
 } = require('../controller/orderController');
 
@@ -21,7 +22,7 @@ router.post('/payment/process',     processPayment);  // static trước /:id
 router.get('/:id',                  getOrderById);
 router.post('/:id/cancel',          cancelOrder);
 router.post('/:id/return-request',  requestReturn);   // ✅ hoàn trả
-
+router.post('/:id/retry-payment',  retryPayment);
 // ── Admin ─────────────────────────────────────────────────────────
 router.get('/admin/all',            getAdminOrders);
 router.put('/:id/status',           updateOrderStatus);

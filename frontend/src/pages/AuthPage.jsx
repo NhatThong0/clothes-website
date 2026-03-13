@@ -45,7 +45,7 @@ export default function AuthPage() {
           setError('Vui lòng nhập mật khẩu');
           return;
         }
-
+        // Gọi API đăng nhập
         const response = await apiClient.post('/auth/login', {
           email: formData.email,
           password: formData.password,
@@ -59,7 +59,7 @@ export default function AuthPage() {
             setError('Vui lòng sử dụng Admin Portal để đăng nhập');
             return;
           }
-
+          
           login(userData, token);
           setFormData({ email: '', password: '', fullName: '', confirmPassword: '' });
           navigate(from, { replace: true }); // 👈 quay về trang trước
@@ -83,7 +83,7 @@ export default function AuthPage() {
           setError('Mật khẩu không khớp');
           return;
         }
-
+        // Gọi API đăng ký
         const response = await apiClient.post('/auth/register', {
           name: formData.fullName,
           email: formData.email,
