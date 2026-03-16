@@ -5,13 +5,7 @@ const Order         = require('../model/Order');
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
-/**
- * Tính giá vốn FIFO cho productId khi xuất `quantityNeeded` đơn vị.
- * Lấy các batch nhập còn tồn (remainingQty > 0) theo thứ tự cũ nhất trước.
- * Returns: { totalCost, breakdown }
- */
 async function calcFifoCost(productId, quantityNeeded) {
-    // Lấy các receipt item còn hàng, sort theo ngày nhập (cũ nhất trước)
     const receipts = await StockReceipt.find({
         status: 'confirmed',
         'items.productId': productId,
@@ -27,7 +21,6 @@ async function calcFifoCost(productId, quantityNeeded) {
         for (const item of receipt.items) {
             if (!item.productId.equals(productId)) continue;
             if (item.remainingQty <= 0) continue;
-
             const take = Math.min(item.remainingQty, remaining);
             totalCost += take * item.costPrice;
             breakdown.push({ receiptId: receipt._id, itemId: item._id, take, costPrice: item.costPrice });
@@ -39,9 +32,6 @@ async function calcFifoCost(productId, quantityNeeded) {
     return { totalCost, avgCostPerUnit: quantityNeeded > 0 ? totalCost / quantityNeeded : 0, breakdown, fulfilled: remaining <= 0 };
 }
 
-/**
- * Deduct FIFO batches khi xuất kho (cập nhật remainingQty)
- */
 async function deductFifoBatches(breakdown) {
     for (const b of breakdown) {
         await StockReceipt.updateOne(
@@ -51,13 +41,36 @@ async function deductFifoBatches(breakdown) {
     }
 }
 
+// ✅ Cập nhật stock của 1 variant cụ thể (color + size)
+// Nếu không có color/size → cộng vào stock tổng toàn bộ (không có variant)
+async function updateVariantStock(productId, color, size, delta) {
+    const product = await Product.findById(productId);
+    if (!product) return null;
+
+    if (color && size && product.variants?.length > 0) {
+        // Tìm đúng variant
+        const idx = product.variants.findIndex(v => v.color === color && v.size === size);
+        if (idx >= 0) {
+            product.variants[idx].stock = Math.max(0, (product.variants[idx].stock || 0) + delta);
+        } else {
+            // Variant chưa tồn tại → thêm mới
+            product.variants.push({ color, size, stock: Math.max(0, delta), sku: '', price: 0 });
+        }
+        // Tính lại stock tổng từ variants
+        product.stock = product.variants.reduce((s, v) => s + (v.stock || 0), 0);
+        product.markModified('variants');
+    } else {
+        // Không có variant → cộng thẳng vào stock tổng
+        product.stock = Math.max(0, (product.stock || 0) + delta);
+    }
+
+    return product;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
-// PHIẾU NHẬP KHO (Purchase Receipts)
+// PHIẾU NHẬP KHO
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/**
- * GET /api/admin/inventory/receipts
- */
 exports.getReceipts = async (req, res) => {
     try {
         const { page = 1, limit = 15, status, search } = req.query;
@@ -85,13 +98,10 @@ exports.getReceipts = async (req, res) => {
     }
 };
 
-/**
- * GET /api/admin/inventory/receipts/:id
- */
 exports.getReceiptById = async (req, res) => {
     try {
         const receipt = await StockReceipt.findById(req.params.id)
-            .populate('items.productId', 'name images stock')
+            .populate('items.productId', 'name images stock variants')
             .populate('createdBy',   'name')
             .populate('confirmedBy', 'name');
         if (!receipt) return res.status(404).json({ status: 'error', message: 'Không tìm thấy phiếu nhập' });
@@ -101,32 +111,30 @@ exports.getReceiptById = async (req, res) => {
     }
 };
 
-/**
- * POST /api/admin/inventory/receipts  — Tạo phiếu nháp
- */
 exports.createReceipt = async (req, res) => {
     try {
         const { supplier, items, note } = req.body;
         if (!items?.length) return res.status(400).json({ status: 'error', message: 'Cần ít nhất 1 sản phẩm' });
 
-        // Snapshot tên sản phẩm
         const enrichedItems = await Promise.all(items.map(async item => {
             const product = await Product.findById(item.productId).select('name');
             return {
-                productId:   item.productId,
-                productName: product?.name || '',
-                quantity:    item.quantity,
-                costPrice:   item.costPrice,
+                productId:    item.productId,
+                productName:  product?.name || '',
+                color:        item.color  || '',
+                size:         item.size   || '',
+                quantity:     item.quantity,
+                costPrice:    item.costPrice,
                 remainingQty: item.quantity,
             };
         }));
 
         const receipt = await StockReceipt.create({
-            supplier: supplier || {},
-            items:    enrichedItems,
-            note:     note || '',
+            supplier:  supplier || {},
+            items:     enrichedItems,
+            note:      note || '',
             createdBy: req.userId,
-            status:   'draft',
+            status:    'draft',
         });
 
         res.status(201).json({ status: 'success', message: 'Tạo phiếu nhập thành công', data: receipt });
@@ -136,9 +144,6 @@ exports.createReceipt = async (req, res) => {
     }
 };
 
-/**
- * PUT /api/admin/inventory/receipts/:id  — Sửa phiếu (chỉ khi draft)
- */
 exports.updateReceipt = async (req, res) => {
     try {
         const receipt = await StockReceipt.findById(req.params.id);
@@ -153,6 +158,8 @@ exports.updateReceipt = async (req, res) => {
                 return {
                     productId:    item.productId,
                     productName:  product?.name || '',
+                    color:        item.color  || '',
+                    size:         item.size   || '',
                     quantity:     item.quantity,
                     costPrice:    item.costPrice,
                     remainingQty: item.quantity,
@@ -171,12 +178,8 @@ exports.updateReceipt = async (req, res) => {
 };
 
 /**
- * POST /api/admin/inventory/receipts/:id/confirm  — Xác nhận nhập kho
- * Hành động:
- *   1. Cộng stock vào Product
- *   2. Tính lại avgCost của Product
- *   3. Ghi StockMovement
- *   4. Khóa phiếu (status = confirmed)
+ * POST /receipts/:id/confirm
+ * ✅ Cập nhật cả variants[].stock lẫn product.stock tổng
  */
 exports.confirmReceipt = async (req, res) => {
     try {
@@ -184,30 +187,55 @@ exports.confirmReceipt = async (req, res) => {
         if (!receipt) return res.status(404).json({ status: 'error', message: 'Không tìm thấy phiếu nhập' });
         if (receipt.status !== 'draft') return res.status(400).json({ status: 'error', message: 'Phiếu này đã được xử lý' });
 
-        // Xử lý từng dòng
         for (const item of receipt.items) {
             const product = await Product.findById(item.productId);
             if (!product) continue;
 
             const oldStock   = product.stock || 0;
             const oldAvgCost = product.avgCost || 0;
-            const newStock   = oldStock + item.quantity;
 
-            // Tính lại avgCost = (oldStock * oldAvgCost + newQty * newCost) / newStock
+            // ✅ Cập nhật variant stock nếu có color + size
+            if (item.color && item.size && product.variants?.length > 0) {
+                const idx = product.variants.findIndex(
+                    v => v.color === item.color && v.size === item.size
+                );
+                if (idx >= 0) {
+                    product.variants[idx].stock = (product.variants[idx].stock || 0) + item.quantity;
+                } else {
+                    // Variant chưa có → thêm mới
+                    product.variants.push({
+                        color: item.color,
+                        size:  item.size,
+                        stock: item.quantity,
+                        sku:   '',
+                        price: 0,
+                    });
+                }
+                product.markModified('variants');
+                // Tính lại stock tổng từ variants
+                product.stock = product.variants.reduce((s, v) => s + (v.stock || 0), 0);
+            } else {
+                // Không có variant → cộng thẳng stock tổng
+                product.stock = oldStock + item.quantity;
+            }
+
+            const newStock = product.stock;
+
+            // Tính lại avgCost
             const newAvgCost = newStock > 0
                 ? (oldStock * oldAvgCost + item.quantity * item.costPrice) / newStock
                 : item.costPrice;
 
-            await Product.findByIdAndUpdate(item.productId, {
-                stock:    newStock,
-                avgCost:  Math.round(newAvgCost),
-                costPrice: item.costPrice, // giá nhập gần nhất
-            });
+            product.avgCost   = Math.round(newAvgCost);
+            product.costPrice = item.costPrice;
+            await product.save();
 
-            // Ghi movement log
+            // Ghi movement
             await StockMovement.create({
                 productId:   item.productId,
                 productName: item.productName,
+                color:       item.color || '',
+                size:        item.size  || '',
                 type:        'receipt',
                 quantity:    item.quantity,
                 stockAfter:  newStock,
@@ -220,7 +248,6 @@ exports.confirmReceipt = async (req, res) => {
             });
         }
 
-        // Khóa phiếu
         receipt.status      = 'confirmed';
         receipt.confirmedBy = req.userId;
         receipt.confirmedAt = new Date();
@@ -233,9 +260,6 @@ exports.confirmReceipt = async (req, res) => {
     }
 };
 
-/**
- * POST /api/admin/inventory/receipts/:id/cancel  — Hủy phiếu (chỉ khi draft)
- */
 exports.cancelReceipt = async (req, res) => {
     try {
         const receipt = await StockReceipt.findById(req.params.id);
@@ -253,12 +277,12 @@ exports.cancelReceipt = async (req, res) => {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// ĐIỀU CHỈNH KHO (Stock Adjustment)
+// ĐIỀU CHỈNH KHO
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
- * POST /api/admin/inventory/adjustments
- * Body: { items: [{ productId, quantity (+/-), reason, note }] }
+ * POST /adjustments
+ * ✅ Cập nhật cả variants[].stock lẫn product.stock tổng
  */
 exports.createAdjustment = async (req, res) => {
     try {
@@ -271,12 +295,36 @@ exports.createAdjustment = async (req, res) => {
             const product = await Product.findById(item.productId);
             if (!product) continue;
 
-            const newStock = Math.max(0, (product.stock || 0) + item.quantity);
-            await Product.findByIdAndUpdate(item.productId, { stock: newStock });
+            // ✅ Cập nhật variant stock nếu có color + size
+            if (item.color && item.size && product.variants?.length > 0) {
+                const idx = product.variants.findIndex(
+                    v => v.color === item.color && v.size === item.size
+                );
+                if (idx >= 0) {
+                    product.variants[idx].stock = Math.max(0, (product.variants[idx].stock || 0) + item.quantity);
+                } else {
+                    product.variants.push({
+                        color: item.color,
+                        size:  item.size,
+                        stock: Math.max(0, item.quantity),
+                        sku:   '',
+                        price: 0,
+                    });
+                }
+                product.markModified('variants');
+                product.stock = product.variants.reduce((s, v) => s + (v.stock || 0), 0);
+            } else {
+                product.stock = Math.max(0, (product.stock || 0) + item.quantity);
+            }
+
+            await product.save();
+            const newStock = product.stock;
 
             const movement = await StockMovement.create({
                 productId:   item.productId,
                 productName: product.name,
+                color:       item.color || '',
+                size:        item.size  || '',
                 type:        'adjustment',
                 quantity:    item.quantity,
                 stockAfter:  newStock,
@@ -297,13 +345,9 @@ exports.createAdjustment = async (req, res) => {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// PHIẾU XUẤT (Delivery Orders — liên kết với Order)
+// PHIẾU XUẤT
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/**
- * GET /api/admin/inventory/deliveries
- * Lấy danh sách đơn hàng cần xuất kho (status = confirmed hoặc processing)
- */
 exports.getDeliveries = async (req, res) => {
     try {
         const { page = 1, limit = 15, status = 'confirmed' } = req.query;
@@ -315,7 +359,7 @@ exports.getDeliveries = async (req, res) => {
         const [orders, total] = await Promise.all([
             Order.find(filter)
                 .populate('userId', 'name email phone')
-                .populate('items.productId', 'name images stock avgCost')
+                .populate('items.productId', 'name images stock avgCost variants')
                 .sort({ createdAt: -1 })
                 .skip(skip)
                 .limit(parseInt(limit)),
@@ -328,14 +372,10 @@ exports.getDeliveries = async (req, res) => {
     }
 };
 
-/**
- * POST /api/admin/inventory/deliveries/:orderId/export
- * Xuất kho cho một đơn hàng (ghi movement + deduct FIFO)
- */
 exports.exportDelivery = async (req, res) => {
     try {
         const order = await Order.findById(req.params.orderId)
-            .populate('items.productId', 'name stock avgCost');
+            .populate('items.productId', 'name stock avgCost variants');
         if (!order) return res.status(404).json({ status: 'error', message: 'Không tìm thấy đơn hàng' });
 
         const results = [];
@@ -344,18 +384,31 @@ exports.exportDelivery = async (req, res) => {
             const product = item.productId;
             if (!product) continue;
 
-            // Tính FIFO cost
             const { totalCost, avgCostPerUnit, breakdown, fulfilled } = await calcFifoCost(product._id, item.quantity);
-
-            // Deduct FIFO batches
             if (fulfilled) await deductFifoBatches(breakdown);
 
-            const newStock = Math.max(0, (product.stock || 0) - item.quantity);
-            await Product.findByIdAndUpdate(product._id, { stock: newStock });
+            // ✅ Trừ variant stock nếu có
+            const color = item.color || '';
+            const size  = item.size  || '';
+            if (color && size && product.variants?.length > 0) {
+                const idx = product.variants.findIndex(v => v.color === color && v.size === size);
+                if (idx >= 0) {
+                    product.variants[idx].stock = Math.max(0, (product.variants[idx].stock || 0) - item.quantity);
+                    product.markModified('variants');
+                }
+                product.stock = product.variants.reduce((s, v) => s + (v.stock || 0), 0);
+            } else {
+                product.stock = Math.max(0, (product.stock || 0) - item.quantity);
+            }
+            await product.save();
+
+            const newStock = product.stock;
 
             await StockMovement.create({
                 productId:   product._id,
                 productName: product.name,
+                color,
+                size,
                 type:        'sale',
                 quantity:    -item.quantity,
                 stockAfter:  newStock,
@@ -369,12 +422,12 @@ exports.exportDelivery = async (req, res) => {
             });
 
             results.push({
-                product:     product.name,
-                quantity:    item.quantity,
-                costPrice:   avgCostPerUnit,
-                salePrice:   item.price,
-                profit:      (item.price - avgCostPerUnit) * item.quantity,
-                stockAfter:  newStock,
+                product:    product.name,
+                quantity:   item.quantity,
+                costPrice:  avgCostPerUnit,
+                salePrice:  item.price,
+                profit:     (item.price - avgCostPerUnit) * item.quantity,
+                stockAfter: newStock,
             });
         }
 
@@ -385,13 +438,9 @@ exports.exportDelivery = async (req, res) => {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// BÁO CÁO TỒN KHO & LỊCH SỬ
+// BÁO CÁO
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/**
- * GET /api/admin/inventory/stock-report
- * Báo cáo tồn kho hiện tại
- */
 exports.getStockReport = async (req, res) => {
     try {
         const { search, lowStock, page = 1, limit = 20 } = req.query;
@@ -403,7 +452,7 @@ exports.getStockReport = async (req, res) => {
         const [products, total] = await Promise.all([
             Product.find(filter)
                 .populate('category', 'name')
-                .select('name images stock avgCost costPrice price category')
+                .select('name images stock avgCost costPrice price category variants')
                 .sort({ stock: 1 })
                 .skip(skip)
                 .limit(parseInt(limit)),
@@ -413,7 +462,7 @@ exports.getStockReport = async (req, res) => {
         const summary = await Product.aggregate([
             { $match: { isActive: true } },
             { $group: {
-                _id:          null,
+                _id:           null,
                 totalProducts: { $sum: 1 },
                 totalStock:    { $sum: '$stock' },
                 totalValue:    { $sum: { $multiply: ['$stock', { $ifNull: ['$avgCost', 0] }] } },
@@ -435,10 +484,6 @@ exports.getStockReport = async (req, res) => {
     }
 };
 
-/**
- * GET /api/admin/inventory/movements
- * Lịch sử biến động kho (toàn bộ hoặc theo product)
- */
 exports.getMovements = async (req, res) => {
     try {
         const { productId, type, page = 1, limit = 20 } = req.query;
@@ -463,10 +508,6 @@ exports.getMovements = async (req, res) => {
     }
 };
 
-/**
- * GET /api/admin/inventory/profit-report
- * Báo cáo lợi nhuận từ các movement type=sale
- */
 exports.getProfitReport = async (req, res) => {
     try {
         const { from, to } = req.query;

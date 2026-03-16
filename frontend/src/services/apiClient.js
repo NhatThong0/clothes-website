@@ -5,6 +5,7 @@ const apiClient = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
+// ── Request: gắn token ────────────────────────────────────────────────────────
 apiClient.interceptors.request.use((config) => {
   const isAdminRoute = config.url?.includes('/admin');
   const token = isAdminRoute
@@ -22,19 +23,31 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
+// ── Response: xử lý token hết hạn ────────────────────────────────────────────
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    const status = error.response?.status;
+    const code   = error.response?.data?.code;
+
+    // ✅ Xử lý cả 401 và 403 — token hết hạn hoặc không hợp lệ
+    if (status === 401 || status === 403) {
       const isAdminRoute = error.config?.url?.includes('/admin');
+
       if (isAdminRoute) {
         localStorage.removeItem('adminToken');
         localStorage.removeItem('adminUser');
-        window.location.href = '/admin/login';
+        // Chỉ redirect nếu chưa ở trang login
+        if (!window.location.pathname.includes('/admin/login')) {
+          window.location.href = '/admin/login';
+        }
       } else {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
-        window.location.href = '/login';
+        localStorage.removeItem('cart_guest'); // xóa cart guest khi logout
+        if (!window.location.pathname.includes('/auth/login')) {
+          window.location.href = '/auth/login';
+        }
       }
     }
     return Promise.reject(error);

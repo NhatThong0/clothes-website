@@ -1,115 +1,57 @@
 const mongoose = require('mongoose');
 
 const reviewSchema = new mongoose.Schema({
-    userId: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User',
-        required: true,
-    },
-    rating: {
-        type: Number,
-        required: true,
-        min: 1,
-        max: 5,
-    },
-    comment: {
-        type: String,
-        required: true,
-    },
-    images: [{
-        type: String,
-    }],
-    isVisible: {
-        type: Boolean,
-        default: true,
-    },
-    createdAt: {
-        type: Date,
-        default: Date.now,
-    },
+    userId:    { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    rating:    { type: Number, required: true, min: 1, max: 5 },
+    comment:   { type: String, required: true },
+    images:    [{ type: String }],
+    isVisible: { type: Boolean, default: true },
+    createdAt: { type: Date, default: Date.now },
 });
+
+const variantSchema = new mongoose.Schema({
+    color: { type: String, default: '' },
+    size:  { type: String, default: '' },
+    stock: { type: Number, default: 0, min: 0 },
+    sku:   { type: String, default: '' },
+    price: { type: Number, default: 0 },
+}, { _id: false });
 
 const productSchema = new mongoose.Schema({
-    name: {
-        type: String,
-        required: [true, 'Please provide a product name'],
-        trim: true,
-    },
-    description: {
-        type: String,
-        required: [true, 'Please provide a product description'],
-    },
-    price: {
-        type: Number,
-        required: [true, 'Please provide a price'],
-        min: [0, 'Price cannot be negative'],
-    },
-    discount: {
-        type: Number,
-        default: 0,
-        min: [0, 'Discount cannot be negative'],
-        max: [100, 'Discount cannot exceed 100%'],
-    },
-    category: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Category',
-        required: true,
-    },
-    images: [{
-        type: String,
-    }],
-    stock: {
-        type: Number,
-        required: [true, 'Please provide stock quantity'],
-        default: 0,
-        min: [0, 'Stock cannot be negative'],
-    },
-    colors: [{
-        type: String,
-    }],
-    sizes: [{
-        type: String,
-    }],
-    features: [{
-        type: String,
-    }],
-    rating: {
-        type: Number,
-        default: 0,
-        min: 0,
-        max: 5,
-    },
-    averageRating: {         // ✅ thêm field này
-        type: Number,
-        default: 0,
-        min: 0,
-        max: 5,
-    },
-    reviews: [reviewSchema], // ✅ dùng reviewSchema riêng để .id() hoạt động
-    isActive: {
-        type: Boolean,
-        default: true,
-    },
-    isFeatured: {
-        type: Boolean,
-        default: false,
-    },
-    createdAt: {
-        type: Date,
-        default: Date.now,
-    },
-    updatedAt: {
-        type: Date,
-        default: Date.now,
-    },
-    avgCost:   { 
-        type: Number, default: 0 
-    }, // giá vốn trung bình
-    costPrice: { 
-        type: Number, default: 0 
-    }, // giá nhập gần nhất
+    name:          { type: String, required: true, trim: true },
+    description:   { type: String, required: true },
+    price:         { type: Number, required: true, min: 0 },
+    discount:      { type: Number, default: 0, min: 0, max: 100 },
+    category:      { type: mongoose.Schema.Types.ObjectId, ref: 'Category', required: true },
+    images:        [{ type: String }],
+    stock:         { type: Number, default: 0, min: 0 }, // ✅ KHÔNG required — tự tính từ variants
+    variants:      [variantSchema],
+    colors:        [{ type: String }],
+    sizes:         [{ type: String }],
+    features:      [{ type: String }],
+    averageRating: { type: Number, default: 0 },
+    rating:        { type: Number, default: 0 },
+    reviews:       [reviewSchema],
+    isActive:      { type: Boolean, default: true },
+    isFeatured:    { type: Boolean, default: false },
+    soldCount:     { type: Number, default: 0 },
+    avgCost:       { type: Number, default: 0 },
+    costPrice:     { type: Number, default: 0 },
+    createdAt:     { type: Date, default: Date.now },
+    updatedAt:     { type: Date, default: Date.now },
 });
 
+// ✅ pre-save: dùng async để tránh lỗi next is not a function
+productSchema.pre('save', async function() {
+    if (Array.isArray(this.variants) && this.variants.length > 0) {
+        this.stock  = this.variants.reduce((s, v) => s + (Number(v.stock) || 0), 0);
+        this.colors = [...new Set(this.variants.map(v => v.color).filter(Boolean))];
+        this.sizes  = [...new Set(this.variants.map(v => v.size).filter(Boolean))];
+    }
+    this.updatedAt = new Date();
+});
+
+// ✅ Index tìm kiếm — đặt sau schema definition
 productSchema.index({ name: 'text', description: 'text' });
 productSchema.index({ category: 1 });
 productSchema.index({ price: 1 });

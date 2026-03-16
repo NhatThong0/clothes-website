@@ -3,7 +3,6 @@ import { formatPrice } from '@utils/helpers';
 
 export default function ProductCard({ product, onAddToCart }) {
   const outOfStock = product.stock === 0;
-  
 
   return (
     <Link to={`/products/${product.id}`} className="group">
@@ -16,24 +15,16 @@ export default function ProductCard({ product, onAddToCart }) {
             alt={product.name}
             className={`w-full h-full object-cover transition-transform duration-300 ${outOfStock ? 'grayscale opacity-60' : 'group-hover:scale-110'}`}
           />
-
-          {/* Hết hàng overlay */}
           {outOfStock && (
             <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
-              <span className="bg-white text-red-600 font-bold text-sm px-4 py-1.5 rounded-full shadow">
-                Hết hàng
-              </span>
+              <span className="bg-white text-red-600 font-bold text-sm px-4 py-1.5 rounded-full shadow">Hết hàng</span>
             </div>
           )}
-
-          {/* Sale badge */}
           {product.discount > 0 && !outOfStock && (
             <div className="absolute top-4 right-4 bg-red-500 text-white px-3 py-1 rounded-full text-sm font-semibold">
               -{product.discount}%
             </div>
           )}
-
-          {/* Category badge */}
           <div className="absolute top-4 left-4 bg-primary text-white px-3 py-1 rounded-full text-xs font-semibold">
             {product.category}
           </div>
@@ -45,7 +36,6 @@ export default function ProductCard({ product, onAddToCart }) {
             {product.name}
           </h3>
 
-          {/* Rating */}
           {product.rating > 0 && (
             <div className="flex items-center mb-2">
               <div className="flex text-yellow-400">
@@ -59,7 +49,6 @@ export default function ProductCard({ product, onAddToCart }) {
             </div>
           )}
 
-          {/* Price */}
           <div className="flex items-baseline space-x-2 mb-3">
             <span className="font-bold text-lg sm:text-xl text-primary">
               {formatPrice(product.discountedPrice || product.price)}
@@ -69,13 +58,11 @@ export default function ProductCard({ product, onAddToCart }) {
             )}
           </div>
 
-          {/* Stock */}
           <div className="mb-3">
-            {outOfStock ? (
-              <span className="text-xs text-red-600 font-semibold">✗ Hết hàng</span>
-            ) : (
-              <span className="text-xs text-green-600 font-semibold">✓ Có sẵn ({product.stock})</span>
-            )}
+            {outOfStock
+              ? <span className="text-xs text-red-600 font-semibold">✗ Hết hàng</span>
+              : <span className="text-xs text-green-600 font-semibold">✓ Có sẵn ({product.stock})</span>
+            }
           </div>
 
           {product.soldCount > 0 && (
@@ -84,22 +71,24 @@ export default function ProductCard({ product, onAddToCart }) {
             </div>
           )}
 
-          {/* Add to cart */}
-          <button
-            onClick={(e) => {
-              e.preventDefault();
-              if (outOfStock) return; // chặn thêm khi hết hàng
-              onAddToCart && onAddToCart();
-            }}
-            disabled={outOfStock}
-            className={`w-full py-2 rounded-lg font-medium transition-all ${
-              outOfStock
-                ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                : 'bg-primary text-white hover:bg-secondary group-hover:shadow-md-blue'
-            }`}
-          >
-            {outOfStock ? 'Hết hàng' : 'Thêm vào giỏ'}
-          </button>
+          {/* ✅ Chỉ hiện nút khi có onAddToCart prop */}
+          {onAddToCart && (
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                if (outOfStock) return;
+                onAddToCart();
+              }}
+              disabled={outOfStock}
+              className={`w-full py-2 rounded-lg font-medium transition-all ${
+                outOfStock
+                  ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                  : 'bg-primary text-white hover:bg-secondary group-hover:shadow-md-blue'
+              }`}
+            >
+              {outOfStock ? 'Hết hàng' : 'Thêm vào giỏ'}
+            </button>
+          )}
         </div>
       </div>
     </Link>

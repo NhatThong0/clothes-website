@@ -1,4 +1,4 @@
-import { createContext, useState, useCallback, useEffect, useContext } from 'react';
+import { createContext, useState, useCallback, useEffect, useContext, useRef } from 'react';
 import { AuthContext } from './AuthContext';
 import LoginRequiredModal from '@components/LoginRequiredModal';
 
@@ -20,12 +20,21 @@ const apiFetch = async (url, options = {}, token) => {
   return data;
 };
 
+// ✅ So sánh item theo id + color + size
+function isSameItem(item, id, color = '', size = '') {
+  return item.id === id &&
+    (item.color || '') === (color || '') &&
+    (item.size  || '') === (size  || '');
+}
+
 export function CartProvider({ children }) {
   const { isAuthenticated } = useContext(AuthContext);
-  const [cartItems, setCartItems] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [showLoginModal, setShowLoginModal] = useState(false); // 👈 modal state
+  const [cartItems,    setCartItems]    = useState([]);
+  const [loading,      setLoading]      = useState(false);
+  const [error,        setError]        = useState(null);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [minQtyAlert,  setMinQtyAlert]  = useState(null); // ✅ key = id__color__size
+  const alertTimer = useRef(null);
 
   const getToken = () => localStorage.getItem('token');
 
@@ -33,14 +42,14 @@ export function CartProvider({ children }) {
     items.map(item => {
       const product = item.productId;
       return {
-        id: product._id ?? product,
-        name: product.name ?? 'Unknown Product',
-        price: product.price ?? 0,
-        image: product.image || product.thumbnail || product.images?.[0] || null,
-        color: item.color,
-        size: item.size,
+        id:       product._id ?? product,
+        name:     product.name      ?? 'Unknown Product',
+        price:    product.price     ?? 0,
+        image:    product.image || product.thumbnail || product.images?.[0] || null,
+        color:    item.color  || '',
+        size:     item.size   || '',
         quantity: item.quantity,
-        addedAt: item.addedAt,
+        addedAt:  item.addedAt,
       };
     });
 
@@ -58,47 +67,19 @@ export function CartProvider({ children }) {
   }, []);
 
   useEffect(() => {
-    if (isAuthenticated) {
-      fetchCart();
-    } else {
-      setCartItems([]);
-    }
+    if (isAuthenticated) fetchCart();
+    else setCartItems([]);
   }, [isAuthenticated, fetchCart]);
 
-  // ─── Add to cart ──────────────────────────────────────────────────────────
+  // ── Add to cart ───────────────────────────────────────────────────────────
   const addToCart = useCallback(async (product, quantity = 1, color = '', size = '') => {
-    if (!isAuthenticated) {
-      setShowLoginModal(true); // 👈 hiện modal thay vì redirect
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await apiFetch(
-        `${API_BASE}/add`,
-        {
-          method: 'POST',
-          body: JSON.stringify({ productId: product.id ?? product._id, quantity, color, size }),
-        },
-        getToken()
-      );
-      setCartItems(normalizeItems(data.data.items));
-    } catch (err) {
-      setError(err.message);
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  }, [isAuthenticated]);
-
-  const updateQuantity = useCallback(async (productId, quantity) => {
     if (!isAuthenticated) { setShowLoginModal(true); return; }
     setLoading(true);
     setError(null);
     try {
       const data = await apiFetch(
-        `${API_BASE}/update`,
-        { method: 'PUT', body: JSON.stringify({ productId, quantity }) },
+        `${API_BASE}/add`,
+        { method: 'POST', body: JSON.stringify({ productId: product.id ?? product._id, quantity, color, size }) },
         getToken()
       );
       setCartItems(normalizeItems(data.data.items));
@@ -110,20 +91,52 @@ export function CartProvider({ children }) {
     }
   }, [isAuthenticated]);
 
-  const removeFromCart = useCallback(async (productId) => {
+  // ── updateQuantity — theo id + color + size ───────────────────────────────
+  const updateQuantity = useCallback(async (productId, quantity, color = '', size = '') => {
+    if (!isAuthenticated) { setShowLoginModal(true); return; }
+
+    // ✅ Chặn giảm dưới 1
+    if (quantity <= 0) {
+      const alertKey = `${productId}__${color}__${size}`;
+      setMinQtyAlert(alertKey);
+      clearTimeout(alertTimer.current);
+      alertTimer.current = setTimeout(() => setMinQtyAlert(null), 2000);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await apiFetch(
+        `${API_BASE}/update`,
+        { method: 'PUT', body: JSON.stringify({ productId, quantity, color, size }) },
+        getToken()
+      );
+      setCartItems(normalizeItems(data.data.items));
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, [isAuthenticated]);
+
+  // ── removeFromCart — xóa đúng theo id + color + size ─────────────────────
+  const removeFromCart = useCallback(async (productId, color = '', size = '') => {
     if (!isAuthenticated) { setShowLoginModal(true); return; }
     setLoading(true);
     setError(null);
     try {
       const data = await apiFetch(
         `${API_BASE}/remove`,
-        { method: 'POST', body: JSON.stringify({ productId }) },
+        { method: 'POST', body: JSON.stringify({ productId, color, size }) },
         getToken()
       );
       setCartItems(normalizeItems(data.data.items));
     } catch (err) {
+      // ✅ Fallback: xóa local nếu server lỗi
+      setCartItems(prev => prev.filter(i => !isSameItem(i, productId, color, size)));
       setError(err.message);
-      throw err;
     } finally {
       setLoading(false);
     }
@@ -155,23 +168,20 @@ export function CartProvider({ children }) {
   );
 
   return (
-    <CartContext.Provider
-      value={{
-        cartItems,
-        loading,
-        error,
-        addToCart,
-        removeFromCart,
-        updateQuantity,
-        clearCart,
-        getTotalPrice,
-        getTotalItems,
-        refreshCart: fetchCart,
-      }}
-    >
+    <CartContext.Provider value={{
+      cartItems,
+      loading,
+      error,
+      minQtyAlert,  // ✅ export để CartPage dùng
+      addToCart,
+      removeFromCart,
+      updateQuantity,
+      clearCart,
+      getTotalPrice,
+      getTotalItems,
+      refreshCart: fetchCart,
+    }}>
       {children}
-
-      {/* 👇 Modal render ở đây — bao phủ toàn app */}
       <LoginRequiredModal
         isOpen={showLoginModal}
         onClose={() => setShowLoginModal(false)}

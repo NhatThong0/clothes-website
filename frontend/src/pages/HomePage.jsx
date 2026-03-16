@@ -247,16 +247,11 @@ export default function HomePage() {
             </div>
           )}
 
-          <div className="mt-10 text-center">
-            <Link to="/products"
-              className="inline-flex items-center gap-2 px-8 py-3.5 border-2 border-blue-600 text-blue-600 hover:bg-blue-600 hover:text-white rounded-2xl font-bold text-sm transition-all">
-              Xem toàn bộ sản phẩm →
-            </Link>
-          </div>
+          
         </section>
 
         {/* ── Newsletter ────────────────────────────────────────────────── */}
-        <section className="pb-16">
+        {/* <section className="pb-16">
           <div className="relative overflow-hidden bg-gradient-to-r from-blue-600 to-blue-500 rounded-3xl p-8 md:p-12 flex flex-col md:flex-row items-center justify-between gap-6 text-white">
             <div className="absolute inset-0 opacity-10 pointer-events-none"
               style={{ backgroundImage: 'radial-gradient(circle at 80% 50%,white 0%,transparent 60%)' }}/>
@@ -275,7 +270,7 @@ export default function HomePage() {
               </button>
             </div>
           </div>
-        </section>
+        </section> */}
 
       </div>
     </div>

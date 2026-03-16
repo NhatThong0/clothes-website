@@ -9,11 +9,6 @@ const Voucher = require('../model/Voucher');
 /**
  * Get dashboard statistics
  */
-// ═══════════════════════════════════════════════════════════════════
-// THAY hàm getDashboardStats trong adminController.js
-// Fix: totalRevenue = tổng TẤT CẢ đơn (không chỉ delivered)
-//      Thêm: totalDeliveredRevenue = chỉ đơn đã giao thành công
-// ═══════════════════════════════════════════════════════════════════
 
 exports.getDashboardStats = async (req, res) => {
     try {
@@ -81,6 +76,26 @@ exports.getDashboardStats = async (req, res) => {
         res.status(500).json({ status: 'error', message: e.message });
     }
 };
+async function incrementStock(productId, quantity, color, size) {
+    const product = await Product.findById(productId);
+    if (!product) return;
+ 
+    if (color && size && Array.isArray(product.variants) && product.variants.length > 0) {
+        const idx = product.variants.findIndex(v => v.color === color && v.size === size);
+        if (idx >= 0) {
+            const newVariantStock = (product.variants[idx].stock || 0) + quantity;
+            await Product.findByIdAndUpdate(productId, {
+                $set: { [`variants.${idx}.stock`]: newVariantStock },
+            });
+            const fresh    = await Product.findById(productId).lean();
+            const newTotal = fresh.variants.reduce((s, v) => s + (Number(v.stock) || 0), 0);
+            await Product.findByIdAndUpdate(productId, { $set: { stock: newTotal } });
+        }
+    } else {
+        const newStock = (product.stock || 0) + quantity;
+        await Product.findByIdAndUpdate(productId, { $set: { stock: newStock } });
+    }
+}
 // ============================================================
 // THÊM VÀO adminController.js - 3 endpoints cho charts
 // ============================================================
@@ -288,45 +303,44 @@ exports.getDashboardTopProducts = async (req, res) => {
 /**
  * Get all products with filters (for admin)
  */
+// THAY THẾ exports.adminGetAllProducts TRONG adminController.js
+
 exports.adminGetAllProducts = async (req, res, next) => {
     try {
-        const { page = 1, limit = 12, search, category, sort } = req.query;
+        const { page = 1, limit = 10, search, category, sort } = req.query;
 
+        // ✅ Dùng $regex thay vì $text để không cần text index
         let filter = {};
-        if (search) {
-            filter.$text = { $search: search };
+        if (search && search.trim()) {
+            filter.$or = [
+                { name:        { $regex: search.trim(), $options: 'i' } },
+                { description: { $regex: search.trim(), $options: 'i' } },
+            ];
         }
         if (category) {
             filter.category = category;
         }
 
-        const skip = (page - 1) * limit;
+        const skip = (parseInt(page) - 1) * parseInt(limit);
         const products = await Product.find(filter)
             .populate('category', 'name')
-            .sort(sort === 'newest' ? { createdAt: -1 } : {})
+            .sort({ createdAt: -1 })
             .skip(skip)
             .limit(parseInt(limit));
 
         const total = await Product.countDocuments(filter);
-        const pages = Math.ceil(total / limit);
+        const pages = Math.ceil(total / parseInt(limit));
 
         res.status(200).json({
             status: 'success',
             data: {
                 products,
-                pagination: {
-                    current: parseInt(page),
-                    pages,
-                    total
-                }
+                pagination: { current: parseInt(page), pages, total }
             }
         });
     } catch (error) {
-        console.error('Get products error:', error);
-        res.status(500).json({
-            status: 'error',
-            message: 'Failed to fetch products'
-        });
+        console.error('adminGetAllProducts error:', error);
+        res.status(500).json({ status: 'error', message: error.message });
     }
 };
 
@@ -335,46 +349,43 @@ exports.adminGetAllProducts = async (req, res, next) => {
  */
 exports.createProduct = async (req, res, next) => {
     try {
-        const { name, description, price, discount, category, stock, colors, sizes, features, images } = req.body;
-
-        // Validation
-        if (!name || !description || price === undefined || !category || stock === undefined) {
-            return res.status(400).json({
-                status: 'error',
-                message: 'Please provide all required fields'
-            });
+        const { name, description, price, discount, category, images, features, variants } = req.body;
+ 
+        if (!name || !description || price === undefined || !category) {
+            return res.status(400).json({ status: 'error', message: 'Vui lòng cung cấp đầy đủ thông tin' });
         }
-
+ 
+        const variantList = Array.isArray(variants) ? variants : [];
+        const totalStock  = variantList.reduce((s, v) => s + (Number(v.stock) || 0), 0);
+        const colors      = [...new Set(variantList.map(v => v.color).filter(Boolean))];
+        const sizes       = [...new Set(variantList.map(v => v.size).filter(Boolean))];
+ 
         const newProduct = new Product({
             name,
             description,
-            price,
-            discount: discount || 0,
+            price:    parseFloat(price),
+            discount: parseFloat(discount || 0),
             category,
-            stock,
-            colors: colors || [],
-            sizes: sizes || [],
+            images:   images   || [],
             features: features || [],
-            images: images || [],
-            isActive: true
+            variants: variantList,
+            stock:    totalStock,
+            colors,
+            sizes,
+            isActive: true,
         });
-
+ 
         await newProduct.save();
         await newProduct.populate('category', 'name');
-
-        res.status(201).json({
-            status: 'success',
-            message: 'Product created successfully',
-            data: newProduct
-        });
+ 
+        res.status(201).json({ status: 'success', message: 'Tạo sản phẩm thành công', data: newProduct });
     } catch (error) {
         console.error('Create product error:', error);
-        res.status(500).json({
-            status: 'error',
-            message: 'Failed to create product'
-        });
+        res.status(500).json({ status: 'error', message: error.message || 'Lỗi khi tạo sản phẩm' });
     }
 };
+ 
+
 
 /**
  * Update product
@@ -382,46 +393,33 @@ exports.createProduct = async (req, res, next) => {
 exports.updateProduct = async (req, res, next) => {
     try {
         const { id } = req.params;
-        const { name, description, price, discount, category, stock, colors, sizes, features, images, isActive, isFeatured } = req.body;
-
-        const product = await Product.findByIdAndUpdate(
-            id,
-            {
-                name,
-                description,
-                price,
-                discount,
-                category,
-                stock,
-                colors,
-                sizes,
-                features,
-                images,
-                isActive,
-                isFeatured,
-                updatedAt: Date.now()
-            },
-            { new: true, runValidators: true }
-        ).populate('category', 'name');
-
-        if (!product) {
-            return res.status(404).json({
-                status: 'error',
-                message: 'Product not found'
-            });
-        }
-
-        res.status(200).json({
-            status: 'success',
-            message: 'Product updated successfully',
-            data: product
-        });
+        const { name, description, price, discount, category, images, features, variants, isActive, isFeatured } = req.body;
+ 
+        const variantList = Array.isArray(variants) ? variants : [];
+        const totalStock  = variantList.reduce((s, v) => s + (Number(v.stock) || 0), 0);
+        const colors      = [...new Set(variantList.map(v => v.color).filter(Boolean))];
+        const sizes       = [...new Set(variantList.map(v => v.size).filter(Boolean))];
+ 
+        const updateData = { updatedAt: new Date(), variants: variantList, stock: totalStock, colors, sizes };
+        if (name        !== undefined) updateData.name        = name;
+        if (description !== undefined) updateData.description = description;
+        if (price       !== undefined) updateData.price       = parseFloat(price);
+        if (discount    !== undefined) updateData.discount    = parseFloat(discount || 0);
+        if (category    !== undefined) updateData.category    = category;
+        if (images      !== undefined) updateData.images      = images;
+        if (features    !== undefined) updateData.features    = features;
+        if (isActive    !== undefined) updateData.isActive    = isActive;
+        if (isFeatured  !== undefined) updateData.isFeatured  = isFeatured;
+ 
+        const product = await Product.findByIdAndUpdate(id, updateData, { new: true, runValidators: true })
+            .populate('category', 'name');
+ 
+        if (!product) return res.status(404).json({ status: 'error', message: 'Không tìm thấy sản phẩm' });
+ 
+        res.status(200).json({ status: 'success', message: 'Cập nhật thành công', data: product });
     } catch (error) {
         console.error('Update product error:', error);
-        res.status(500).json({
-            status: 'error',
-            message: 'Failed to update product'
-        });
+        res.status(500).json({ status: 'error', message: error.message || 'Lỗi khi cập nhật sản phẩm' });
     }
 };
 
@@ -711,6 +709,9 @@ exports.adminGetAllOrders = async (req, res, next) => {
 
 
 // ── FIX 3: thêm confirmReturn — đặt sau exports.updateOrderStatus ─
+// ════════════════════════════════════════════════════════════════════
+// Thay thế exports.confirmReturn trong adminController.js
+// ════════════════════════════════════════════════════════════════════
 exports.confirmReturn = async (req, res) => {
     try {
         const order = await Order.findById(req.params.id);
@@ -719,13 +720,15 @@ exports.confirmReturn = async (req, res) => {
         if (order.status !== 'return_requested')
             return res.status(400).json({ status: 'error', message: 'Đơn hàng chưa có yêu cầu hoàn trả.' });
 
-        order.status      = 'returned';
-        order.returnedAt  = new Date();
-        order.updatedAt   = new Date();
+        order.status     = 'returned';
+        order.returnedAt = new Date();
+        order.updatedAt  = new Date();
 
-        await Promise.all(order.items.map(item =>
-            Product.findByIdAndUpdate(item.productId, { $inc: { stock: item.quantity } })
-        ));
+        // ✅ Hoàn stock đúng variant
+        for (const item of order.items) {
+            await incrementStock(item.productId, item.quantity, item.color || '', item.size || '');
+        }
+
         if (order.revenueRecorded) {
             order.revenueRecorded = false;
             await Promise.all(order.items.map(item =>
@@ -737,6 +740,78 @@ exports.confirmReturn = async (req, res) => {
         res.status(200).json({ status: 'success', message: 'Xác nhận hoàn trả thành công.', data: order });
     } catch (err) {
         console.error('[confirmReturn]', err);
+        res.status(500).json({ status: 'error', message: err.message });
+    }
+};
+
+// ════════════════════════════════════════════════════════════════════
+// Thay thế exports.updateOrderStatus trong adminController.js
+// ════════════════════════════════════════════════════════════════════
+exports.updateOrderStatus = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { status, trackingNumber } = req.body;
+
+        const validStatuses = [
+            'pending','confirmed','processing','shipped',
+            'delivered','cancelled','return_requested','returned'
+        ];
+        if (!validStatuses.includes(status))
+            return res.status(400).json({ status: 'error', message: 'Invalid status' });
+
+        const order = await Order.findById(id);
+        if (!order)
+            return res.status(404).json({ status: 'error', message: 'Order not found' });
+
+        const prevStatus = order.status;
+        order.status     = status;
+        order.updatedAt  = new Date();
+        if (trackingNumber) order.trackingNumber = trackingNumber;
+
+        // delivered
+        if (status === 'delivered' && prevStatus !== 'delivered') {
+            order.paymentStatus = 'completed';
+            order.deliveredAt   = new Date();
+            if (!order.revenueRecorded) {
+                order.revenueRecorded = true;
+                await Promise.all(order.items.map(item =>
+                    Product.findByIdAndUpdate(item.productId, { $inc: { soldCount: item.quantity } })
+                ));
+            }
+        }
+
+        // ✅ returned → hoàn stock đúng variant
+        if (status === 'returned' && prevStatus !== 'returned') {
+            order.returnedAt = new Date();
+            for (const item of order.items) {
+                await incrementStock(item.productId, item.quantity, item.color || '', item.size || '');
+            }
+            if (order.revenueRecorded) {
+                order.revenueRecorded = false;
+                await Promise.all(order.items.map(item =>
+                    Product.findByIdAndUpdate(item.productId, { $inc: { soldCount: -item.quantity } })
+                ));
+            }
+        }
+
+        // ✅ cancelled → hoàn stock đúng variant
+        if (status === 'cancelled' && prevStatus !== 'cancelled') {
+            for (const item of order.items) {
+                await incrementStock(item.productId, item.quantity, item.color || '', item.size || '');
+            }
+            if (order.revenueRecorded) {
+                order.revenueRecorded = false;
+                await Promise.all(order.items.map(item =>
+                    Product.findByIdAndUpdate(item.productId, { $inc: { soldCount: -item.quantity } })
+                ));
+            }
+        }
+
+        await order.save();
+        const populated = await Order.findById(order._id).populate('userId', 'name email phone');
+        res.status(200).json({ status: 'success', message: 'Order status updated', data: populated });
+    } catch (err) {
+        console.error('[updateOrderStatus]', err);
         res.status(500).json({ status: 'error', message: err.message });
     }
 };

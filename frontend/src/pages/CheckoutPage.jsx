@@ -158,6 +158,8 @@ export default function CheckoutPage() {
         name:      item.name,
         quantity:  item.quantity,
         price:     item.discountedPrice || item.price,
+        color:     item.color || '',
+        size:      item.size  || '',
         discount:  0,
       }));
 

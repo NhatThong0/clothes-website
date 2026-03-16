@@ -94,52 +94,42 @@ exports.addToCart = async (req, res, next) => {
 exports.updateCartItem = async (req, res, next) => {
     try {
         const userId = req.userId;
-        const { productId, quantity } = req.body;
-
-        // Validation
-        if (!productId || quantity < 0) {
-            return res.status(400).json({
-                status: 'error',
-                message: 'Invalid product or quantity',
-            });
-        }
-
-        if (!validateObjectId(productId)) {
+        const { productId, quantity, color = '', size = '' } = req.body;
+ 
+        if (!productId || quantity < 0)
+            return res.status(400).json({ status: 'error', message: 'Invalid product or quantity' });
+        if (!validateObjectId(productId))
             return res.status(400).json({ status: 'error', message: 'Invalid product ID' });
-        }
-
+ 
         const cart = await Cart.findOne({ userId });
-
-        if (!cart) {
+        if (!cart)
             return res.status(404).json({ status: 'error', message: 'Cart not found' });
-        }
-
-        
-const cartItem = cart.items.find(
-  item =>
-    item.productId.toString() === productId &&
-    item.color === color &&   // add color/size to req.body
-    item.size === size);
-        if (!cartItem) {
+ 
+        // ✅ Tìm đúng item theo productId + color + size
+        const cartItem = cart.items.find(item =>
+            item.productId.toString() === productId &&
+            (item.color || '') === color &&
+            (item.size  || '') === size
+        );
+ 
+        if (!cartItem)
             return res.status(404).json({ status: 'error', message: 'Item not in cart' });
-        }
-
+ 
         if (quantity === 0) {
-            cart.items = cart.items.filter(item => item.productId.toString() !== productId);
+            cart.items = cart.items.filter(item =>
+                !(item.productId.toString() === productId &&
+                  (item.color || '') === color &&
+                  (item.size  || '') === size)
+            );
         } else {
             cartItem.quantity = quantity;
         }
-
+ 
         cart.updatedAt = new Date();
         await cart.save();
-
         await cart.populate('items.productId');
-
-        res.status(200).json({
-            status: 'success',
-            message: 'Cart updated',
-            data: cart,
-        });
+ 
+        res.status(200).json({ status: 'success', message: 'Cart updated', data: cart });
     } catch (error) {
         next(error);
     }
@@ -149,29 +139,31 @@ const cartItem = cart.items.find(
 exports.removeFromCart = async (req, res, next) => {
     try {
         const userId = req.userId;
-        const { productId } = req.body;
-
-        if (!productId || !validateObjectId(productId)) {
+        const { productId, color = '', size = '' } = req.body;
+ 
+        if (!productId || !validateObjectId(productId))
             return res.status(400).json({ status: 'error', message: 'Invalid product ID' });
-        }
-
+ 
         const cart = await Cart.findOne({ userId });
-
-        if (!cart) {
+        if (!cart)
             return res.status(404).json({ status: 'error', message: 'Cart not found' });
-        }
-
-        cart.items = cart.items.filter(item => item.productId.toString() !== productId);
+ 
+        // ✅ Xóa đúng item theo productId + color + size
+        const before = cart.items.length;
+        cart.items = cart.items.filter(item =>
+            !(item.productId.toString() === productId &&
+              (item.color || '') === color &&
+              (item.size  || '') === size)
+        );
+ 
+        if (cart.items.length === before)
+            return res.status(404).json({ status: 'error', message: 'Item not in cart' });
+ 
         cart.updatedAt = new Date();
         await cart.save();
-
         await cart.populate('items.productId');
-
-        res.status(200).json({
-            status: 'success',
-            message: 'Product removed from cart',
-            data: cart,
-        });
+ 
+        res.status(200).json({ status: 'success', message: 'Product removed from cart', data: cart });
     } catch (error) {
         next(error);
     }
