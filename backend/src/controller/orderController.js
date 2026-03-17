@@ -151,16 +151,20 @@ const validateVoucherCode = async (code, userId, orderAmount) => {
 };
 
 // ── POST /api/orders ──────────────────────────────────────────────────────────
+
+
 const createOrder = async (req, res) => {
     try {
         const { items, shippingAddress, paymentMethod, notes, voucherCode } = req.body;
         const userId = req.user.userId || req.userId;
+
         if (!items || items.length === 0)
             return res.status(400).json({ status: 'error', message: 'Đơn hàng phải có ít nhất 1 sản phẩm.' });
 
         let subtotal = 0;
         const verifiedItems = [];
 
+        // ── Bước 1: Validate trước ─────────────────────────────────────────
         for (const item of items) {
             const product = await Product.findById(item.productId);
             if (!product)
@@ -169,14 +173,13 @@ const createOrder = async (req, res) => {
             const color = item.color || '';
             const size  = item.size  || '';
 
-            // Kiểm tra stock đúng variant
+            // Kiểm tra stock hiện tại (chưa lock)
             if (color && size && product.variants?.length > 0) {
-                const variant      = product.variants.find(v => v.color === color && v.size === size);
-                const variantStock = variant?.stock ?? 0;
-                if (variantStock < item.quantity)
+                const variant = product.variants.find(v => v.color === color && v.size === size);
+                if (!variant || variant.stock < item.quantity)
                     return res.status(400).json({
                         status: 'error',
-                        message: `"${product.name}" (${color}/${size}) không đủ hàng. Còn: ${variantStock}`
+                        message: `"${product.name}" (${color}/${size}) không đủ hàng. Còn: ${variant?.stock ?? 0}`
                     });
             } else {
                 if (product.stock < item.quantity)
@@ -188,7 +191,6 @@ const createOrder = async (req, res) => {
 
             const itemPrice = item.price || product.price;
             subtotal += itemPrice * item.quantity;
-
             verifiedItems.push({
                 productId: product._id,
                 name:      product.name,
@@ -202,6 +204,7 @@ const createOrder = async (req, res) => {
             });
         }
 
+        // ── Bước 2: Voucher ────────────────────────────────────────────────
         let discountAmount = 0;
         let appliedVoucher = null;
         if (voucherCode) {
@@ -213,28 +216,79 @@ const createOrder = async (req, res) => {
             }
         }
 
-        const shippingFee = 0;
-        const total       = subtotal - discountAmount + shippingFee;
+        const total = subtotal - discountAmount;
 
+        // ── Bước 3: Atomic decrement stock ────────────────────────────────
+        // Dùng findOneAndUpdate với điều kiện stock đủ — nếu race condition
+        // thì update thất bại (trả về null) và báo hết hàng
+        const reservedItems = [];
+        try {
+            for (const item of verifiedItems) {
+                const { productId, quantity, color, size } = item;
+
+                let updated;
+                if (color && size) {
+                    // Tìm index variant
+                    const product = await Product.findById(productId);
+                    const idx     = product?.variants?.findIndex(v => v.color === color && v.size === size) ?? -1;
+
+                    if (idx >= 0) {
+                        // ✅ Atomic: chỉ update nếu stock >= quantity
+                        updated = await Product.findOneAndUpdate(
+                            {
+                                _id: productId,
+                                [`variants.${idx}.stock`]: { $gte: quantity },
+                            },
+                            {
+                                $inc: { [`variants.${idx}.stock`]: -quantity },
+                            },
+                            { new: true }
+                        );
+
+                        if (updated) {
+                            // Cập nhật lại stock tổng
+                            const newTotal = updated.variants.reduce((s, v) => s + (v.stock || 0), 0);
+                            await Product.findByIdAndUpdate(productId, { $set: { stock: newTotal } });
+                        }
+                    }
+                } else {
+                    // ✅ Atomic: chỉ update nếu stock >= quantity
+                    updated = await Product.findOneAndUpdate(
+                        { _id: productId, stock: { $gte: quantity } },
+                        { $inc: { stock: -quantity } },
+                        { new: true }
+                    );
+                }
+
+                if (!updated) {
+                    // Race condition — hoàn lại stock đã trừ trước đó
+                    for (const reserved of reservedItems) {
+                        await incrementStock(reserved.productId, reserved.quantity, reserved.color, reserved.size);
+                    }
+                    const product = await Product.findById(productId).lean();
+                    return res.status(400).json({
+                        status: 'error',
+                        message: `"${product?.name || productId}" vừa hết hàng. Vui lòng thử lại.`
+                    });
+                }
+
+                reservedItems.push({ productId, quantity, color, size });
+            }
+        } catch (err) {
+            // Rollback nếu có lỗi giữa chừng
+            for (const reserved of reservedItems) {
+                await incrementStock(reserved.productId, reserved.quantity, reserved.color, reserved.size);
+            }
+            throw err;
+        }
+
+        // ── Bước 4: Tạo đơn hàng ──────────────────────────────────────────
         const order = await Order.create({
             userId, items: verifiedItems, shippingAddress, paymentMethod,
-            notes: notes || '', subtotal, shippingFee, discountAmount,
+            notes: notes || '', subtotal, shippingFee: 0, discountAmount,
             voucherCode:    appliedVoucher ? appliedVoucher.code : null,
             total, paymentStatus: 'pending', status: 'pending', revenueRecorded: false,
         });
-
-        // ✅ Trừ stock đúng variant sau khi tạo đơn
-        for (const item of verifiedItems) {
-            console.log('[createOrder] decrement item:', {
-                name:      item.name,
-                productId: item.productId,
-                quantity:  item.quantity,
-                color:     item.color,
-                size:      item.size,
-            });
-            await decrementStock(item.productId, item.quantity, item.color, item.size);
-        }
-
 
         if (appliedVoucher) {
             await Voucher.findByIdAndUpdate(appliedVoucher._id, {

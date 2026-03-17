@@ -158,28 +158,89 @@ function ReturnModal({ onClose, onSubmit, submitting }) {
         setImages(p => { URL.revokeObjectURL(p[idx].preview); return p.filter((_,i) => i !== idx); });
     };
 
-    const handleSubmit = async () => {
-        if (!reason.trim()) { alert('Vui lòng nhập lý do hoàn trả.'); return; }
-        if (images.length === 0) { alert('Vui lòng đính kèm ít nhất 1 ảnh sản phẩm.'); return; }
-        let uploadedUrls = [];
-        const updated = [...images];
-        for (let i = 0; i < updated.length; i++) {
-            updated[i] = { ...updated[i], uploading: true, error: null };
-            setImages([...updated]);
-            try {
-                const url = await uploadToCloudinary(updated[i].file);
-                updated[i] = { ...updated[i], url, uploading: false };
-                uploadedUrls.push(url);
-            } catch {
-                updated[i] = { ...updated[i], uploading: false, error: 'Upload thất bại' };
-                setImages([...updated]);
-                alert(`Không thể upload ảnh "${updated[i].file.name}". Vui lòng thử lại.`);
-                return;
-            }
-            setImages([...updated]);
+    // Thay thế hàm handleSubmit trong CheckoutPage.jsx
+
+const handleSubmit = async e => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+        const items = checkoutItems.map(item => ({
+            productId: item._id || item.id,
+            name:      item.name,
+            quantity:  item.quantity,
+            price:     item.discountedPrice || item.price,
+            color:     item.color || '',
+            size:      item.size  || '',
+            discount:  0,
+        }));
+
+        const shippingAddress = {
+            fullName: formData.fullName,
+            email:    formData.email,
+            phone:    formData.phone,
+            address:  [formData.address, formData.ward, formData.district, formData.city].filter(Boolean).join(', '),
+            city:     formData.city,
+            district: formData.district,
+            ward:     formData.ward,
+        };
+
+        const orderRes     = await apiClient.post('/orders', {
+            items, shippingAddress,
+            paymentMethod:  formData.paymentMethod,
+            subtotal, total,
+            notes:          formData.notes,
+            voucherCode:    appliedVoucher?.code || undefined,
+            discountAmount: discountAmount,
+        });
+        const createdOrder = orderRes.data.data;
+
+        // Xóa đúng từng item theo id + color + size
+        checkoutItems.forEach(item =>
+            removeFromCart(item.id || item._id, item.color || '', item.size || '')
+        );
+        sessionStorage.removeItem('checkoutItems');
+
+        if (formData.paymentMethod === 'vnpay') {
+            const payRes     = await apiClient.post('/payment/vnpay-create', { orderId: createdOrder._id });
+            const paymentUrl = payRes.data?.data?.paymentUrl;
+            if (!paymentUrl) throw new Error('Không nhận được paymentUrl từ server');
+            window.location.href = paymentUrl;
+            return;
         }
-        onSubmit({ reason, images: uploadedUrls });
-    };
+
+        setOrderPlaced(true);
+        setTimeout(() => navigate(`/orders/${createdOrder._id}`), 2500);
+    } catch (err) {
+        const message = err.response?.data?.message || err.message || '';
+
+        // ✅ Nếu lỗi do hết hàng → xóa item đó khỏi giỏ hàng
+        if (message.includes('không đủ hàng') || message.includes('vừa hết hàng')) {
+            // Tìm item bị lỗi dựa trên tên sản phẩm trong message
+            const failedItem = checkoutItems.find(item =>
+                message.includes(item.name)
+            );
+            if (failedItem) {
+                removeFromCart(
+                    failedItem.id || failedItem._id,
+                    failedItem.color || '',
+                    failedItem.size  || ''
+                );
+                // Cập nhật sessionStorage
+                const remaining = checkoutItems.filter(i => i !== failedItem);
+                if (remaining.length > 0) {
+                    sessionStorage.setItem('checkoutItems', JSON.stringify(remaining));
+                } else {
+                    sessionStorage.removeItem('checkoutItems');
+                }
+            }
+            alert(`⚠️ ${message}\n\nSản phẩm đã được xóa khỏi giỏ hàng.`);
+        } else {
+            alert('Lỗi khi tạo đơn hàng: ' + message);
+        }
+    } finally {
+        setLoading(false);
+    }
+};
 
     const allUploading = images.some(img => img.uploading);
 
