@@ -1,7 +1,7 @@
 # Dependency directories (Loại bỏ các thư mục thư viện nặng)
 backend/node_modules/
 frontend/node_modules/
-market-web/node_modules
+market-web/node_modules/
 
 # Environment files (Loại bỏ các file chứa mật khẩu, API key)
 backend/.env
