@@ -44,8 +44,11 @@ const corsOptions = {
             if (process.env.CLIENT_URL && origin === process.env.CLIENT_URL) callback(null, true);
             else callback(new Error('CORS not allowed'));
         } else {
-            if (!origin || allowedOrigins.includes(origin)) callback(null, true);
-            else callback(new Error('CORS not allowed'));
+            if (!origin || allowedOrigins.includes(origin) || origin.startsWith('http://10.0.')) {callback(null, true);
+            }
+            else {
+                callback(new Error('CORS not allowed'));
+            }
         }
     },
     credentials: true,

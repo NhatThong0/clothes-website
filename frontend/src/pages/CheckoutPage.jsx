@@ -149,66 +149,73 @@ export default function CheckoutPage() {
   };
 
   // ── Submit ────────────────────────────────────────────────────────────────
-  const handleSubmit = async e => {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      const items = checkoutItems.map(item => ({
-        productId: item._id || item.id,
-        name:      item.name,
-        quantity:  item.quantity,
-        price:     item.discountedPrice || item.price,
-        color:     item.color || '',
-        size:      item.size  || '',
-        discount:  0,
-      }));
+const handleSubmit = async e => {
+  e.preventDefault();
+  setLoading(true);
+  try {
+    const items = checkoutItems.map(item => ({
+      productId: item._id || item.id,
+      name:      item.name,
+      quantity:  item.quantity,
+      price:     item.discountedPrice || item.price,
+      color:     item.color || '',
+      size:      item.size  || '',
+      discount:  0,
+    }));
 
-      const shippingAddress = {
-        fullName: formData.fullName,
-        email:    formData.email,
-        phone:    formData.phone,
-        address:  [formData.address, formData.ward, formData.district, formData.city].filter(Boolean).join(', '),
-        city:     formData.city,
-        district: formData.district,
-        ward:     formData.ward,
-      };
+    const shippingAddress = {
+      fullName: formData.fullName,
+      email:    formData.email,
+      phone:    formData.phone,
+      address:  [formData.address, formData.ward, formData.district, formData.city].filter(Boolean).join(', '),
+      city:     formData.city,
+      district: formData.district,
+      ward:     formData.ward,
+    };
 
-      // Bước 1: Tạo đơn hàng
-      const orderRes     = await apiClient.post('/orders', {
-        items,
-        shippingAddress,
-        paymentMethod:  formData.paymentMethod,
-        subtotal,
-        total,
-        notes:          formData.notes,
-        voucherCode:    appliedVoucher?.code || undefined,
-        discountAmount: discountAmount,
-      });
-      const createdOrder = orderRes.data.data;
+    // Bước 1: Tạo đơn hàng
+    const orderRes     = await apiClient.post('/orders', {
+      items, shippingAddress,
+      paymentMethod:  formData.paymentMethod,
+      subtotal, total,
+      notes:          formData.notes,
+      voucherCode:    appliedVoucher?.code || undefined,
+      discountAmount: discountAmount,
+    });
+    const createdOrder = orderRes.data.data;
 
-      // Xoá giỏ hàng
-      checkoutItems.forEach(item => removeFromCart(item.id));
-      sessionStorage.removeItem('checkoutItems');
+    // ✅ Bước 2: Xóa từng item — truyền đúng (productId, color, size)
+    await Promise.allSettled(
+      checkoutItems.map(item =>
+        removeFromCart(
+          item._id || item.id,
+          item.color || '',
+          item.size  || '',
+        )
+      )
+    );
 
-      // Bước 2: Xử lý theo phương thức thanh toán
-      if (formData.paymentMethod === 'vnpay') {
-        // ✅ Gọi API tạo URL VNPay → redirect sang trang thanh toán VNPay
-        const payRes     = await apiClient.post('/payment/vnpay-create', { orderId: createdOrder._id });
-        const paymentUrl = payRes.data?.data?.paymentUrl;
-        if (!paymentUrl) throw new Error('Không nhận được paymentUrl từ server');
-        window.location.href = paymentUrl; // rời khỏi SPA → sang VNPay sandbox
-        return;
-      }
+    // ✅ Bước 3: Xóa sessionStorage
+    sessionStorage.removeItem('checkoutItems');
 
-      // COD: hiện màn hình thành công
-      setOrderPlaced(true);
-      setTimeout(() => navigate(`/orders/${createdOrder._id}`), 2500);
-    } catch (err) {
-      alert('Lỗi khi tạo đơn hàng: ' + (err.response?.data?.message || err.message));
-    } finally {
-      setLoading(false);
+    // Bước 4: Xử lý theo phương thức thanh toán
+    if (formData.paymentMethod === 'vnpay') {
+      const payRes     = await apiClient.post('/payment/vnpay-create', { orderId: createdOrder._id });
+      const paymentUrl = payRes.data?.data?.paymentUrl;
+      if (!paymentUrl) throw new Error('Không nhận được paymentUrl từ server');
+      window.location.href = paymentUrl;
+      return;
     }
-  };
+
+    // COD: hiện màn hình thành công → navigate
+    setOrderPlaced(true);
+    setTimeout(() => navigate(`/orders/${createdOrder._id}`), 2500);
+  } catch (err) {
+    alert('Lỗi khi tạo đơn hàng: ' + (err.response?.data?.message || err.message));
+  } finally {
+    setLoading(false);
+  }
+};
 
   // ── Guards ────────────────────────────────────────────────────────────────
   if (cartItems.length === 0 && !orderPlaced) {
