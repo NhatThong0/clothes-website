@@ -3,12 +3,11 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAdmin } from '@hooks/useAdmin';
 import apiClient from '@services/apiClient';
 
-const STATUSES = ['pending','confirmed','processing','shipped','delivered','return_requested','returned','cancelled'];
+const STATUSES = ['pending','confirmed','shipped','delivered','return_requested','returned','cancelled'];
 
 const STATUS_CFG = {
   pending:          { label: 'Chờ xác nhận',   dot: '#F59E0B', bg: '#FFFBEB', text: '#92400E', border: '#FDE68A' },
   confirmed:        { label: 'Đã xác nhận',    dot: '#3B82F6', bg: '#EFF6FF', text: '#1D4ED8', border: '#BFDBFE' },
-  processing:       { label: 'Đang xử lý',     dot: '#8B5CF6', bg: '#F5F3FF', text: '#5B21B6', border: '#DDD6FE' },
   shipped:          { label: 'Đang giao',      dot: '#06B6D4', bg: '#ECFEFF', text: '#164E63', border: '#A5F3FC' },
   delivered:        { label: 'Đã giao',        dot: '#10B981', bg: '#ECFDF5', text: '#065F46', border: '#A7F3D0' },
   return_requested: { label: 'Yêu cầu HT',    dot: '#F97316', bg: '#FFF7ED', text: '#9A3412', border: '#FED7AA' },
@@ -18,6 +17,43 @@ const STATUS_CFG = {
 const sc   = s => STATUS_CFG[s] || { label: s, dot:'#6B7280', bg:'#F9FAFB', text:'#374151', border:'#E5E7EB' };
 const fmt  = v => new Intl.NumberFormat('vi-VN', { style:'currency', currency:'VND' }).format(v || 0);
 const fmtD = d => new Date(d).toLocaleString('vi-VN', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
+
+// ── Action button configs per status ──────────────────────────────────────────
+const ACTION_CFG = {
+  pending: {
+    label: '✓ Xác nhận đơn hàng',
+    nextStatus: 'confirmed',
+    color: 'bg-blue-600 hover:bg-blue-700',
+    confirmMsg: 'Xác nhận đơn hàng này?',
+    description: 'Đơn hàng sẽ chuyển sang trạng thái Đã xác nhận.',
+    icon: '📋',
+  },
+  confirmed: {
+    label: '🚚 Bắt đầu giao hàng',
+    nextStatus: 'shipped',
+    color: 'bg-cyan-600 hover:bg-cyan-700',
+    confirmMsg: 'Xác nhận bắt đầu giao hàng?',
+    description: 'Đơn hàng sẽ chuyển sang trạng thái Đang giao.',
+    icon: '🚀',
+  },
+  shipped: {
+    label: '✅ Hoàn thành giao hàng',
+    nextStatus: 'delivered',
+    color: 'bg-emerald-600 hover:bg-emerald-700',
+    confirmMsg: 'Xác nhận đơn hàng đã giao thành công?',
+    description: 'Đơn hàng sẽ chuyển sang trạng thái Đã giao.',
+    icon: '📦',
+  },
+  return_requested: {
+    label: '↩️ Xác nhận hoàn trả',
+    nextStatus: 'returned',
+    color: 'bg-orange-500 hover:bg-orange-600',
+    confirmMsg: 'Xác nhận đã nhận hàng hoàn trả?',
+    description: 'Kho hàng sẽ được cập nhật lại.',
+    icon: '↩️',
+    useConfirmReturnApi: true,
+  },
+};
 
 function StatusBadge({ status }) {
   const c = sc(status);
@@ -39,7 +75,7 @@ function InfoRow({ label, value }) {
   );
 }
 
-const TIMELINE = ['pending','confirmed','processing','shipped','delivered'];
+const TIMELINE = ['pending','confirmed','shipped','delivered'];
 
 function OrderTimeline({ currentStatus }) {
   if (currentStatus === 'cancelled') return (
@@ -95,47 +131,122 @@ function OrderTimeline({ currentStatus }) {
   );
 }
 
+// ── Main action button panel ──────────────────────────────────────────────────
+function ActionPanel({ order, onActionDone }) {
+  const [updating, setUpdating] = useState(false);
+  const [success, setSuccess]   = useState(false);
+  const { updateOrderStatus }   = useAdmin ? useAdmin() : {};
+
+  const action = ACTION_CFG[order.status];
+
+  const handleAction = async () => {
+    if (!action) return;
+    if (!window.confirm(action.confirmMsg + '\n' + action.description)) return;
+    setUpdating(true);
+    try {
+      if (action.useConfirmReturnApi) {
+        await apiClient.put(`/admin/orders/${order._id}/confirm-return`);
+      } else {
+        await updateOrderStatus(order._id, { status: action.nextStatus });
+      }
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 2500);
+      onActionDone?.();
+    } catch (err) {
+      alert(err?.response?.data?.message || 'Có lỗi xảy ra, vui lòng thử lại');
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  // Return flow: after confirm-return → need "Đã nhận hàng" step
+  // This is handled inside ACTION_CFG for return_requested already.
+  // "returned" = terminal, no action.
+
+  if (!action) {
+    // Terminal states
+    if (order.status === 'delivered') {
+      return (
+        <div className="mt-4 p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-center">
+          <span className="text-2xl">🎉</span>
+          <p className="text-sm font-bold text-emerald-700 mt-1">Đơn hàng đã giao thành công!</p>
+          <p className="text-xs text-emerald-600 mt-0.5">Không cần thao tác thêm.</p>
+        </div>
+      );
+    }
+    if (order.status === 'returned') {
+      return (
+        <div className="mt-4 p-4 bg-slate-50 border border-slate-200 rounded-xl text-center">
+          <p className="text-xs text-slate-400">Đơn đã hoàn trả — không thể thay đổi trạng thái</p>
+        </div>
+      );
+    }
+    if (order.status === 'cancelled') {
+      return (
+        <div className="mt-4 p-4 bg-rose-50 border border-rose-200 rounded-xl text-center">
+          <p className="text-xs text-rose-500 font-semibold">Đơn hàng đã bị hủy</p>
+        </div>
+      );
+    }
+    return null;
+  }
+
+  const isReturn = order.status === 'return_requested';
+
+  return (
+    <div className={`mt-4 p-4 rounded-xl border ${isReturn ? 'bg-orange-50 border-orange-200' : 'bg-blue-50 border-blue-200'}`}>
+      {isReturn && (
+        <>
+          <p className="text-xs font-bold text-orange-700 mb-1">⚠️ Khách hàng yêu cầu hoàn trả</p>
+          <p className="text-xs text-orange-600 mb-1">
+            Yêu cầu lúc: {order.returnRequestedAt ? fmtD(order.returnRequestedAt) : '—'}
+          </p>
+          {order.returnReason && (
+            <p className="text-xs text-slate-600 italic mb-3">"{order.returnReason}"</p>
+          )}
+        </>
+      )}
+
+      {!isReturn && (
+        <div className="flex items-center gap-2 mb-3">
+          <span className="text-lg">{action.icon}</span>
+          <div>
+            <p className="text-xs font-bold text-slate-700">Hành động tiếp theo</p>
+            <p className="text-xs text-slate-500">{action.description}</p>
+          </div>
+        </div>
+      )}
+
+      <button
+        onClick={handleAction}
+        disabled={updating}
+        className={`w-full py-2.5 text-white rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2 shadow-sm disabled:opacity-50 ${action.color}`}
+      >
+        {updating && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>}
+        {updating ? 'Đang xử lý...' : action.label}
+      </button>
+
+      {success && (
+        <div className="mt-3 flex items-center gap-2 p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+          <span className="text-emerald-500">✓</span>
+          <span className="text-xs font-semibold text-emerald-700">Cập nhật thành công!</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const AdminOrderDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { getOrderDetails, updateOrderStatus, loading } = useAdmin();
+  const { getOrderDetails, loading } = useAdmin();
 
   const [order,     setOrder]     = useState(null);
-  const [newStatus, setNewStatus] = useState('');
-  const [updating,  setUpdating]  = useState(false);
-  const [success,   setSuccess]   = useState(false);
-
   useEffect(() => { if (id) loadOrder(); }, [id]);
 
   const loadOrder = async () => {
     const data = await getOrderDetails(id);
-    if (data) { setOrder(data); setNewStatus(data.status); }
-  };
-
-  const handleUpdate = async () => {
-    if (newStatus === order.status) return;
-    setUpdating(true);
-    try {
-      await updateOrderStatus(id, { status: newStatus });
-      setSuccess(true);
-      setTimeout(() => setSuccess(false), 2500);
-      loadOrder();
-    } catch { /* handled */ }
-    finally { setUpdating(false); }
-  };
-
-  // ✅ Admin xác nhận hoàn trả
-  const handleConfirmReturn = async () => {
-    if (!window.confirm('Xác nhận hoàn trả? Kho hàng sẽ được cập nhật lại.')) return;
-    setUpdating(true);
-    try {
-      await apiClient.put(`/admin/orders/${id}/confirm-return`);
-      setSuccess(true);
-      setTimeout(() => setSuccess(false), 2500);
-      loadOrder();
-    } catch (err) {
-      alert(err.response?.data?.message || 'Không thể xác nhận hoàn trả');
-    } finally { setUpdating(false); }
+    if (data) { setOrder(data); }
   };
 
   if (!order) return (
@@ -160,8 +271,6 @@ const AdminOrderDetail = () => {
     failed: 'Thất bại',
     refunded: 'Đã hoàn tiền',
   };
-
-  const isReturnFlow = ['return_requested','returned'].includes(order.status);
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -196,12 +305,9 @@ const AdminOrderDetail = () => {
               <h2 className="text-sm font-bold text-slate-500 uppercase tracking-widest mb-5">Tiến trình đơn hàng</h2>
               <OrderTimeline currentStatus={order.status}/>
 
-              {/* ✅ Hiển thị thời gian giao hàng khi delivered/return/returned */}
               {order.deliveredAt && (
                 <div className="mt-5 pt-4 border-t border-slate-100 flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-xl bg-emerald-100 flex items-center justify-center text-base flex-shrink-0">
-                    📦
-                  </div>
+                  <div className="w-8 h-8 rounded-xl bg-emerald-100 flex items-center justify-center text-base flex-shrink-0">📦</div>
                   <div>
                     <p className="text-xs text-slate-400 font-medium">Thời gian giao hàng thành công</p>
                     <p className="text-sm font-bold text-emerald-700">{fmtD(order.deliveredAt)}</p>
@@ -209,12 +315,9 @@ const AdminOrderDetail = () => {
                 </div>
               )}
 
-              {/* ✅ Thời gian yêu cầu hoàn trả */}
               {order.returnRequestedAt && (
                 <div className="mt-3 flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-xl bg-orange-100 flex items-center justify-center text-base flex-shrink-0">
-                    ↩️
-                  </div>
+                  <div className="w-8 h-8 rounded-xl bg-orange-100 flex items-center justify-center text-base flex-shrink-0">↩️</div>
                   <div>
                     <p className="text-xs text-slate-400 font-medium">Thời gian yêu cầu hoàn trả</p>
                     <p className="text-sm font-bold text-orange-600">{fmtD(order.returnRequestedAt)}</p>
@@ -225,12 +328,9 @@ const AdminOrderDetail = () => {
                 </div>
               )}
 
-              {/* ✅ Thời gian hoàn trả thành công */}
               {order.returnedAt && (
                 <div className="mt-3 flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center text-base flex-shrink-0">
-                    ✔️
-                  </div>
+                  <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center text-base flex-shrink-0">✔️</div>
                   <div>
                     <p className="text-xs text-slate-400 font-medium">Xác nhận hoàn trả</p>
                     <p className="text-sm font-bold text-slate-600">{fmtD(order.returnedAt)}</p>
@@ -340,61 +440,27 @@ const AdminOrderDetail = () => {
           {/* ── Right column ─────────────────────────────────────────── */}
           <div className="space-y-5">
 
-            {/* Status update */}
+            {/* ✅ Action panel — primary action button based on current status */}
             <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
-              <h2 className="text-sm font-bold text-slate-500 uppercase tracking-widest mb-4">Cập nhật trạng thái</h2>
+              <h2 className="text-sm font-bold text-slate-500 uppercase tracking-widest mb-3">Thao tác đơn hàng</h2>
 
-              <div className="mb-3">
-                <p className="text-xs text-slate-400 mb-1.5">Trạng thái hiện tại</p>
+              <div className="mb-3 flex items-center gap-2">
+                <span className="text-xs text-slate-400">Trạng thái hiện tại:</span>
                 <StatusBadge status={order.status}/>
               </div>
 
-              {/* ✅ Nút xác nhận hoàn trả nổi bật — hiện khi return_requested */}
-              {order.status === 'return_requested' ? (
-                <div className="mt-4 p-4 bg-orange-50 border border-orange-200 rounded-xl">
-                  <p className="text-xs font-bold text-orange-700 mb-1">⚠️ Khách hàng yêu cầu hoàn trả</p>
-                  <p className="text-xs text-orange-600 mb-3">
-                    Yêu cầu lúc: {order.returnRequestedAt ? fmtD(order.returnRequestedAt) : '—'}
-                  </p>
-                  {order.returnReason && (
-                    <p className="text-xs text-slate-600 italic mb-3">"{order.returnReason}"</p>
-                  )}
-                  <button onClick={handleConfirmReturn} disabled={updating}
-                    className="w-full py-2.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2">
-                    {updating && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>}
-                    ✓ Xác nhận hoàn trả
-                  </button>
-                </div>
-              ) : order.status !== 'returned' ? (
-                <>
-                  <div className="mb-4">
-                    <p className="text-xs text-slate-400 mb-1.5">Chuyển sang</p>
-                    <select value={newStatus} onChange={e => setNewStatus(e.target.value)}
-                      className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white font-medium text-slate-700">
-                      {STATUSES.filter(s => s !== 'return_requested' && s !== 'returned').map(s => (
-                        <option key={s} value={s}>{sc(s).label}</option>
-                      ))}
-                    </select>
+              {/* Step indicator */}
+              {ACTION_CFG[order.status] && (
+                <div className="mb-1">
+                  <div className="flex items-center gap-2 text-xs text-slate-400 mb-2">
+                    <span>Bước tiếp theo</span>
+                    <span className="flex-1 border-t border-dashed border-slate-200"/>
+                    <StatusBadge status={ACTION_CFG[order.status].nextStatus}/>
                   </div>
-
-                  <button onClick={handleUpdate} disabled={newStatus === order.status || updating}
-                    className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 shadow-sm">
-                    {updating && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>}
-                    {updating ? 'Đang cập nhật...' : 'Xác nhận cập nhật'}
-                  </button>
-                </>
-              ) : (
-                <div className="mt-4 p-3 bg-slate-50 border border-slate-200 rounded-xl text-center">
-                  <p className="text-xs text-slate-400">Đơn đã hoàn trả — không thể thay đổi trạng thái</p>
                 </div>
               )}
 
-              {success && order.status !== 'return_requested' && (
-                <div className="mt-3 flex items-center gap-2 p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
-                  <span className="text-emerald-500">✓</span>
-                  <span className="text-xs font-semibold text-emerald-700">Cập nhật thành công!</span>
-                </div>
-              )}
+              <ActionPanel order={order} onActionDone={loadOrder}/>
             </div>
 
             {/* Payment */}
@@ -411,12 +477,8 @@ const AdminOrderDetail = () => {
                   {paymentStatusLabel[order.paymentStatus] || order.paymentStatus}
                 </span>
               </div>
-              {order.voucherCode && (
-                <InfoRow label="Voucher" value={order.voucherCode}/>
-              )}
-              {order.discountAmount > 0 && (
-                <InfoRow label="Đã giảm" value={`−${fmt(order.discountAmount)}`}/>
-              )}
+              {order.voucherCode && <InfoRow label="Voucher" value={order.voucherCode}/>}
+              {order.discountAmount > 0 && <InfoRow label="Đã giảm" value={`−${fmt(order.discountAmount)}`}/>}
             </div>
 
             {/* Tracking */}

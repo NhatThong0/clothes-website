@@ -3,11 +3,12 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useCartStore } from '@/src/store/cartStore';
+import { useRouter, usePathname } from 'expo-router';
 
 const TOKEN = { black: '#1A1A1A', white: '#FFFFFF', muted: '#AAAAAA' };
 
 type TabName = 'index' | 'cart' | 'orders' | 'chat' | 'profile';
-
+const HIDDEN_ROUTES = ['/chat'];
 const TABS: {
   name: TabName;
   label: string;
@@ -24,7 +25,8 @@ const TABS: {
 function FloatingTabBar({ state, navigation }: any) {
   const totalItems = useCartStore(s => s.totalItems);
   const cartCount  = totalItems();
-
+  const pathname = usePathname();
+  if (HIDDEN_ROUTES.some(r => pathname.startsWith(r))) return null;
   return (
     <View style={s.wrapper} pointerEvents="box-none">
       <View style={s.container}>
@@ -87,7 +89,7 @@ export default function TabLayout() {
       <Tabs.Screen name="index"    options={{ title: 'Home' }} />
       <Tabs.Screen name="cart"     options={{ title: 'Giỏ hàng' }} />
       <Tabs.Screen name="orders"   options={{ title: 'Đơn hàng' }} />
-      <Tabs.Screen name="chat"     options={{ title: 'Hỗ trợ' }} />
+      <Tabs.Screen name="chat"     options={{ title: 'Hỗ trợ',tabBarStyle: { display: 'none' } }} />
       <Tabs.Screen name="profile"  options={{ title: 'Tài khoản' }} />
       <Tabs.Screen name="products" options={{ href: null }} />
     </Tabs>

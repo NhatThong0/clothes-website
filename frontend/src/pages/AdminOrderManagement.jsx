@@ -3,12 +3,11 @@ import { useAdmin } from '@hooks/useAdmin';
 import { Link } from 'react-router-dom';
 import apiClient from '@services/apiClient';
 
-const STATUSES = ['pending','confirmed','processing','shipped','delivered','return_requested','returned','cancelled'];
+const STATUSES = ['pending','confirmed','shipped','delivered','return_requested','returned','cancelled'];
 
 const STATUS_CFG = {
   pending:          { label: 'Chờ xác nhận',   dot: '#F59E0B', bg: '#FFFBEB', text: '#92400E', border: '#FDE68A' },
   confirmed:        { label: 'Đã xác nhận',    dot: '#3B82F6', bg: '#EFF6FF', text: '#1D4ED8', border: '#BFDBFE' },
-  processing:       { label: 'Đang xử lý',     dot: '#8B5CF6', bg: '#F5F3FF', text: '#5B21B6', border: '#DDD6FE' },
   shipped:          { label: 'Đang giao',      dot: '#06B6D4', bg: '#ECFEFF', text: '#164E63', border: '#A5F3FC' },
   delivered:        { label: 'Đã giao',        dot: '#10B981', bg: '#ECFDF5', text: '#065F46', border: '#A7F3D0' },
   return_requested: { label: 'Yêu cầu HT',    dot: '#F97316', bg: '#FFF7ED', text: '#9A3412', border: '#FED7AA' },
@@ -17,6 +16,34 @@ const STATUS_CFG = {
 };
 const sc  = s => STATUS_CFG[s] || { label: s, dot: '#94A3B8', bg: '#F8FAFC', text: '#475569', border: '#E2E8F0' };
 const fmt = v => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(v || 0);
+
+// ── Inline action button config (list view — compact) ────────────────────────
+const INLINE_ACTION = {
+  pending: {
+    label: '✓ Xác nhận',
+    nextStatus: 'confirmed',
+    color: 'bg-blue-600 hover:bg-blue-700 text-white',
+    confirmMsg: 'Xác nhận đơn hàng này?',
+  },
+  confirmed: {
+    label: '🚚 Giao hàng',
+    nextStatus: 'shipped',
+    color: 'bg-cyan-600 hover:bg-cyan-700 text-white',
+    confirmMsg: 'Bắt đầu giao hàng?',
+  },
+  shipped: {
+    label: '✅ Hoàn thành',
+    nextStatus: 'delivered',
+    color: 'bg-emerald-600 hover:bg-emerald-700 text-white',
+    confirmMsg: 'Xác nhận giao hàng thành công?',
+  },
+  return_requested: {
+    label: '↩️ Xác nhận HT',
+    color: 'bg-orange-500 hover:bg-orange-600 text-white',
+    confirmMsg: 'Xác nhận đã nhận hàng hoàn trả?',
+    useConfirmReturnApi: true,
+  },
+};
 
 const PRESETS = [
   { label: 'Hôm nay',   days: 0  },
@@ -47,6 +74,46 @@ function StatusBadge({ status }) {
       <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: c.dot }}/>
       {c.label}
     </span>
+  );
+}
+
+// ── Inline quick-action button ────────────────────────────────────────────────
+function QuickActionBtn({ order, onDone }) {
+  const action = INLINE_ACTION[order.status];
+  const [busy, setBusy] = useState(false);
+  const { updateOrderStatus } = useAdmin ? useAdmin() : {};
+
+  if (!action) return null;
+
+  const handle = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!window.confirm(action.confirmMsg)) return;
+    setBusy(true);
+    try {
+      if (action.useConfirmReturnApi) {
+        await apiClient.put(`/admin/orders/${order._id}/confirm-return`);
+      } else {
+        await updateOrderStatus(order._id, { status: action.nextStatus });
+      }
+      onDone?.();
+    } catch (err) {
+      alert(err?.response?.data?.message || 'Có lỗi xảy ra');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <button
+      onClick={handle}
+      disabled={busy}
+      className={`flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-bold rounded-lg transition-colors disabled:opacity-50 whitespace-nowrap ${action.color}`}
+    >
+      {busy
+        ? <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"/>
+        : action.label}
+    </button>
   );
 }
 
@@ -84,7 +151,6 @@ const AdminOrderManagement = () => {
 
   useEffect(() => { loadOrders(); }, [page]);
 
-  // Debounce search
   useEffect(() => {
     const t = setTimeout(() => {
       setSearchQuery(searchInput);
@@ -106,22 +172,6 @@ const AdminOrderManagement = () => {
     setStatusFilter(''); setSearchInput(''); setSearchQuery('');
     setDateFrom(''); setDateTo(''); setActivePreset(null); setPage(1);
     loadOrders({ status: '', search: '', dateFrom: '', dateTo: '', page: 1 });
-  };
-
-  const handleStatusChange = async (orderId, newStatus) => {
-    try { await updateOrderStatus(orderId, { status: newStatus }); loadOrders(); }
-    catch { /* handled */ }
-  };
-
-  // ✅ Admin xác nhận hoàn trả
-  const handleConfirmReturn = async (orderId) => {
-    if (!window.confirm('Xác nhận hoàn trả đơn này? Kho sẽ được cập nhật lại.')) return;
-    try {
-      await apiClient.put(`/admin/orders/${orderId}/confirm-return`);
-      loadOrders();
-    } catch (err) {
-      alert(err.response?.data?.message || 'Không thể xác nhận hoàn trả');
-    }
   };
 
   const hasFilters = statusFilter || searchQuery || dateFrom || dateTo;
@@ -225,21 +275,21 @@ const AdminOrderManagement = () => {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-100">
-                  {['Mã đơn','Khách hàng','Sản phẩm','Tổng tiền','Trạng thái','Ngày đặt','Ngày giao',''].map(h => (
+                  {['Mã đơn','Khách hàng','Sản phẩm','Tổng tiền','Trạng thái','Ngày đặt','Ngày giao','Thao tác'].map(h => (
                     <th key={h} className="px-5 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wider whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
                 {loading && orders.length === 0 ? (
-                  <tr><td colSpan={7} className="px-5 py-12 text-center">
+                  <tr><td colSpan={8} className="px-5 py-12 text-center">
                     <div className="flex flex-col items-center gap-3 text-slate-400">
                       <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"/>
                       <span className="text-sm">Đang tải...</span>
                     </div>
                   </td></tr>
                 ) : orders.length === 0 ? (
-                  <tr><td colSpan={7} className="px-5 py-16 text-center">
+                  <tr><td colSpan={8} className="px-5 py-16 text-center">
                     <div className="flex flex-col items-center gap-3">
                       <span className="text-5xl">🔍</span>
                       <p className="text-sm font-semibold text-slate-400">Không tìm thấy đơn hàng</p>
@@ -281,16 +331,11 @@ const AdminOrderManagement = () => {
                       )}
                     </td>
 
+                    {/* ✅ Status + quick action badge stacked */}
                     <td className="px-5 py-4">
-                      <div className="flex flex-col gap-1.5">
+                      <div className="flex flex-col gap-1.5 items-start">
                         <StatusBadge status={order.status}/>
-                        {/* ✅ Nút nổi bật cho return_requested */}
-                        {order.status === 'return_requested' && (
-                          <button onClick={() => handleConfirmReturn(order._id)}
-                            className="flex items-center gap-1 px-2.5 py-1 bg-orange-500 hover:bg-orange-600 text-white text-[10px] font-bold rounded-lg transition-colors w-fit">
-                            ✓ Xác nhận HT
-                          </button>
-                        )}
+                        <QuickActionBtn order={order} onDone={loadOrders}/>
                       </div>
                     </td>
 
@@ -320,22 +365,12 @@ const AdminOrderManagement = () => {
                       )}
                     </td>
 
+                    {/* ✅ Chi tiết link only — no status dropdown in list */}
                     <td className="px-5 py-4">
-                      <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <Link to={`/admin/orders/${order._id}`}
-                          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg transition-colors whitespace-nowrap">
-                          Chi tiết
-                        </Link>
-                        {/* Ẩn dropdown với returned — không cho đổi trạng thái nữa */}
-                        {order.status !== 'returned' && (
-                          <select value={order.status} onChange={e => handleStatusChange(order._id, e.target.value)}
-                            className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-600 cursor-pointer">
-                            {STATUSES.filter(s => s !== 'returned').map(s =>
-                              <option key={s} value={s}>{sc(s).label}</option>
-                            )}
-                          </select>
-                        )}
-                      </div>
+                      <Link to={`/admin/orders/${order._id}`}
+                        className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold rounded-lg transition-colors whitespace-nowrap opacity-0 group-hover:opacity-100">
+                        Chi tiết →
+                      </Link>
                     </td>
                   </tr>
                 ))}

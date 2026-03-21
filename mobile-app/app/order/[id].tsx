@@ -9,12 +9,12 @@ import userApi from '@/src/api/userApi';
 import { Order } from '@/src/api/orderApi';
 import { formatPrice } from '@/src/api/productApi';
 
-const STATUS_STEPS = ['pending', 'confirmed', 'processing', 'shipped', 'delivered'];
+const STATUS_STEPS = ['pending', 'confirmed', 'shipped', 'delivered'];
 
 const STATUS_INFO: Record<string, { label: string; color: string; bg: string }> = {
   pending:          { label: 'Chờ xác nhận', color: '#92400E', bg: '#FEF3C7' },
   confirmed:        { label: 'Đã xác nhận',  color: '#1E40AF', bg: '#DBEAFE' },
-  processing:       { label: 'Đang xử lý',   color: '#5B21B6', bg: '#EDE9FE' },
+
   shipped:          { label: 'Đang giao',     color: '#065F46', bg: '#D1FAE5' },
   delivered:        { label: 'Đã giao',       color: '#065F46', bg: '#D1FAE5' },
   cancelled:        { label: 'Đã hủy',        color: '#991B1B', bg: '#FEE2E2' },

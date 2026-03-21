@@ -5,7 +5,7 @@ const { validateVoucherCode, calcVoucherDiscount } = require('./orderController'
 const validateVoucher = async (req, res) => {
     try {
         const { code, orderAmount } = req.body;
-        const userId = req.user?.id || req.user?._id;
+        const userId = req.userId;
 
         if (!code) {
             return res.status(400).json({ status: 'error', message: 'Vui lòng nhập mã voucher.' });

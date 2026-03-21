@@ -9,18 +9,18 @@ import apiClient from '@services/apiClient';
 const STATUS_CFG = {
     pending:          { label:'Chờ xác nhận',        icon:'🕐', dot:'#F59E0B', bg:'#FFFBEB', text:'#92400E', step:1 },
     confirmed:        { label:'Đã xác nhận',          icon:'✅', dot:'#3B82F6', bg:'#EFF6FF', text:'#1D4ED8', step:2 },
-    processing:       { label:'Đang xử lý',           icon:'⚙️', dot:'#8B5CF6', bg:'#F5F3FF', text:'#5B21B6', step:3 },
-    shipped:          { label:'Đang giao hàng',       icon:'🚚', dot:'#06B6D4', bg:'#ECFEFF', text:'#164E63', step:4 },
-    delivered:        { label:'Đã giao thành công',   icon:'📦', dot:'#10B981', bg:'#ECFDF5', text:'#065F46', step:5 },
-    return_requested: { label:'Đang hoàn trả',        icon:'↩️', dot:'#F97316', bg:'#FFF7ED', text:'#9A3412', step:5 },
-    returned:         { label:'Hoàn trả thành công',  icon:'✔️', dot:'#6B7280', bg:'#F9FAFB', text:'#374151', step:5 },
+    shipped:          { label:'Đang giao hàng',       icon:'🚚', dot:'#06B6D4', bg:'#ECFEFF', text:'#164E63', step:3 },
+    delivered:        { label:'Đã giao thành công',   icon:'📦', dot:'#10B981', bg:'#ECFDF5', text:'#065F46', step:4 },
+    return_requested: { label:'Chờ xác nhận hoàn trả', icon:'↩️', dot:'#F97316', bg:'#FFF7ED', text:'#9A3412', step:4 },
+    returned:         { label:'Hoàn trả thành công',  icon:'✔️', dot:'#6B7280', bg:'#F9FAFB', text:'#374151', step:4 },
     cancelled:        { label:'Đã hủy',               icon:'❌', dot:'#EF4444', bg:'#FEF2F2', text:'#991B1B', step:0 },
 };
 const sc = s => STATUS_CFG[s] || { label:s, icon:'📋', dot:'#94A3B8', bg:'#F8FAFC', text:'#475569', step:0 };
-const MAIN_STEPS = ['pending','confirmed','processing','shipped','delivered'];
+
+// Flow: pending → confirmed → shipped → delivered
+const MAIN_STEPS = ['pending','confirmed','shipped','delivered'];
+
 const RETURN_WINDOW_DAYS = 5;
-const CLOUDINARY_UPLOAD_PRESET = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET || 'ml_default';
-const CLOUDINARY_CLOUD_NAME    = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
 
 const PAYMENT_LABELS = {
     cod:           'Thanh toán khi nhận (COD)',
@@ -29,23 +29,29 @@ const PAYMENT_LABELS = {
     vnpay:         'VNPay',
 };
 
-async function uploadToCloudinary(file) {
+// Upload ảnh qua backend API (backend có CLOUDINARY credentials)
+async function uploadImage(file) {
+    if (file.size > 10 * 1024 * 1024) {
+        throw new Error(`Ảnh "${file.name}" quá lớn (tối đa 10MB)`);
+    }
     const fd = new FormData();
-    fd.append('file', file);
-    fd.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
-    fd.append('folder', 'returns');
-    const res = await fetch(
-        `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
-        { method: 'POST', body: fd }
-    );
-    if (!res.ok) throw new Error('Upload ảnh thất bại');
+    fd.append('image', file);
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
+    const res = await fetch('/api/upload/return-image', {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: fd,
+    });
     const data = await res.json();
-    return data.secure_url;
+    if (!res.ok) {
+        throw new Error(data?.message || `Upload thất bại (${res.status})`);
+    }
+    return data.url;
 }
 
 // ── Countdown timer cho đơn VNPay chưa thanh toán ────────────────────────────
 function PaymentCountdown({ createdAt, onExpired }) {
-    const LIMIT_MS = 30 * 60 * 1000; // 30 phút
+    const LIMIT_MS = 30 * 60 * 1000;
     const [remaining, setRemaining] = useState(() => {
         const elapsed = Date.now() - new Date(createdAt).getTime();
         return Math.max(0, LIMIT_MS - elapsed);
@@ -97,25 +103,37 @@ function OrderStepper({ status }) {
             <p className="font-semibold text-red-700 text-sm">Đơn hàng đã bị hủy</p>
         </div>
     );
+
+    // Return flow — hiển thị timeline riêng
     if (status === 'return_requested' || status === 'returned') return (
-        <div className="flex items-center gap-3 p-3.5 rounded-xl border"
-            style={{ background: cfg.bg, borderColor: cfg.dot + '44' }}>
-            <span className="text-xl">{cfg.icon}</span>
-            <div>
-                <p className="font-semibold text-sm" style={{ color: cfg.text }}>{cfg.label}</p>
-                <p className="text-xs mt-0.5" style={{ color: cfg.text + '88' }}>
-                    {status === 'return_requested'
-                        ? 'Yêu cầu đang được xử lý, chúng tôi sẽ liên hệ trong 1–3 ngày.'
-                        : 'Hoàn trả thành công. Số lượng kho đã được cập nhật.'}
-                </p>
+        <div className="space-y-3">
+            {/* Delivered step đã xong */}
+            <div className="flex items-center gap-3 p-3 rounded-xl bg-emerald-50 border border-emerald-100">
+                <div className="w-7 h-7 rounded-full bg-emerald-500 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">✓</div>
+                <p className="text-sm font-semibold text-emerald-700">Đã giao thành công</p>
+            </div>
+            {/* Return status */}
+            <div className="flex items-center gap-3 p-3.5 rounded-xl border"
+                style={{ background: cfg.bg, borderColor: cfg.dot + '44' }}>
+                <span className="text-xl flex-shrink-0">{cfg.icon}</span>
+                <div>
+                    <p className="font-semibold text-sm" style={{ color: cfg.text }}>{cfg.label}</p>
+                    <p className="text-xs mt-0.5 text-slate-500">
+                        {status === 'return_requested'
+                            ? 'Admin đang xem xét yêu cầu. Vui lòng chờ xác nhận và gửi hàng về.'
+                            : 'Admin đã nhận hàng hoàn trả. Cảm ơn bạn!'}
+                    </p>
+                </div>
             </div>
         </div>
     );
+
+    const currentIdx = MAIN_STEPS.indexOf(status);
     return (
         <div className="flex items-start">
             {MAIN_STEPS.map((s, i) => {
-                const done   = cfg.step > i + 1;
-                const active = cfg.step === i + 1;
+                const done   = currentIdx > i;
+                const active = currentIdx === i;
                 return (
                     <div key={s} className="flex items-center flex-1 last:flex-none">
                         <div className="flex flex-col items-center gap-1.5">
@@ -138,6 +156,7 @@ function OrderStepper({ status }) {
     );
 }
 
+// ── Return Modal ──────────────────────────────────────────────────────────────
 function ReturnModal({ onClose, onSubmit, submitting }) {
     const [reason,   setReason]   = useState('');
     const [images,   setImages]   = useState([]);
@@ -147,100 +166,39 @@ function ReturnModal({ onClose, onSubmit, submitting }) {
         const valid = Array.from(files)
             .filter(f => f.type.startsWith('image/'))
             .slice(0, 5 - images.length);
-        const newImgs = valid.map(f => ({
+        setImages(p => [...p, ...valid.map(f => ({
             file: f, preview: URL.createObjectURL(f),
             url: null, uploading: false, error: null,
-        }));
-        setImages(p => [...p, ...newImgs]);
+        }))]);
     };
 
     const removeImage = (idx) => {
         setImages(p => { URL.revokeObjectURL(p[idx].preview); return p.filter((_,i) => i !== idx); });
     };
 
-    // Thay thế hàm handleSubmit trong CheckoutPage.jsx
+    const handleSubmit = async () => {
+        if (!reason.trim()) { alert('Vui lòng nhập lý do hoàn trả.'); return; }
+        if (images.length === 0) { alert('Vui lòng đính kèm ít nhất 1 ảnh minh chứng.'); return; }
 
-const handleSubmit = async e => {
-    e.preventDefault();
-    setLoading(true);
-    try {
-        const items = checkoutItems.map(item => ({
-            productId: item._id || item.id,
-            name:      item.name,
-            quantity:  item.quantity,
-            price:     item.discountedPrice || item.price,
-            color:     item.color || '',
-            size:      item.size  || '',
-            discount:  0,
-        }));
-
-        const shippingAddress = {
-            fullName: formData.fullName,
-            email:    formData.email,
-            phone:    formData.phone,
-            address:  [formData.address, formData.ward, formData.district, formData.city].filter(Boolean).join(', '),
-            city:     formData.city,
-            district: formData.district,
-            ward:     formData.ward,
-        };
-
-        const orderRes     = await apiClient.post('/orders', {
-            items, shippingAddress,
-            paymentMethod:  formData.paymentMethod,
-            subtotal, total,
-            notes:          formData.notes,
-            voucherCode:    appliedVoucher?.code || undefined,
-            discountAmount: discountAmount,
-        });
-        const createdOrder = orderRes.data.data;
-
-        // Xóa đúng từng item theo id + color + size
-        checkoutItems.forEach(item =>
-            removeFromCart(item.id || item._id, item.color || '', item.size || '')
-        );
-        sessionStorage.removeItem('checkoutItems');
-
-        if (formData.paymentMethod === 'vnpay') {
-            const payRes     = await apiClient.post('/payment/vnpay-create', { orderId: createdOrder._id });
-            const paymentUrl = payRes.data?.data?.paymentUrl;
-            if (!paymentUrl) throw new Error('Không nhận được paymentUrl từ server');
-            window.location.href = paymentUrl;
-            return;
-        }
-
-        setOrderPlaced(true);
-        setTimeout(() => navigate(`/orders/${createdOrder._id}`), 2500);
-    } catch (err) {
-        const message = err.response?.data?.message || err.message || '';
-
-        // ✅ Nếu lỗi do hết hàng → xóa item đó khỏi giỏ hàng
-        if (message.includes('không đủ hàng') || message.includes('vừa hết hàng')) {
-            // Tìm item bị lỗi dựa trên tên sản phẩm trong message
-            const failedItem = checkoutItems.find(item =>
-                message.includes(item.name)
-            );
-            if (failedItem) {
-                removeFromCart(
-                    failedItem.id || failedItem._id,
-                    failedItem.color || '',
-                    failedItem.size  || ''
-                );
-                // Cập nhật sessionStorage
-                const remaining = checkoutItems.filter(i => i !== failedItem);
-                if (remaining.length > 0) {
-                    sessionStorage.setItem('checkoutItems', JSON.stringify(remaining));
-                } else {
-                    sessionStorage.removeItem('checkoutItems');
-                }
+        const updated = [...images];
+        const urls = [];
+        for (let i = 0; i < updated.length; i++) {
+            updated[i] = { ...updated[i], uploading: true };
+            setImages([...updated]);
+            try {
+                const url = await uploadImage(updated[i].file);
+                updated[i] = { ...updated[i], url, uploading: false };
+                urls.push(url);
+            } catch (err) {
+                updated[i] = { ...updated[i], uploading: false, error: 'Lỗi' };
+                setImages([...updated]);
+                alert(err.message || `Không upload được ảnh "${updated[i].file.name}"`);
+                return;
             }
-            alert(`⚠️ ${message}\n\nSản phẩm đã được xóa khỏi giỏ hàng.`);
-        } else {
-            alert('Lỗi khi tạo đơn hàng: ' + message);
+            setImages([...updated]);
         }
-    } finally {
-        setLoading(false);
-    }
-};
+        onSubmit({ reason, images: urls });
+    };
 
     const allUploading = images.some(img => img.uploading);
 
@@ -336,11 +294,22 @@ const handleSubmit = async e => {
                             </div>
                         )}
                     </div>
-                    <div className="flex gap-2.5 p-3.5 bg-amber-50 border border-amber-200 rounded-xl">
-                        <span className="text-amber-500 text-sm flex-shrink-0">ℹ️</span>
-                        <p className="text-xs text-amber-700 leading-relaxed">
-                            Yêu cầu sẽ được xử lý trong <strong>1–3 ngày làm việc</strong>. Admin sẽ xem xét ảnh và tình trạng sản phẩm trước khi xác nhận.
-                        </p>
+
+                    {/* Flow guide cho user */}
+                    <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl space-y-2">
+                        <p className="text-xs font-bold text-blue-700 mb-2">📋 Quy trình hoàn trả</p>
+                        <div className="flex items-start gap-2">
+                            <span className="w-5 h-5 rounded-full bg-blue-500 text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">1</span>
+                            <p className="text-xs text-blue-700">Gửi yêu cầu kèm ảnh minh chứng</p>
+                        </div>
+                        <div className="flex items-start gap-2">
+                            <span className="w-5 h-5 rounded-full bg-blue-400 text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">2</span>
+                            <p className="text-xs text-blue-700">Admin xác nhận yêu cầu (1–3 ngày)</p>
+                        </div>
+                        <div className="flex items-start gap-2">
+                            <span className="w-5 h-5 rounded-full bg-blue-300 text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">3</span>
+                            <p className="text-xs text-blue-700">Gửi hàng về — Admin xác nhận đã nhận</p>
+                        </div>
                     </div>
                 </div>
                 <div className="flex gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl">
@@ -409,7 +378,10 @@ export default function OrderDetailPage() {
             setShowModal(false);
             fetchOrder();
         } catch (err) {
-            alert(err.response?.data?.message || 'Không thể gửi yêu cầu hoàn trả');
+            const msg = err.response?.data?.message || err.message || 'Không thể gửi yêu cầu hoàn trả';
+            const status = err.response?.status;
+            console.error('[ReturnRequest] error:', status, err.response?.data);
+            alert(status ? `Lỗi ${status}: ${msg}` : msg);
         } finally { setSubmitting(false); }
     };
 
@@ -419,7 +391,6 @@ export default function OrderDetailPage() {
         return diff <= RETURN_WINDOW_DAYS;
     };
 
-    // Kiểm tra đơn VNPay chưa thanh toán và chưa hủy
     const canRetryPayment = order
         && order.paymentMethod === 'vnpay'
         && order.paymentStatus !== 'completed'
@@ -501,7 +472,7 @@ export default function OrderDetailPage() {
 
                         <OrderStepper status={order.status}/>
 
-                        {/* Banner VNPay chưa thanh toán */}
+                        {/* VNPay unpaid banner */}
                         {canRetryPayment && (
                             <div className="mt-4 pt-4 border-t border-slate-100">
                                 <div className="flex items-center justify-between flex-wrap gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl">
@@ -515,21 +486,16 @@ export default function OrderDetailPage() {
                                             />
                                         </div>
                                     </div>
-                                    <button
-                                        onClick={handleRetryPayment}
-                                        disabled={retryLoading}
-                                        className="od-btn flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold disabled:opacity-50"
-                                    >
+                                    <button onClick={handleRetryPayment} disabled={retryLoading}
+                                        className="od-btn flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold disabled:opacity-50">
                                         {retryLoading
                                             ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/> Đang xử lý...</>
-                                            : '💳 Thanh toán ngay'
-                                        }
+                                            : '💳 Thanh toán ngay'}
                                     </button>
                                 </div>
                             </div>
                         )}
 
-                        {/* Hết thời gian thanh toán */}
                         {isExpired && order.status !== 'cancelled' && (
                             <div className="mt-4 pt-4 border-t border-slate-100">
                                 <div className="flex items-center gap-3 p-3.5 bg-red-50 border border-red-200 rounded-xl">
@@ -539,7 +505,7 @@ export default function OrderDetailPage() {
                             </div>
                         )}
 
-                        {/* Return zone */}
+                        {/* Return countdown + button */}
                         {order.status === 'delivered' && (
                             <div className="mt-4 pt-4 border-t border-slate-100 flex items-center justify-between flex-wrap gap-3">
                                 <div className="flex items-center gap-2">
@@ -555,7 +521,43 @@ export default function OrderDetailPage() {
                             </div>
                         )}
 
-                        {/* Ảnh hoàn trả */}
+                        {/* Return status info */}
+                        {order.status === 'return_requested' && (
+                            <div className="mt-4 pt-4 border-t border-slate-100">
+                                <div className="p-4 bg-orange-50 border border-orange-200 rounded-xl space-y-2">
+                                    <div className="flex items-center gap-2">
+                                        <div className="w-4 h-4 border-2 border-orange-400 border-t-transparent rounded-full animate-spin flex-shrink-0"/>
+                                        <p className="text-sm font-bold text-orange-700">Đang chờ Admin xác nhận hoàn trả</p>
+                                    </div>
+                                    {order.returnRequestedAt && (
+                                        <p className="text-xs text-orange-600">Gửi lúc: {formatDate(order.returnRequestedAt)}</p>
+                                    )}
+                                    {order.returnReason && (
+                                        <p className="text-xs text-slate-600 italic">Lý do: {order.returnReason}</p>
+                                    )}
+                                    <p className="text-xs text-orange-600 mt-1">
+                                        Sau khi admin xác nhận, vui lòng gửi hàng về địa chỉ được cung cấp.
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+
+                        {order.status === 'returned' && (
+                            <div className="mt-4 pt-4 border-t border-slate-100">
+                                <div className="flex items-center gap-3 p-4 bg-slate-50 border border-slate-200 rounded-xl">
+                                    <span className="text-xl">✔️</span>
+                                    <div>
+                                        <p className="text-sm font-bold text-slate-700">Hoàn trả hoàn tất</p>
+                                        <p className="text-xs text-slate-500 mt-0.5">Admin đã nhận hàng và xác nhận hoàn trả thành công.</p>
+                                        {order.returnedAt && (
+                                            <p className="text-xs text-slate-400 mt-0.5">Ngày xác nhận: {formatDate(order.returnedAt)}</p>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Return images proof */}
                         {order.returnImages?.length > 0 && (
                             <div className="mt-4 pt-4 border-t border-slate-100">
                                 <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Ảnh minh chứng hoàn trả</p>
@@ -567,9 +569,6 @@ export default function OrderDetailPage() {
                                         </a>
                                     ))}
                                 </div>
-                                {order.returnReason && (
-                                    <p className="text-xs text-slate-500 mt-2 italic">Lý do: {order.returnReason}</p>
-                                )}
                             </div>
                         )}
                     </div>
@@ -616,7 +615,7 @@ export default function OrderDetailPage() {
                     </div>
                 </div>
 
-                {/* Summary */}
+                {/* Summary sidebar */}
                 <div className="space-y-4">
                     <div className="od-card p-6">
                         <h2 className="font-bold text-slate-900 mb-4">Tóm tắt</h2>
@@ -649,7 +648,9 @@ export default function OrderDetailPage() {
                             </div>
                             <div className="border-t border-slate-100 pt-3 flex justify-between items-center">
                                 <span className="font-bold text-slate-900">Tổng cộng</span>
-                                <span className="font-bold text-lg text-blue-600">{formatPrice(order.total)}</span>
+                                <span className={`font-bold text-lg ${isReturn ? 'text-slate-400 line-through' : 'text-blue-600'}`}>
+                                    {formatPrice(order.total)}
+                                </span>
                             </div>
                             {isReturn && (
                                 <p className="text-xs text-slate-400 italic border-t border-slate-100 pt-2">
@@ -660,17 +661,12 @@ export default function OrderDetailPage() {
                     </div>
 
                     <div className="space-y-2.5">
-                        {/* Nút tiếp tục thanh toán VNPay */}
                         {canRetryPayment && (
-                            <button
-                                onClick={handleRetryPayment}
-                                disabled={retryLoading}
-                                className="od-btn w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-2"
-                            >
+                            <button onClick={handleRetryPayment} disabled={retryLoading}
+                                className="od-btn w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-2">
                                 {retryLoading
                                     ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/> Đang xử lý...</>
-                                    : '🏦 Tiếp tục thanh toán VNPay'
-                                }
+                                    : '🏦 Tiếp tục thanh toán VNPay'}
                             </button>
                         )}
 
@@ -689,6 +685,16 @@ export default function OrderDetailPage() {
                         {order.status === 'delivered' && !canReturn() && (
                             <div className="od-card p-3 text-center">
                                 <p className="text-xs text-slate-400 italic">Đã hết hạn hoàn trả (5 ngày)</p>
+                            </div>
+                        )}
+                        {order.status === 'return_requested' && (
+                            <div className="od-card p-3 text-center">
+                                <p className="text-xs text-orange-500 font-semibold">⏳ Đang chờ admin xác nhận</p>
+                            </div>
+                        )}
+                        {order.status === 'returned' && (
+                            <div className="od-card p-3 text-center">
+                                <p className="text-xs text-slate-500 font-semibold">✔️ Hoàn trả hoàn tất</p>
                             </div>
                         )}
                         <Link to="/products"

@@ -21,6 +21,8 @@ const userRoute      = require("./src/route/userRoute");
 const inventoryRoute = require("./src/route/inventoryRoute");
 const chatRoute      = require('./src/route/chatRoute');
 const paymentRoute   = require('./src/route/paymentRoute'); // ✅ VNPay
+const voucherRoute = require("./src/route/voucherRoute");
+
 
 const app    = express();
 const server = http.createServer(app);
@@ -36,19 +38,23 @@ connectDB();
 // ── CORS ──────────────────────────────────────────────────────────────────────
 const corsOptions = {
     origin: function(origin, callback) {
+        // Development: cho phép tất cả
+        if (process.env.NODE_ENV !== 'production') {
+            return callback(null, true);
+        }
+ 
+        // Production: chỉ cho phép domain cụ thể
         const allowedOrigins = [
-            'http://localhost:5173', 'http://localhost:5174', 'http://localhost:3000',
-            'http://127.0.0.1:5173', 'http://127.0.0.1:5174', 'http://127.0.0.1:3000',
-        ];
-        if (process.env.NODE_ENV === 'production') {
-            if (process.env.CLIENT_URL && origin === process.env.CLIENT_URL) callback(null, true);
-            else callback(new Error('CORS not allowed'));
+            process.env.CLIENT_URL,
+            'http://localhost:5173',
+            'http://localhost:5174',
+            'http://localhost:3000',
+        ].filter(Boolean);
+ 
+        if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
         } else {
-            if (!origin || allowedOrigins.includes(origin) || origin.startsWith('http://10.0.')) {callback(null, true);
-            }
-            else {
-                callback(new Error('CORS not allowed'));
-            }
+            callback(new Error('CORS not allowed'));
         }
     },
     credentials: true,
@@ -74,6 +80,7 @@ app.use('/api/user',             userRoute);
 app.use("/api/admin/inventory",  inventoryRoute);
 app.use('/api/chat',             chatRoute);
 app.use('/api/payment',          paymentRoute); // ✅ VNPay
+app.use('/api/vouchers',         voucherRoute);
 
 // ── 404 + Error handler ───────────────────────────────────────────────────────
 app.use((req, res) => res.status(404).json({ status: "error", message: "Route not found" }));

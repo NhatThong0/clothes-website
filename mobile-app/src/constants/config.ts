@@ -1,9 +1,14 @@
-export const API_BASE_URL = __DEV__
-//   ? 'http://10.0.2.2:5000/api'   // Android Emulator
-  // ? 'http://localhost:5000/api' // iOS Simulator
-  ? 'http://10.0.0.60:5000/api'  // ✅ IP + port đúng
+export const API_BASE_URL = __DEV__// ✅ IP máy tính thật
+  ? 'http://192.168.1.26:5000/api'   
   : 'https://your-domain.com/api';
+  // ? 'http://10.0.0.60:5000/api'  
+  // : 'https://your-domain.com/api';
 
+export const SOCKET_URL = __DEV__
+  ? 'http://192.168.1.26:5000'       
+  : 'https://your-domain.com';
+  //   ? 'http://10.0.0.60:5000'  
+  // : 'https://your-domain.com';
 export const STORAGE_KEYS = {
   ACCESS_TOKEN:  'access_token',
   REFRESH_TOKEN: 'refresh_token',

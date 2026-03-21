@@ -24,6 +24,13 @@ const normalizeProduct = (p) => ({
 
 // ── Page title & description theo type ───────────────────────────────────────
 const PAGE_META = {
+    default: {
+    title:    'Tất cả sản phẩm',
+    subtitle: 'Mọi thứ bạn cần, chúng tôi đều có',
+    icon:     '🛍️',
+    badge:    null,
+    defaultSort: 'newest',
+  },
   sale: {
     title:    'Khuyến mãi',
     subtitle: 'Những sản phẩm đang được giảm giá mạnh mẽ',
@@ -31,20 +38,7 @@ const PAGE_META = {
     badge:    { label: 'HOT', cls: 'bg-rose-500' },
     defaultSort: 'discount',
   },
-  new: {
-    title:    'Hàng mới về',
-    subtitle: 'Những sản phẩm mới nhất vừa được cập bến`',
-    icon:     '✨',
-    badge:    { label: 'MỚI', cls: 'bg-emerald-500' },
-    defaultSort: 'newest',
-  },
-  default: {
-    title:    'Tất cả sản phẩm',
-    subtitle: 'Mọi thứ bạn cần, chúng tôi đều có',
-    icon:     '🛍️',
-    badge:    null,
-    defaultSort: 'newest',
-  },
+
 };
 
 export default function ProductListPage() {

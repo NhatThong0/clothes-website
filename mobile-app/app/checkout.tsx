@@ -124,15 +124,19 @@ export default function CheckoutScreen() {
                 for (const item of parsedItems)
                   await cartApi.addToCart(item.productId, item.quantity, item.color, item.size);
               } catch (e) { console.error(e); }
-              finally { await AsyncStorage.removeItem('buyNowItem'); }
+              finally { await AsyncStorage.removeItem('buyNowItem'); 
+                router.back();
+              }
             },
           },
-          { text: 'Hủy', style: 'cancel', onPress: async () => { await AsyncStorage.removeItem('buyNowItem'); } },
+          { text: 'Hủy', style: 'cancel', onPress: async () => { await AsyncStorage.removeItem('buyNowItem');
+              router.back();
+           } },
         ],
       );
     };
     if (items) doAlert(items);
-    else AsyncStorage.getItem('buyNowItem').then(raw => { if (raw) doAlert(JSON.parse(raw)); });
+    else AsyncStorage.getItem('buyNowItem').then(raw => { if (raw) doAlert(JSON.parse(raw)); else router.back(); });
   };
 
   // ── Tính tổng ─────────────────────────────────────────────────────────────
@@ -142,30 +146,30 @@ export default function CheckoutScreen() {
 
   // ── Voucher handlers ──────────────────────────────────────────────────────
   const handleApplyVoucher = async () => {
-    const code = voucherCode.trim().toUpperCase();
-    if (!code) {
-      setVoucherError('Vui lòng nhập mã voucher');
-      return;
-    }
-    // Reset nếu đang apply lại
-    setAppliedVoucher(null);
-    setVoucherError('');
-    setVoucherLoading(true);
-    try {
-      const { data } = await api.post('/vouchers/validate', {
-        code,
-        orderAmount: subtotal,
-      });
-      setAppliedVoucher(data.data);
-      setVoucherCode(data.data.code);
-    } catch (err: any) {
-      const msg = err?.response?.data?.message || 'Mã voucher không hợp lệ';
-      setVoucherError(msg);
-    } finally {
-      setVoucherLoading(false);
-    }
-  };
-
+  const code = voucherCode.trim().toUpperCase();
+  if (!code) {
+    setVoucherError('Vui lòng nhập mã voucher');
+    return;
+  }
+  setAppliedVoucher(null);
+  setVoucherError('');
+  setVoucherLoading(true);
+  try {
+    // ✅ Đổi sang /promotions/validate — cùng endpoint với web
+    const { data } = await api.post('/promotions/validate', {
+      code,
+      orderAmount: subtotal,
+      itemCount:   cartItems.length,
+    });
+    setAppliedVoucher(data.data);
+    setVoucherCode(data.data.code);
+  } catch (err: any) {
+    const msg = err?.response?.data?.message || 'Mã voucher không hợp lệ';
+    setVoucherError(msg);
+  } finally {
+    setVoucherLoading(false);
+  }
+};
   const handleRemoveVoucher = () => {
     setAppliedVoucher(null);
     setVoucherCode('');

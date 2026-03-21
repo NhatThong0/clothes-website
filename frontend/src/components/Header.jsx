@@ -18,7 +18,6 @@ function useDebounce(value, delay = 350) {
 const NAV_LINKS = [
   { label: 'Trang chủ',  href: '/' },
   { label: 'Sản phẩm',   href: '/products' },
-  { label: 'Hàng mới',   href: '/products?type=new',  badge: { label:'MỚI', cls:'bg-emerald-500' } },
   { label: 'Khuyến mãi', href: '/products?type=sale', badge: { label:'HOT', cls:'bg-rose-500'    } },
 ];
 

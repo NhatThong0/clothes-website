@@ -8,32 +8,39 @@ import { productAPI } from '@services/api';
 import apiClient from '@services/apiClient';
 
 const RETURN_WINDOW_DAYS = 5;
-const CLOUDINARY_UPLOAD_PRESET = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET || 'ml_default';
-const CLOUDINARY_CLOUD_NAME    = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
 
+// ── Bỏ processing ──────────────────────────────────────────────────────────
 const STATUS_MAP = {
-  pending:          { label: 'Chờ xác nhận',   color: 'bg-amber-100  text-amber-800  border border-amber-200',  dot: '#F59E0B' },
-  confirmed:        { label: 'Đã xác nhận',    color: 'bg-blue-100   text-blue-800   border border-blue-200',   dot: '#3B82F6' },
-  processing:       { label: 'Đang xử lý',     color: 'bg-violet-100 text-violet-800 border border-violet-200', dot: '#8B5CF6' },
-  shipped:          { label: 'Đang giao',      color: 'bg-sky-100    text-sky-800    border border-sky-200',    dot: '#06B6D4' },
-  delivered:        { label: 'Đã giao',        color: 'bg-emerald-100 text-emerald-800 border border-emerald-200', dot: '#10B981' },
-  return_requested: { label: 'Đang hoàn trả', color: 'bg-orange-100 text-orange-800 border border-orange-200', dot: '#F97316' },
-  returned:         { label: 'Hoàn trả xong', color: 'bg-slate-100  text-slate-600  border border-slate-200',  dot: '#9CA3AF' },
-  cancelled:        { label: 'Đã hủy',         color: 'bg-rose-100   text-rose-700   border border-rose-200',   dot: '#EF4444' },
+  pending:          { label: 'Chờ xác nhận',          color: 'bg-amber-100  text-amber-800  border border-amber-200',    dot: '#F59E0B' },
+  confirmed:        { label: 'Đã xác nhận',            color: 'bg-blue-100   text-blue-800   border border-blue-200',    dot: '#3B82F6' },
+  shipped:          { label: 'Đang giao',              color: 'bg-sky-100    text-sky-800    border border-sky-200',     dot: '#06B6D4' },
+  delivered:        { label: 'Đã giao',                color: 'bg-emerald-100 text-emerald-800 border border-emerald-200', dot: '#10B981' },
+  return_requested: { label: 'Chờ xác nhận hoàn trả', color: 'bg-orange-100 text-orange-800 border border-orange-200', dot: '#F97316' },
+  returned:         { label: 'Hoàn trả xong',          color: 'bg-slate-100  text-slate-600  border border-slate-200',  dot: '#9CA3AF' },
+  cancelled:        { label: 'Đã hủy',                 color: 'bg-rose-100   text-rose-700   border border-rose-200',   dot: '#EF4444' },
 };
 
-// ── Cloudinary upload ─────────────────────────────────────────────
-async function uploadToCloudinary(file) {
+// Upload ảnh qua backend API (backend có CLOUDINARY credentials)
+async function uploadImage(file) {
+  if (file.size > 10 * 1024 * 1024) {
+    throw new Error(`Ảnh "${file.name}" quá lớn (tối đa 10MB)`);
+  }
   const fd = new FormData();
-  fd.append('file', file);
-  fd.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
-  fd.append('folder', 'returns');
-  const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`, { method:'POST', body:fd });
-  if (!res.ok) throw new Error('Upload thất bại');
-  return (await res.json()).secure_url;
+  fd.append('image', file);
+  const token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
+  const res = await fetch('/api/upload/return-image', {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: fd,
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data?.message || `Upload thất bại (${res.status})`);
+  }
+  return data.url;
 }
 
-// ── Return Modal ──────────────────────────────────────────────────
+// ── Return Modal ──────────────────────────────────────────────────────────────
 function ReturnModal({ onClose, onSubmit, submitting }) {
   const [reason,   setReason]   = useState('');
   const [images,   setImages]   = useState([]);
@@ -53,11 +60,11 @@ function ReturnModal({ onClose, onSubmit, submitting }) {
     for (let i = 0; i < updated.length; i++) {
       updated[i] = { ...updated[i], uploading:true }; setImages([...updated]);
       try {
-        const url = await uploadToCloudinary(updated[i].file);
+        const url = await uploadImage(updated[i].file);
         updated[i] = { ...updated[i], url, uploading:false }; urls.push(url);
-      } catch {
+      } catch (err) {
         updated[i] = { ...updated[i], uploading:false, error:'Lỗi' }; setImages([...updated]);
-        alert(`Không upload được ảnh "${updated[i].file.name}"`); return;
+        alert(err.message || `Không upload được ảnh "${updated[i].file.name}"`); return;
       }
       setImages([...updated]);
     }
@@ -83,7 +90,6 @@ function ReturnModal({ onClose, onSubmit, submitting }) {
         </div>
 
         <div className="px-5 py-4 space-y-4">
-          {/* Lý do quick-select */}
           <div>
             <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Lý do <span className="text-rose-500">*</span></p>
             <div className="grid grid-cols-2 gap-1.5 mb-2">
@@ -99,9 +105,11 @@ function ReturnModal({ onClose, onSubmit, submitting }) {
               className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-orange-400 focus:outline-none resize-none placeholder-slate-400 text-slate-700"/>
           </div>
 
-          {/* Upload ảnh */}
           <div>
-            <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">Ảnh minh chứng <span className="text-rose-500">*</span> <span className="text-slate-400 font-normal normal-case">({images.length}/5)</span></p>
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">
+              Ảnh minh chứng <span className="text-rose-500">*</span>
+              <span className="text-slate-400 font-normal normal-case"> ({images.length}/5)</span>
+            </p>
             {images.length < 5 && (
               <div onDragOver={e=>{e.preventDefault();setDragOver(true)}} onDragLeave={()=>setDragOver(false)}
                 onDrop={e=>{e.preventDefault();setDragOver(false);addFiles(e.dataTransfer.files)}}
@@ -126,9 +134,15 @@ function ReturnModal({ onClose, onSubmit, submitting }) {
             )}
           </div>
 
-          <div className="flex gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl">
-            <span className="text-amber-500 flex-shrink-0 text-sm">ℹ️</span>
-            <p className="text-xs text-amber-700">Xử lý trong <strong>1–3 ngày làm việc</strong>. Admin xem xét ảnh trước khi xác nhận.</p>
+          {/* Flow guide */}
+          <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl space-y-1.5">
+            <p className="text-xs font-bold text-blue-700 mb-1">📋 Quy trình</p>
+            {['Gửi yêu cầu kèm ảnh', 'Admin xác nhận (1–3 ngày)', 'Gửi hàng về — Admin xác nhận nhận hàng'].map((s, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <span className="w-4 h-4 rounded-full bg-blue-500 text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0">{i+1}</span>
+                <p className="text-xs text-blue-700">{s}</p>
+              </div>
+            ))}
           </div>
         </div>
 
@@ -146,7 +160,7 @@ function ReturnModal({ onClose, onSubmit, submitting }) {
   );
 }
 
-// ── Review Modal ──────────────────────────────────────────────────
+// ── Review Modal ──────────────────────────────────────────────────────────────
 function ReviewModal({ modal, form, setForm, images, setImages, loading, onClose, onSubmit }) {
   const handleImageUpload = (e) => {
     const files = Array.from(e.target.files);
@@ -214,16 +228,15 @@ function ReviewModal({ modal, form, setForm, images, setImages, loading, onClose
   );
 }
 
-// ── Order Card ────────────────────────────────────────────────────
-function OrderCard({ order, onCancel, onReturn, onReorder, onReview, returning, onOpenReturn, onNavigate }) {
-  const isReturn   = ['return_requested','returned'].includes(order.status);
+// ── Order Card ────────────────────────────────────────────────────────────────
+function OrderCard({ order, onCancel, onReorder, onReview, onOpenReturn, onNavigate }) {
   const returnable = order.status === 'delivered' &&
     (Date.now() - new Date(order.deliveredAt || order.date).getTime()) / 86400000 <= RETURN_WINDOW_DAYS;
   const daysLeft = order.status === 'delivered'
     ? Math.max(0, RETURN_WINDOW_DAYS - Math.floor((Date.now() - new Date(order.deliveredAt || order.date)) / 86400000))
     : null;
-
   const statusDot = STATUS_MAP[order.status]?.dot || '#94A3B8';
+  const isReturn  = ['return_requested','returned'].includes(order.status);
 
   return (
     <div className={`bg-white rounded-2xl border shadow-sm transition-all overflow-hidden ${
@@ -232,12 +245,10 @@ function OrderCard({ order, onCancel, onReturn, onReorder, onReview, returning, 
       order.status === 'cancelled'        ? 'border-rose-100'   : 'border-slate-100'
     } ${order.status === 'returned' ? 'opacity-75' : ''}`}>
 
-      {/* ── Clickable summary row ── */}
+      {/* Clickable header row */}
       <div className="px-5 py-4 cursor-pointer select-none hover:bg-slate-50/60 transition-colors"
         onClick={() => onNavigate(order.id)}>
         <div className="flex items-center gap-3">
-
-          {/* Ảnh stack */}
           <div className="flex -space-x-2 flex-shrink-0">
             {order.items.slice(0, 3).map((item, idx) => (
               <div key={idx} className="w-11 h-11 rounded-xl bg-slate-100 border-2 border-white overflow-hidden shadow-sm">
@@ -253,7 +264,6 @@ function OrderCard({ order, onCancel, onReturn, onReorder, onReview, returning, 
             )}
           </div>
 
-          {/* Info */}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-bold text-slate-900 text-sm font-mono">#{order.id.slice(-8).toUpperCase()}</span>
@@ -261,10 +271,11 @@ function OrderCard({ order, onCancel, onReturn, onReorder, onReview, returning, 
                 <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{background: statusDot}}/>
                 {order.statusLabel}
               </span>
+              {/* Spinner cho return_requested */}
               {order.status === 'return_requested' && (
                 <span className="flex items-center gap-1 text-[11px] text-orange-500 font-semibold">
                   <div className="w-2 h-2 border-2 border-orange-400 border-t-transparent rounded-full animate-spin"/>
-                  Đang xử lý
+                  Chờ xác nhận
                 </span>
               )}
             </div>
@@ -281,14 +292,11 @@ function OrderCard({ order, onCancel, onReturn, onReorder, onReview, returning, 
             </div>
           </div>
 
-          {/* Chevron */}
-          <svg className="w-4 h-4 text-slate-300 flex-shrink-0"
-            fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-4 h-4 text-slate-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/>
           </svg>
         </div>
       </div>
-
 
       {/* Items list */}
       <div className="border-t border-slate-100 px-5 py-3 space-y-2.5">
@@ -312,7 +320,7 @@ function OrderCard({ order, onCancel, onReturn, onReorder, onReview, returning, 
         ))}
       </div>
 
-      {/* Countdown / status info */}
+      {/* Status info banners */}
       {order.status === 'delivered' && (
         <div className={`mx-5 mb-3 flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold ${
           returnable ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-slate-50 text-slate-400 border border-slate-200'
@@ -321,16 +329,25 @@ function OrderCard({ order, onCancel, onReturn, onReorder, onReview, returning, 
           {returnable ? `Còn ${daysLeft} ngày để hoàn trả` : 'Đã hết hạn hoàn trả (5 ngày)'}
         </div>
       )}
+
+      {/* ✅ Return flow — 2 bước rõ ràng */}
       {order.status === 'return_requested' && (
-        <div className="mx-5 mb-3 flex items-center gap-2 px-3 py-2 bg-orange-50 border border-orange-200 rounded-xl">
-          <div className="w-3 h-3 border-2 border-orange-400 border-t-transparent rounded-full animate-spin flex-shrink-0"/>
-          <p className="text-xs font-semibold text-orange-700">Yêu cầu hoàn trả đang được xử lý (1–3 ngày)</p>
+        <div className="mx-5 mb-3 space-y-1.5">
+          <div className="flex items-center gap-2 px-3 py-2 bg-orange-50 border border-orange-200 rounded-xl">
+            <div className="w-3 h-3 border-2 border-orange-400 border-t-transparent rounded-full animate-spin flex-shrink-0"/>
+            <p className="text-xs font-semibold text-orange-700">Bước 1: Đang chờ Admin xác nhận yêu cầu</p>
+          </div>
+          <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl">
+            <span className="w-3 h-3 rounded-full border-2 border-slate-300 flex-shrink-0"/>
+            <p className="text-xs text-slate-400">Bước 2: Sau xác nhận — gửi hàng về & Admin nhận hàng</p>
+          </div>
         </div>
       )}
+
       {order.status === 'returned' && (
         <div className="mx-5 mb-3 flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl">
           <span className="text-slate-400 text-sm">✔</span>
-          <p className="text-xs font-semibold text-slate-500">Hoàn trả thành công</p>
+          <p className="text-xs font-semibold text-slate-500">Hoàn trả hoàn tất — Admin đã nhận hàng</p>
         </div>
       )}
 
@@ -342,7 +359,7 @@ function OrderCard({ order, onCancel, onReturn, onReorder, onReview, returning, 
             ✕ Hủy đơn
           </button>
         )}
-        {['delivered','processing','confirmed','returned'].includes(order.status) && (
+        {['delivered','confirmed','returned'].includes(order.status) && (
           <button onClick={(e) => { e.stopPropagation(); onReorder(order); }}
             className="px-4 py-1.5 text-sm text-slate-600 font-semibold hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors">
             🔄 Mua lại
@@ -356,11 +373,8 @@ function OrderCard({ order, onCancel, onReturn, onReorder, onReview, returning, 
         )}
         {order.status === 'delivered' && returnable && (
           <button onClick={(e) => { e.stopPropagation(); onOpenReturn(order.id); }}
-            disabled={returning === order.id}
-            className="flex items-center gap-1.5 px-4 py-1.5 text-sm text-orange-600 font-semibold hover:bg-orange-50 border border-orange-200 rounded-lg transition-colors disabled:opacity-50">
-            {returning === order.id
-              ? <><div className="w-3 h-3 border-2 border-orange-400 border-t-transparent rounded-full animate-spin"/>Đang gửi...</>
-              : <>↩️ Hoàn trả ({daysLeft}d)</>}
+            className="flex items-center gap-1.5 px-4 py-1.5 text-sm text-orange-600 font-semibold hover:bg-orange-50 border border-orange-200 rounded-lg transition-colors">
+            ↩️ Hoàn trả ({daysLeft}d)
           </button>
         )}
         {order.status === 'delivered' && !returnable && (
@@ -369,7 +383,7 @@ function OrderCard({ order, onCancel, onReturn, onReorder, onReview, returning, 
         {order.status === 'return_requested' && (
           <span className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-50 text-orange-600 border border-orange-200 rounded-lg text-xs font-semibold">
             <div className="w-2.5 h-2.5 border-2 border-orange-400 border-t-transparent rounded-full animate-spin"/>
-            Đang xử lý hoàn trả
+            Chờ Admin xác nhận
           </span>
         )}
         {order.status === 'returned' && (
@@ -382,7 +396,7 @@ function OrderCard({ order, onCancel, onReturn, onReorder, onReview, returning, 
   );
 }
 
-// ── Main ──────────────────────────────────────────────────────────
+// ── Main ──────────────────────────────────────────────────────────────────────
 export default function OrdersPage() {
   const navigate = useNavigate();
   const { addToCart } = useCart();
@@ -390,7 +404,6 @@ export default function OrdersPage() {
   const [orders,        setOrders]        = useState([]);
   const [loading,       setLoading]       = useState(true);
   const [statusFilter,  setStatusFilter]  = useState('all');
-  const [returning,     setReturning]     = useState(null);
   const [showReturn,    setShowReturn]    = useState(false);
   const [returnOrderId, setReturnOrderId] = useState(null);
   const [submitting,    setSubmitting]    = useState(false);
@@ -405,7 +418,7 @@ export default function OrdersPage() {
   const fetchOrders = async () => {
     try {
       setLoading(true);
-      const res  = await apiClient.get('/user/orders');
+      const res  = await apiClient.get('/orders');
       const raw  = res.data?.data || res.data || [];
       const list = Array.isArray(raw) ? raw : Array.isArray(raw.orders) ? raw.orders : [];
       setOrders(list.map(o => ({
@@ -427,7 +440,7 @@ export default function OrdersPage() {
 
   const handleCancel = async (orderId) => {
     if (!window.confirm('Bạn có chắc muốn hủy đơn hàng này không?')) return;
-    try { await apiClient.put(`/user/orders/${orderId}/cancel`); fetchOrders(); }
+    try { await apiClient.post(`/orders/${orderId}/cancel`); fetchOrders(); }
     catch (err) { alert(err.response?.data?.message || 'Không thể hủy đơn hàng'); }
   };
 
@@ -439,7 +452,12 @@ export default function OrdersPage() {
       await apiClient.post(`/orders/${returnOrderId}/return-request`, { reason, images });
       setShowReturn(false); setReturnOrderId(null);
       await fetchOrders();
-    } catch (err) { alert(err.response?.data?.message || 'Không thể gửi yêu cầu hoàn trả'); }
+    } catch (err) {
+      const msg = err.response?.data?.message || err.message || 'Không thể gửi yêu cầu hoàn trả';
+      const status = err.response?.status;
+      console.error('[ReturnRequest] error:', status, err.response?.data);
+      alert(status ? `Lỗi ${status}: ${msg}` : msg);
+    }
     finally { setSubmitting(false); }
   };
 
@@ -515,14 +533,12 @@ export default function OrdersPage() {
               onOpenReturn={handleOpenReturn}
               onReorder={handleReorder}
               onReview={handleReview}
-              returning={returning}
               onNavigate={(id) => navigate(`/orders/${id}`)}
             />
           ))}
         </div>
       )}
 
-      {/* Return Modal */}
       {showReturn && (
         <ReturnModal
           onClose={() => { setShowReturn(false); setReturnOrderId(null); }}
@@ -531,7 +547,6 @@ export default function OrdersPage() {
         />
       )}
 
-      {/* Review Modal */}
       {reviewModal && (
         <ReviewModal
           modal={reviewModal}

@@ -231,7 +231,7 @@ export default function AdminChat() {
 
                     {/* Filter tabs */}
                     <div className="flex bg-slate-100 rounded-xl p-0.5">
-                        {[['open','Đang mở'],['closed','Đã đóng'],['all','Tất cả']].map(([v,l]) => (
+                        {[['all','Tất cả']].map(([v,l]) => (
                             <button key={v} onClick={() => setFilter(v)}
                                 className={`flex-1 py-1.5 text-[11px] font-semibold rounded-lg transition-all ${
                                     filter === v ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400 hover:text-slate-600'

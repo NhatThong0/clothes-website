@@ -31,7 +31,18 @@ const avatarStorage = new CloudinaryStorage({
     },
 });
 
-const upload       = multer({ storage: productStorage, limits: { fileSize: 5 * 1024 * 1024 } });
-const uploadAvatar = multer({ storage: avatarStorage,  limits: { fileSize: 5 * 1024 * 1024 } });
+// ── Return / hoàn trả images ──────────────────────────────────────────────────
+const returnStorage = new CloudinaryStorage({
+    cloudinary,
+    params: {
+        folder: 'fashion-hub/returns',
+        allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
+        transformation: [{ width: 1200, quality: 'auto' }],
+    },
+});
 
-module.exports = { cloudinary, upload, uploadAvatar };
+const upload        = multer({ storage: productStorage, limits: { fileSize: 5 * 1024 * 1024 } });
+const uploadAvatar  = multer({ storage: avatarStorage,  limits: { fileSize: 5 * 1024 * 1024 } });
+const uploadReturn  = multer({ storage: returnStorage,  limits: { fileSize: 10 * 1024 * 1024 } });
+
+module.exports = { cloudinary, upload, uploadAvatar, uploadReturn };
