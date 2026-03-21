@@ -22,6 +22,7 @@ const inventoryRoute = require("./src/route/inventoryRoute");
 const chatRoute      = require('./src/route/chatRoute');
 const paymentRoute   = require('./src/route/paymentRoute'); // ✅ VNPay
 const voucherRoute = require("./src/route/voucherRoute");
+const shippingRoute = require('./src/route/shippingRoute');
 
 
 const app    = express();
@@ -81,7 +82,7 @@ app.use("/api/admin/inventory",  inventoryRoute);
 app.use('/api/chat',             chatRoute);
 app.use('/api/payment',          paymentRoute); // ✅ VNPay
 app.use('/api/vouchers',         voucherRoute);
-
+app.use('/api/shipping',         shippingRoute);
 // ── 404 + Error handler ───────────────────────────────────────────────────────
 app.use((req, res) => res.status(404).json({ status: "error", message: "Route not found" }));
 app.use(errorHandler);
