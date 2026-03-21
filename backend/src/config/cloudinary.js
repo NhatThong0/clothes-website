@@ -36,7 +36,7 @@ const returnStorage = new CloudinaryStorage({
     cloudinary,
     params: {
         folder: 'fashion-hub/returns',
-        allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
+        allowed_formats: ['jpg', 'jpeg', 'png', 'webp','heic', 'heif'],
         transformation: [{ width: 1200, quality: 'auto' }],
     },
 });
