@@ -211,26 +211,85 @@ const createOrder = async (req, res) => {
 };
 
 // ── GET /api/orders ───────────────────────────────────────────────────────────
+ 
 const getUserOrders = async (req, res) => {
     try {
         const userId = req.user.userId || req.userId;
-        const { page = 1, limit = 10, status } = req.query;
-        const filter = { userId };
-        if (status) filter.status = status;
+ 
+        // Tăng default limit lên 100, tối đa 200
+        const limit  = Math.min(Number(req.query.limit)  || 100, 200);
+        const page   = Math.max(Number(req.query.page)   || 1,   1);
+        const { status, search, dateFrom, dateTo } = req.query;
+ 
+        // Build filter
+        const conditions = [{ userId }];
+ 
+        // Lọc trạng thái
+        if (status) conditions.push({ status });
+ 
+        // Lọc khoảng thời gian
+        if (dateFrom || dateTo) {
+            const d = {};
+            if (dateFrom) d.$gte = new Date(dateFrom + 'T00:00:00.000Z');
+            if (dateTo)   d.$lte = new Date(dateTo   + 'T23:59:59.999Z');
+            conditions.push({ createdAt: d });
+        }
+ 
+        // Tìm kiếm theo mã đơn hoặc tên sản phẩm
+        if (search && search.trim()) {
+            const q = search.trim();
+            const searchOr = [];
+ 
+            // Tìm theo ObjectId đầy đủ
+            if (/^[0-9a-fA-F]{24}$/.test(q)) {
+                searchOr.push({ _id: new mongoose.Types.ObjectId(q) });
+            }
+ 
+            // Tìm theo 6-8 ký tự cuối của mã đơn (case-insensitive)
+            if (/^[0-9a-fA-F]{4,23}$/.test(q)) {
+                searchOr.push({
+                    $expr: {
+                        $regexMatch: {
+                            input:  { $toString: '$_id' },
+                            regex:  q,
+                            options: 'i',
+                        },
+                    },
+                });
+            }
+ 
+            // Tìm theo tên sản phẩm trong items
+            searchOr.push({ 'items.name': { $regex: q, $options: 'i' } });
+ 
+            if (searchOr.length > 0) conditions.push({ $or: searchOr });
+        }
+ 
+        const filter = conditions.length === 1 ? conditions[0] : { $and: conditions };
+ 
         const [orders, total] = await Promise.all([
-            Order.find(filter).sort({ createdAt: -1 }).skip((page-1)*limit).limit(Number(limit)).lean(),
+            Order.find(filter)
+                .sort({ createdAt: -1 })
+                .skip((page - 1) * limit)
+                .limit(limit)
+                .lean(),
             Order.countDocuments(filter),
         ]);
+ 
         res.status(200).json({
             status: 'success',
             data: orders,
-            pagination: { total, page: Number(page), pages: Math.ceil(total/limit), limit: Number(limit) },
+            pagination: {
+                total,
+                page,
+                pages: Math.ceil(total / limit),
+                limit,
+            },
         });
     } catch (err) {
+        console.error('getUserOrders error:', err);
         res.status(500).json({ status: 'error', message: err.message });
     }
 };
-
 // ── GET /api/orders/:id ───────────────────────────────────────────────────────
 const getOrderById = async (req, res) => {
     try {
@@ -288,7 +347,7 @@ const requestReturn = async (req, res) => {
         if (!order.deliveredAt)
             return res.status(400).json({ status: 'error', message: 'Không xác định được ngày giao hàng.' });
 
-        const RETURN_WINDOW_DAYS = 5;
+        const RETURN_WINDOW_DAYS = 3; // Rút ngắn từ 5 → 3 ngày
         const daysSince = (Date.now() - new Date(order.deliveredAt).getTime()) / (1000 * 60 * 60 * 24);
         if (daysSince > RETURN_WINDOW_DAYS)
             return res.status(400).json({ status: 'error', message: `Đã quá ${RETURN_WINDOW_DAYS} ngày kể từ khi nhận hàng.` });
@@ -570,6 +629,63 @@ const getReturnOrders = async (req, res) => {
     }
 };
 
+// ── POST /api/orders/:id/confirm-delivery (User xác nhận đã nhận hàng) ────────
+const confirmDelivery = async (req, res) => {
+    try {
+        const userId = req.user.userId || req.userId;
+        const order  = await Order.findById(req.params.id);
+        if (!order) return res.status(404).json({ status: 'error', message: 'Không tìm thấy đơn hàng.' });
+        if (order.userId.toString() !== userId.toString())
+            return res.status(403).json({ status: 'error', message: 'Không có quyền.' });
+        if (order.status !== 'delivered')
+            return res.status(400).json({ status: 'error', message: 'Đơn hàng chưa được giao.' });
+        if (order.userConfirmedAt)
+            return res.status(400).json({ status: 'error', message: 'Bạn đã xác nhận đơn hàng này rồi.' });
+
+        order.userConfirmedAt    = new Date();
+        order.autoConfirmed      = false; // user tự xác nhận
+        await order.save();
+        res.json({ status: 'success', message: 'Xác nhận nhận hàng thành công.', data: order });
+    } catch (err) {
+        res.status(500).json({ status: 'error', message: err.message });
+    }
+};
+
+// ── Auto-confirm delivered orders after 24h ───────────────────────────────────
+// Gọi bởi cron job hoặc có thể gọi thủ công: POST /admin/orders/auto-confirm
+const autoConfirmDeliveredOrders = async (req, res) => {
+    try {
+        const AUTO_CONFIRM_HOURS = 24;
+        const cutoff = new Date(Date.now() - AUTO_CONFIRM_HOURS * 60 * 60 * 1000);
+
+        // Tìm đơn delivered, chưa user confirm, đã giao > 24h
+        const orders = await Order.find({
+            status:           'delivered',
+            userConfirmedAt:  null,
+            deliveredAt:      { $lte: cutoff },
+        });
+
+        let count = 0;
+        for (const order of orders) {
+            order.userConfirmedAt = new Date();
+            order.autoConfirmed   = true; // đánh dấu tự động
+            await order.save();
+            count++;
+        }
+
+        const msg = `Đã tự động xác nhận ${count} đơn hàng.`;
+        console.log('[AutoConfirm]', msg);
+
+        if (res) {
+            res.json({ status: 'success', message: msg, data: { count } });
+        }
+        return count;
+    } catch (err) {
+        console.error('[AutoConfirm] error:', err.message);
+        if (res) res.status(500).json({ status: 'error', message: err.message });
+    }
+};
+
 module.exports = {
     createOrder,
     getUserOrders,
@@ -582,6 +698,8 @@ module.exports = {
     calcVoucherDiscount,
     requestReturn,
     retryPayment,
+    confirmDelivery,
+    autoConfirmDeliveredOrders,
     // Hoàn trả
     approveReturn,
     rejectReturn,

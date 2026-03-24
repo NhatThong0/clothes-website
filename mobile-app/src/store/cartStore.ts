@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import { Product } from '../api/productApi';
-import { getDiscountedPrice } from '../api/productApi';
+import { Product, getDiscountedPrice } from '../api/productApi';
+import { cartApi, CartItem as ApiCartItem } from '../api/cartApi';
 
 export interface CartItem {
   product:  Product;
@@ -9,13 +9,12 @@ export interface CartItem {
   size?:    string;
 }
 
-// Key duy nhất cho mỗi dòng giỏ hàng (sản phẩm + variant)
 const itemKey = (productId: string, color?: string, size?: string) =>
   `${productId}__${color ?? ''}__${size ?? ''}`;
 
 interface CartState {
-  items: CartItem[];
-
+  items:          CartItem[];
+  syncCart:       () => Promise<void>;   // ✅ khai báo rõ return type
   totalItems:     () => number;
   totalPrice:     () => number;
   addToCart:      (product: Product, quantity?: number, color?: string, size?: string) => void;
@@ -26,6 +25,21 @@ interface CartState {
 
 export const useCartStore = create<CartState>((set, get) => ({
   items: [],
+
+  syncCart: async (): Promise<void> => {
+    try {
+      const cart = await cartApi.getCart();
+      const items: CartItem[] = cart.items.map((item: ApiCartItem) => ({
+        product:  item.productId as unknown as Product,
+        quantity: item.quantity,
+        color:    item.color,
+        size:     item.size,
+      }));
+      set({ items });
+    } catch (e) {
+      console.error('syncCart error:', e);
+    }
+  },
 
   totalItems: () =>
     get().items.reduce((sum, item) => sum + item.quantity, 0),

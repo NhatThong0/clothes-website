@@ -23,8 +23,9 @@ const chatRoute      = require('./src/route/chatRoute');
 const paymentRoute   = require('./src/route/paymentRoute'); // ✅ VNPay
 const voucherRoute = require("./src/route/voucherRoute");
 const shippingRoute = require('./src/route/shippingRoute');
-
-
+// const notificationRoutes = require('./route/notificationRoutes');
+const { startAutoConfirmCron } = require('./src/cron/autoConfirmOrders');
+startAutoConfirmCron();
 const app    = express();
 const server = http.createServer(app);
 const io     = new Server(server, {
@@ -83,6 +84,7 @@ app.use('/api/chat',             chatRoute);
 app.use('/api/payment',          paymentRoute); // ✅ VNPay
 app.use('/api/vouchers',         voucherRoute);
 app.use('/api/shipping',         shippingRoute);
+// app.use('/api/notifications', notificationRoutes);
 // ── 404 + Error handler ───────────────────────────────────────────────────────
 app.use((req, res) => res.status(404).json({ status: "error", message: "Route not found" }));
 app.use(errorHandler);

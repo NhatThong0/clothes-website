@@ -315,6 +315,35 @@ const AdminOrderDetail = () => {
                 </div>
               )}
 
+              {/* ✅ User confirmed delivery */}
+              {order.userConfirmedAt && (
+                <div className="mt-3 flex items-center gap-3">
+                  <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-base flex-shrink-0 ${order.autoConfirmed ? 'bg-slate-100' : 'bg-emerald-100'}`}>
+                    {order.autoConfirmed ? '🤖' : '✅'}
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-400 font-medium">
+                      {order.autoConfirmed ? 'Hệ thống tự xác nhận nhận hàng (sau 24h)' : 'Khách hàng xác nhận đã nhận hàng'}
+                    </p>
+                    <p className="text-sm font-bold text-emerald-700">{fmtD(order.userConfirmedAt)}</p>
+                    {order.autoConfirmed && (
+                      <p className="text-xs text-slate-400 mt-0.5">Khách không phản hồi sau 24 giờ kể từ khi giao</p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Pending user confirm (delivered but not confirmed yet) */}
+              {order.status === 'delivered' && !order.userConfirmedAt && (
+                <div className="mt-3 flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-xl bg-amber-100 flex items-center justify-center text-base flex-shrink-0">⏳</div>
+                  <div>
+                    <p className="text-xs text-amber-600 font-medium">Chờ khách xác nhận nhận hàng</p>
+                    <p className="text-xs text-slate-400 mt-0.5">Tự động xác nhận sau 24h kể từ khi giao</p>
+                  </div>
+                </div>
+              )}
+
               {order.returnRequestedAt && (
                 <div className="mt-3 flex items-center gap-3">
                   <div className="w-8 h-8 rounded-xl bg-orange-100 flex items-center justify-center text-base flex-shrink-0">↩️</div>

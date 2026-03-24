@@ -70,6 +70,8 @@ const orderSchema = new mongoose.Schema({
 
     // Khi admin xác nhận đã nhận hàng hoàn
     returnedAt:        { type: Date,   default: null },
+    userConfirmedAt:   { type: Date,    default: null },
+    autoConfirmed:     { type: Boolean, default: false }, // true = hệ thống tự xác nhận sau 24h
     returnedBy:        { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
 
     // Hoàn tiền

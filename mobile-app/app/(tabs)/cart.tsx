@@ -1,14 +1,13 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View, Text, FlatList, Image, TouchableOpacity,
   StyleSheet, ActivityIndicator, Alert, StatusBar, RefreshControl,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useNavigation } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { cartApi, Cart, CartItem } from '@/src/api/cartApi';
 import { formatPrice, getDiscountedPrice } from '@/src/api/productApi';
 import { useFocusEffect } from 'expo-router';
-
 
 const TOKEN = { black: '#1A1A1A', surface: '#F5F5F0', border: '#E8E8E4', muted: '#AAAAAA', accent: '#E8FF4A' };
 
@@ -16,36 +15,48 @@ const itemKey = (item: CartItem) =>
   `${item.productId._id}__${item.color ?? ''}__${item.size ?? ''}`;
 
 export default function CartScreen() {
-  const router = useRouter();
-  const [cart, setCart]           = useState<Cart | null>(null);
-  const [loading, setLoading]     = useState(true);
+  const router     = useRouter();
+  const navigation = useNavigation();
+
+  const [cart, setCart]             = useState<Cart | null>(null);
+  const [loading, setLoading]       = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [updating, setUpdating]   = useState<string | null>(null);
-  const [selected, setSelected]   = useState<Set<string>>(new Set());
+  const [updating, setUpdating]     = useState<string | null>(null);
+  const [selected, setSelected]     = useState<Set<string>>(new Set());
+
+  // ✅ Ẩn tab bar khi vào Cart, hiện lại khi rời
+  useFocusEffect(
+    useCallback(() => {
+      navigation.getParent()?.setOptions({ tabBarStyle: { display: 'none' } });
+      return () => {
+        navigation.getParent()?.setOptions({ tabBarStyle: { display: 'flex' } });
+      };
+    }, [navigation])
+  );
 
   const load = useCallback(async () => {
-  try {
-    const data = await cartApi.getCart();
-    setCart(data);
-    // ✅ Reset selected mỗi lần load — chọn tất cả items mới
-    setSelected(new Set(data.items.map(itemKey)));
-  } catch (e) { console.error(e); }
-  finally { setLoading(false); setRefreshing(false); }
-}, []);
+    try {
+      const data = await cartApi.getCart();
+      setCart(data);
+      // ✅ Mặc định KHÔNG chọn sản phẩm nào khi load
+      setSelected(new Set());
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); setRefreshing(false); }
+  }, []);
 
-// ✅ Dùng useFocusEffect thay useEffect
-useFocusEffect(
-  useCallback(() => {
-    setLoading(true);
-    load();
-  }, [load])
-);
+  useFocusEffect(
+    useCallback(() => {
+      setLoading(true);
+      load();
+    }, [load])
+  );
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   const allKeys       = cart?.items.map(itemKey) ?? [];
   const validSelected = new Set([...selected].filter(k => allKeys.includes(k)));
   const isAllSelected = allKeys.length > 0 && allKeys.every(k => validSelected.has(k));
 
+  // ✅ Chỉ toggle checkbox khi bấm vào checkbox, KHÔNG phải toàn bộ item
   const toggleItem = (key: string) =>
     setSelected(prev => {
       const n = new Set(prev);
@@ -119,7 +130,7 @@ useFocusEffect(
   // ── Checkout ──────────────────────────────────────────────────────────────
   const handleCheckout = () => {
     if (selectedItems.length === 0) {
-      Alert.alert('Chưa chọn sản phẩm', 'Vui lòng chọn ít nhất 1 sản phẩm');
+      Alert.alert('Chưa chọn sản phẩm', 'Vui lòng chọn ít nhất 1 sản phẩm để thanh toán');
       return;
     }
     const itemsParam = JSON.stringify(
@@ -145,9 +156,16 @@ useFocusEffect(
     <View style={s.root}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
 
+      {/* ── Header ───────────────────────────────────────── */}
       <View style={s.header}>
+        <TouchableOpacity style={s.backBtn} onPress={() => router.back()} activeOpacity={0.7}>
+          <Ionicons name="arrow-back" size={20} color={TOKEN.black} />
+        </TouchableOpacity>
         <Text style={s.title}>Giỏ hàng</Text>
-        {!empty && <Text style={s.count}>{cart!.items.length} sản phẩm</Text>}
+        {!empty
+          ? <Text style={s.count}>{cart!.items.length} sản phẩm</Text>
+          : <View style={{ width: 40 }} />
+        }
       </View>
 
       {empty ? (
@@ -170,7 +188,7 @@ useFocusEffect(
               {isAllSelected ? 'Bỏ chọn tất cả' : 'Chọn tất cả'}
             </Text>
             {validSelected.size > 0 && (
-              <Text style={s.selectedCount}>{validSelected.size}/{cart!.items.length} sp</Text>
+              <Text style={s.selectedCount}>{validSelected.size}/{cart!.items.length} đã chọn</Text>
             )}
           </TouchableOpacity>
 
@@ -179,7 +197,13 @@ useFocusEffect(
             keyExtractor={itemKey}
             contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 4, paddingBottom: 160 }}
             showsVerticalScrollIndicator={false}
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={TOKEN.black} />}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={() => { setRefreshing(true); load(); }}
+                tintColor={TOKEN.black}
+              />
+            }
             ItemSeparatorComponent={() => <View style={s.separator} />}
             renderItem={({ item }) => {
               const p       = item.productId;
@@ -189,12 +213,20 @@ useFocusEffect(
               const busy    = updating === key;
 
               return (
+                // ✅ Bấm vào item → chuyển sang trang chi tiết sản phẩm
                 <TouchableOpacity
-                  style={[s.item, checked && s.itemChecked]}
-                  onPress={() => toggleItem(key)}
+                  style={s.item}
+                  onPress={() => router.push({ pathname: '/product/[id]', params: { id: p._id } })}
                   activeOpacity={0.85}
                 >
-                  <Checkbox checked={checked} />
+                  {/* ✅ Checkbox riêng — bấm vào đây để tích/bỏ tích */}
+                  <TouchableOpacity
+                    onPress={() => toggleItem(key)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    activeOpacity={0.7}
+                  >
+                    <Checkbox checked={checked} />
+                  </TouchableOpacity>
 
                   <View style={s.imgWrap}>
                     {p.images?.[0]
@@ -221,6 +253,7 @@ useFocusEffect(
                     </View>
                   </View>
 
+                  {/* ✅ Phần bên phải — stopPropagation bằng cách wrap riêng */}
                   <View style={s.right}>
                     <TouchableOpacity
                       style={s.deleteBtn}
@@ -261,9 +294,13 @@ useFocusEffect(
           <View style={s.bottom}>
             <View>
               <Text style={s.totalLabel}>
-                Tổng {selectedItems.length > 0 ? `· ${selectedItems.length} sp` : ''}
+                {selectedItems.length > 0
+                  ? `Tổng · ${selectedItems.length} sp`
+                  : 'Chưa chọn sản phẩm'}
               </Text>
-              <Text style={s.totalVal}>{formatPrice(subtotal)}</Text>
+              <Text style={s.totalVal}>
+                {selectedItems.length > 0 ? formatPrice(subtotal) : '—'}
+              </Text>
             </View>
             <TouchableOpacity
               style={[s.checkoutBtn, selectedItems.length === 0 && s.checkoutBtnOff]}
@@ -312,8 +349,9 @@ const vb = StyleSheet.create({
 const s = StyleSheet.create({
   root:            { flex: 1, backgroundColor: '#fff' },
   center:          { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  header:          { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', paddingHorizontal: 20, paddingTop: 60, paddingBottom: 12 },
-  title:           { fontSize: 28, fontWeight: '900', color: TOKEN.black },
+  header:          { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 60, paddingBottom: 12 },
+  backBtn:         { width: 40, height: 40, borderRadius: 20, backgroundColor: TOKEN.surface, alignItems: 'center', justifyContent: 'center' },
+  title:           { fontSize: 20, fontWeight: '900', color: TOKEN.black },
   count:           { fontSize: 13, color: TOKEN.muted },
   emptyWrap:       { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, paddingBottom: 60 },
   emptyIcon:       { width: 80, height: 80, borderRadius: 40, backgroundColor: TOKEN.surface, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
@@ -325,8 +363,8 @@ const s = StyleSheet.create({
   selectAllText:   { fontSize: 13, fontWeight: '600', color: TOKEN.black, flex: 1 },
   selectedCount:   { fontSize: 12, color: TOKEN.muted },
   separator:       { height: 1, backgroundColor: TOKEN.surface, marginLeft: 20 },
+  // ✅ Bỏ itemChecked vì item không còn highlight khi chọn
   item:            { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, gap: 12, backgroundColor: '#fff' },
-  itemChecked:     { backgroundColor: '#FAFAFA' },
   imgWrap:         { width: 68, height: 68, borderRadius: 12, overflow: 'hidden', backgroundColor: TOKEN.surface, flexShrink: 0 },
   img:             { width: 68, height: 68 },
   imgEmpty:        { alignItems: 'center', justifyContent: 'center' },
