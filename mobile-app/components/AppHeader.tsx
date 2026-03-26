@@ -16,6 +16,9 @@ const C = {
   white:   '#FFFFFF',
 };
 
+import { useNotificationStore } from '@/src/store/notificationStore';
+import NotificationBell from './NotificationBell';
+
 interface AppHeaderProps {
   title?:       string;
   subtitle?:    string;
@@ -23,6 +26,7 @@ interface AppHeaderProps {
   onBack?:      () => void;
   showCart?:    boolean;
   showChat?:    boolean;
+  showNotification?: boolean;
   showSearch?:  boolean;
   onSearch?:    () => void;
   transparent?: boolean;
@@ -36,6 +40,7 @@ export default function AppHeader({
   onBack,
   showCart   = true,
   showChat   = true,
+  showNotification = true,
   showSearch = false,
   onSearch,
   transparent = false,
@@ -43,6 +48,7 @@ export default function AppHeader({
 }: AppHeaderProps) {
   const router = useRouter();
   const { user } = useAuthStore();
+  const unreadCount = useNotificationStore(s => s.unreadCount);
 
   // ✅ Subscribe trực tiếp items.length để re-render khi giỏ hàng thay đổi
   const cartCount = useCartStore(s =>
@@ -103,6 +109,10 @@ export default function AppHeader({
               icon="search-outline"
               onPress={onSearch ?? (() => {})}
             />
+          )}
+
+          {showNotification && (
+            <NotificationBell size={20} bgColor={C.surface} />
           )}
 
           {showChat && (

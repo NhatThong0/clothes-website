@@ -23,14 +23,31 @@ const TABS: {
   { name: 'profile', label: 'Tài khoản', icon: 'person-outline',  iconActive: 'person' },
 ];
 
-// ── Header actions (giỏ hàng + chat) ────────────────────────────────────────
+import { useNotificationStore } from '@/src/store/notificationStore';
+
+// ── Header actions (giỏ hàng + chat + thông báo) ────────────────────────────
 export function HeaderActions() {
-  const router     = useRouter();
-  const totalItems = useCartStore(s => s.totalItems);
-  const cartCount  = totalItems();
+  const router      = useRouter();
+  const totalItems  = useCartStore(s => s.totalItems);
+  const cartCount   = totalItems();
+  const unreadCount = useNotificationStore(s => s.unreadCount);
 
   return (
     <View style={h.row}>
+      {/* Nút Thông báo */}
+      <TouchableOpacity 
+        style={h.btn} 
+        onPress={() => router.push('/profile/notifications' as any)} 
+        activeOpacity={0.75}
+      >
+        <Ionicons name="notifications-outline" size={22} color={TOKEN.black} />
+        {unreadCount > 0 && (
+          <View style={h.badge}>
+            <Text style={h.badgeText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
+          </View>
+        )}
+      </TouchableOpacity>
+
       {/* Nút Chat */}
       <TouchableOpacity style={h.btn} onPress={() => router.push('/(tabs)/chat')} activeOpacity={0.75}>
         <Ionicons name="chatbubble-outline" size={22} color={TOKEN.black} />

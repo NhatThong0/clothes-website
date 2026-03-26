@@ -1,106 +1,56 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
-import { io } from 'socket.io-client';
 import apiClient from '@services/apiClient';
 import { useAuth } from '@hooks/useAuth';
+import { useChat } from '@hooks/useChat';
 
 const fmtTime = d => new Date(d).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-const SOCKET_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api').replace('/api', '');
 
 export default function ChatWidget() {
     const { user } = useAuth();
     const location = useLocation();
     const isAdmin  = location.pathname.startsWith('/admin');
+    const token    = localStorage.getItem('token');
 
-    // ✅ Đọc token từ localStorage — dùng user làm dependency để reactive khi login/logout
-    const getToken = () => localStorage.getItem('token');
+    const { 
+        connected, 
+        loading,
+        activeConv, 
+        unreadCount, 
+        isTyping,
+        loadUserConversation, 
+        sendMessage: sendSocketMessage, 
+        emitTyping, 
+        markReadByUser 
+    } = useChat({ token });
 
     const [open,      setOpen]      = useState(false);
     const [messages,  setMessages]  = useState([]);
     const [input,     setInput]     = useState('');
     const [sending,   setSending]   = useState(false);
-    const [convId,    setConvId]    = useState(null);
-    const [unread,    setUnread]    = useState(0);
-    const [typing,    setTyping]    = useState(false);
-    const [connected, setConnected] = useState(false);
-    const [loaded,    setLoaded]    = useState(false);
 
-    const socketRef   = useRef(null);
     const bottomRef   = useRef(null);
     const inputRef    = useRef(null);
-    const typingTimer = useRef(null);
-    const tokenRef    = useRef(getToken()); // ✅ ref tránh stale closure
 
-    useEffect(() => { tokenRef.current = getToken(); }, [user]);
-
-    // ── Load conversation ────────────────────────────────────────────────────
-    const loadConversation = useCallback(async () => {
-        if (!tokenRef.current) {
-            setLoaded(true); // không có token → vẫn hiện UI (empty state)
-            return;
+    // Đồng bộ tin nhắn từ Hook vào local state
+    useEffect(() => {
+        if (activeConv) {
+            setMessages(activeConv.messages || []);
         }
-        try {
-            const res  = await apiClient.get('/chat/my');
-            const conv = res.data.data;
-            setConvId(conv._id);
-            setMessages(conv.messages || []);
-            const u = (conv.messages || []).filter(m => m.senderRole === 'admin' && !m.readAt).length;
-            setUnread(u);
-        } catch (e) { console.error('loadConversation', e); }
-        finally { setLoaded(true); } // ✅ luôn set true dù thành công hay lỗi
-    }, []);
-
-    useEffect(() => {
-        if (user) loadConversation();
-    }, [user, loadConversation]);
-
-    // ── Socket ───────────────────────────────────────────────────────────────
-    useEffect(() => {
-        if (!getToken()) return;
-        const socket = io(SOCKET_URL, {
-            auth: { token: getToken() }, transports: ['websocket'], reconnectionDelay: 2000,
-        });
-        socketRef.current = socket;
-
-        socket.on('connect',    () => setConnected(true));
-        socket.on('disconnect', () => setConnected(false));
-
-        // ✅ Đúng tên event: 'chat:message' (backend emit tên này)
-        socket.on('chat:message', ({ message }) => {
-            if (message.senderRole === 'admin') {
-                setMessages(prev => {
-                    if (prev.some(m => m._id === message._id)) return prev;
-                    return [...prev, message];
-                });
-                setUnread(u => u + 1);
-            }
-        });
-
-        // ✅ Đúng tên event: 'chat:typing' (backend emit tên này)
-        socket.on('chat:typing', ({ isTyping }) => {
-            setTyping(isTyping);
-            if (isTyping) {
-                clearTimeout(typingTimer.current);
-                typingTimer.current = setTimeout(() => setTyping(false), 3000);
-            }
-        });
-
-        return () => { socket.disconnect(); socketRef.current = null; };
-    }, [user]);
-
-    useEffect(() => {
-        bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages, typing]);
+    }, [activeConv]);
 
     // Khi mở widget: load lại + reset unread
     useEffect(() => {
-        if (open) {
-            loadConversation();
-            setUnread(0);
-            apiClient.post('/chat/my/read').catch(() => {});
+        if (open && user) {
+            loadUserConversation();
+            markReadByUser();
             setTimeout(() => inputRef.current?.focus(), 150);
         }
-    }, [open, loadConversation]);
+    }, [open, user, loadUserConversation, markReadByUser]);
+
+    useEffect(() => {
+        bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [messages, isTyping]);
 
     // ── Gửi tin ──────────────────────────────────────────────────────────────
     const sendMessage = async () => {
@@ -108,14 +58,14 @@ export default function ChatWidget() {
         if (!text || sending) return;
         setSending(true);
         setInput('');
-        const tempId     = `opt_${Date.now()}`;
-        const optimistic = { _id: tempId, senderId: user._id, senderRole: 'customer', content: text, createdAt: new Date(), readAt: null };
-        setMessages(prev => [...prev, optimistic]);
+        
+        // Gửi qua REST để lưu DB
         try {
             const res = await apiClient.post('/chat/my/send', { content: text });
-            setMessages(prev => prev.map(m => m._id === tempId ? res.data.data : m));
-        } catch {
-            setMessages(prev => prev.filter(m => m._id !== tempId));
+            // Hook useChat sẽ nhận được tin qua socket và update UI
+            // Nếu muốn nhanh hơn có thể update optimistic ở đây
+            setMessages(prev => [...prev, res.data.data]);
+        } catch (err) {
             setInput(text);
         } finally { setSending(false); }
     };
@@ -125,14 +75,9 @@ export default function ChatWidget() {
     };
 
     const handleTyping = e => {
-        setInput(e.target.value);
-        if (socketRef.current?.connected && convId) {
-            socketRef.current.emit('chat:typing', { convId, isTyping: true });
-            clearTimeout(typingTimer.current);
-            typingTimer.current = setTimeout(() => {
-                socketRef.current?.emit('chat:typing', { convId, isTyping: false });
-            }, 1500);
-        }
+        const val = e.target.value;
+        setInput(val);
+        emitTyping(val.length > 0);
     };
 
     // ✅ Guard sau tất cả hooks
@@ -181,7 +126,7 @@ export default function ChatWidget() {
 
                         {/* Messages */}
                         <div className="cw-scroll flex-1 overflow-y-auto px-4 py-4 space-y-3" style={{ background:'#F8FAFC' }}>
-                            {!loaded ? (
+                            {loading && !messages.length ? (
                                 <div className="flex items-center justify-center h-full">
                                     <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"/>
                                 </div>
@@ -225,7 +170,7 @@ export default function ChatWidget() {
                                 );
                             })}
 
-                            {typing && (
+                            {isTyping && (
                                 <div className="flex items-end gap-2">
                                     <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-white text-[10px] font-bold">A</div>
                                     <div className="px-3.5 py-2.5 rounded-2xl rounded-bl-sm bg-white border border-slate-200">
@@ -270,10 +215,10 @@ export default function ChatWidget() {
                         : <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
                           </svg>}
-                    {!open && unread > 0 && (
+                    {!open && unreadCount > 0 && (
                         <span className="absolute -top-1.5 -right-1.5 min-w-[20px] h-5 px-1 bg-red-500 text-white text-[11px] font-bold rounded-full flex items-center justify-center"
                             style={{ boxShadow:'0 2px 8px rgba(239,68,68,.5)' }}>
-                            {unread > 99 ? '99+' : unread}
+                            {unreadCount > 99 ? '99+' : unreadCount}
                         </span>
                     )}
                 </button>

@@ -11,6 +11,8 @@ import { bannerApi, Banner } from '@/src/api/bannerApi';
 import { useAuthStore } from '@/src/store/authStore';
 import { useCartStore } from '@/src/store/cartStore';
 import { useFocusEffect } from 'expo-router';
+import { useNotificationStore } from '@/src/store/notificationStore';
+import NotificationBell from '@/components/NotificationBell';
 
 const { width } = Dimensions.get('window');
 const CARD  = (width - 48) / 2;
@@ -24,6 +26,8 @@ export default function HomeScreen() {
   const totalItems  = useCartStore(s => s.totalItems);
   const syncCart    = useCartStore(s => s.syncCart);
   const cartCount   = totalItems();
+
+  const { unreadCount } = useNotificationStore();
 
   const [featured, setFeatured]     = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -100,6 +104,8 @@ export default function HomeScreen() {
           </View>
 
           <View style={s.headerActions}>
+            <NotificationBell size={20} />
+
             {/* Nút Chat */}
             <TouchableOpacity
               style={s.iconBtn}

@@ -40,6 +40,8 @@ export interface Order {
   notes?:          string;
   createdAt:       string;
   updatedAt:       string;
+  deliveredAt?:    string;
+  userConfirmedAt?: string;
 }
 
 export interface CreateOrderPayload {
@@ -78,6 +80,11 @@ export const orderApi = {
 
   async cancelOrder(id: string): Promise<Order> {
     const { data } = await api.post<{ status: string; data: Order }>(`/orders/${id}/cancel`);
+    return data.data;
+  },
+
+  async confirmDelivery(id: string): Promise<Order> {
+    const { data } = await api.post<{ status: string; data: Order }>(`/orders/${id}/confirm-delivery`);
     return data.data;
   },
 };

@@ -2,6 +2,7 @@ const User = require('../model/User');
 const Cart = require('../model/Cart');
 const { generateToken } = require('../utils/jwtToken');
 const { validateEmail, validatePassword, validateName } = require('../utils/validators');
+const { notifyAdminNewUser } = require('./notificationController');
 
 // Register
 exports.register = async (req, res, next) => {
@@ -75,6 +76,9 @@ exports.register = async (req, res, next) => {
         // Return user without password
         const userResponse = user.toObject();
         delete userResponse.password;
+
+        // Admin Notification
+        await notifyAdminNewUser(user, req);
 
         res.status(201).json({
             status: 'success',

@@ -16,16 +16,18 @@ import api from '@/src/api/axiosConfig';
 
 // ─────────────────────────────────────────────────────────────────────────────
 const STATUS_STEPS = ['pending', 'confirmed', 'shipped', 'delivered'];
-const RETURN_WINDOW_DAYS = 5;
+const RETURN_WINDOW_DAYS = 3;
 
 const STATUS_INFO: Record<string, { label: string; color: string; bg: string }> = {
   pending:          { label: 'Chờ xác nhận',          color: '#92400E', bg: '#FEF3C7' },
   confirmed:        { label: 'Đã xác nhận',            color: '#1E40AF', bg: '#DBEAFE' },
-  shipped:          { label: 'Đang giao',              color: '#065F46', bg: '#D1FAE5' },
+  shipped:          { label: 'Đang giao',              color: '#0EA5E9', bg: '#E0F2FE' },
   delivered:        { label: 'Đã giao',                color: '#065F46', bg: '#D1FAE5' },
-  cancelled:        { label: 'Đã hủy',                 color: '#991B1B', bg: '#FEE2E2' },
-  return_requested: { label: 'Chờ xác nhận hoàn trả', color: '#9A3412', bg: '#FFF7ED' },
-  returned:         { label: 'Đã hoàn trả',            color: '#374151', bg: '#F3F4F6' },
+  cancelled:        { label: 'Đã hủy',                 color: '#B91C1C', bg: '#FEE2E2' },
+  return_requested: { label: 'Chờ duyệt hoàn trả',    color: '#D97706', bg: '#FFFBEB' },
+  return_approved:  { label: 'Chấp nhận hoàn trả',     color: '#0369A1', bg: '#E0F2FE' },
+  return_rejected:  { label: 'Từ chối hoàn trả',      color: '#B91C1C', bg: '#FEE2E2' },
+  returned:         { label: 'Đã hoàn trả / Hoàn tiền', color: '#10B981', bg: '#D1FAE5' },
 };
 
 const RETURN_REASONS = [
@@ -325,6 +327,25 @@ export default function OrderDetailScreen() {
     ]);
   };
 
+  const handleConfirmDelivery = () => {
+    Alert.alert('Xác nhận nhận hàng', 'Bạn xác nhận đã nhận được kiện hàng này và sản phẩm đúng như mong đợi?', [
+      { text: 'Hủy', style: 'cancel' },
+      {
+        text: 'Xác nhận',
+        onPress: async () => {
+          try {
+            setLoading(true);
+            await orderApi.confirmDelivery(id!);
+            fetchOrder();
+            Alert.alert('Thành công', 'Đơn hàng đã hoàn tất. Bạn có thể đánh giá sản phẩm ngay bây giờ.');
+          } catch (err: any) {
+            Alert.alert('Lỗi', err?.response?.data?.message || 'Không thể xác nhận nhận hàng');
+          } finally { setLoading(false); }
+        },
+      },
+    ]);
+  };
+
   const handleRetryPayment = async () => {
     if (!order) return;
     try {
@@ -353,9 +374,12 @@ export default function OrderDetailScreen() {
   const isCancelled   = order.status === 'cancelled';
   const isReturn      = order.status === 'return_requested' || order.status === 'returned';
   const isPaid        = order.paymentStatus === 'completed';
-  const deliveredAt   = (order as any).deliveredAt;
-  const canReturn     = order.status === 'delivered' && deliveredAt
+  const deliveredAt   = order.deliveredAt;
+  const userConfirmed = !!order.userConfirmedAt;
+  
+  const canReturn     = order.status === 'delivered' && deliveredAt && userConfirmed
     && (Date.now() - new Date(deliveredAt).getTime()) / 86400000 <= RETURN_WINDOW_DAYS;
+  
   const daysLeft      = deliveredAt
     ? Math.max(0, RETURN_WINDOW_DAYS - Math.floor((Date.now() - new Date(deliveredAt).getTime()) / 86400000))
     : null;
@@ -476,7 +500,7 @@ export default function OrderDetailScreen() {
           <View style={[s.returnBanner, { backgroundColor: canReturn ? '#FFF7ED' : '#F9FAFB' }]}>
             <Ionicons name="time-outline" size={15} color={canReturn ? '#F59E0B' : '#9CA3AF'} />
             <Text style={[s.returnBannerText, { color: canReturn ? '#92400E' : '#9CA3AF' }]}>
-              {canReturn ? `Còn ${daysLeft} ngày để yêu cầu hoàn trả` : 'Đã hết hạn hoàn trả (5 ngày)'}
+              {canReturn ? `Còn ${daysLeft} ngày để yêu cầu hoàn trả` : 'Đã hết hạn hoàn trả (3 ngày)'}
             </Text>
           </View>
         )}
@@ -533,17 +557,26 @@ export default function OrderDetailScreen() {
               color="#EF4444" bg="#FEF2F2" border="#FECACA"
               onPress={handleCancel} loading={cancelling} />
           )}
-          {['delivered', 'confirmed', 'returned', 'cancelled'].includes(order.status) && (
+
+          {/* Nút XÁC NHẬN NHẬN HÀNG - Chỉ hiện khi delivered và chưa confirm */}
+          {order.status === 'delivered' && !userConfirmed && (
+            <ActionBtn icon="checkmark-done-circle-outline" label="Xác nhận đã nhận hàng"
+              color="#fff" bg="#10B981" border="#10B981"
+              onPress={handleConfirmDelivery} />
+          )}
+
+          {/* Các nút hiện sau khi đã nhận hàng hoặc các trạng thái khác */}
+          {(userConfirmed || ['confirmed', 'returned', 'cancelled'].includes(order.status)) && (
             <ActionBtn icon="refresh-outline" label="Mua lại"
               color="#374151" bg="#F9FAFB" border="#E5E7EB"
               onPress={handleReorder} loading={reordering} />
           )}
-          {order.status === 'delivered' && (
+          {order.status === 'delivered' && userConfirmed && (
             <ActionBtn icon="star-outline" label="Viết đánh giá"
               color="#D97706" bg="#FFFBEB" border="#FDE68A"
               onPress={() => setShowReview(true)} />
           )}
-          {order.status === 'delivered' && canReturn && (
+          {order.status === 'delivered' && userConfirmed && canReturn && (
             <ActionBtn
               icon="return-down-back-outline"
               label={`Yêu cầu hoàn trả${daysLeft !== null ? ` (còn ${daysLeft} ngày)` : ''}`}

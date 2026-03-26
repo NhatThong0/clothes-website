@@ -1,6 +1,8 @@
-import { useAuth } from '@hooks/useAuth';
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, Outlet, useLocation, useNavigate, Navigate } from 'react-router-dom';
+import { useAuth } from '@hooks/useAuth';
+import apiClient from '@services/apiClient';
+import { getSocket } from '@hooks/useChat';
 
 const NAV_ITEMS = [
   { label: 'Dashboard',       icon: '▦',  path: '/admin' },
@@ -21,6 +23,126 @@ const AdminLayout = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
+
+  // ── Notification States ──────────────────────────────────────────────────
+  const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [isNotifOpen, setIsNotifOpen] = useState(false);
+  const [notifShake, setNotifShake] = useState(false);
+  const notifDropdownRef = useRef(null);
+
+  const fetchNotifications = useCallback(async () => {
+    try {
+      const res = await apiClient.get('/notifications/admin?limit=20');
+      if (res.data.status === 'success') {
+        setNotifications(res.data.data.notifications);
+        setUnreadCount(res.data.data.unreadCount);
+      }
+    } catch (err) {
+      console.error('Fetch admin notifications error:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!adminUser) return;
+    fetchNotifications();
+
+    const adminToken = localStorage.getItem('adminToken');
+    if (!adminToken) return;
+
+    const socket = getSocket(adminToken);
+    const handleAdminNotification = (notif) => {
+      setNotifications(prev => [notif, ...prev].slice(0, 30));
+      setUnreadCount(prev => prev + 1);
+      setNotifShake(true);
+      setTimeout(() => setNotifShake(false), 700);
+      try { new Audio('/notification-sound.mp3').play().catch(() => {}); } catch (e) {}
+    };
+
+    socket.on('admin:notification', handleAdminNotification);
+    return () => socket.off('admin:notification', handleAdminNotification);
+  }, [adminUser, fetchNotifications]);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (notifDropdownRef.current && !notifDropdownRef.current.contains(e.target)) {
+        setIsNotifOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const markNotifAsRead = async (id) => {
+    try {
+      await apiClient.put(`/notifications/admin/${id}/read`);
+      setNotifications(prev => prev.map(n => n._id === id ? { ...n, isRead: true } : n));
+      setUnreadCount(prev => Math.max(0, prev - 1));
+    } catch (err) {}
+  };
+
+  const markAllNotifsAsRead = async () => {
+    try {
+      await apiClient.put('/notifications/admin/read-all');
+      setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+      setUnreadCount(0);
+    } catch (err) {}
+  };
+
+  const handleNotifClick = (notif) => {
+    if (!notif.isRead) markNotifAsRead(notif._id);
+    if (notif.link) {
+      navigate(notif.link);
+      setIsNotifOpen(false);
+    }
+  };
+
+  const deleteNotif = async (e, id) => {
+    e.stopPropagation();
+    try {
+      await apiClient.delete(`/notifications/admin/${id}`);
+      setNotifications(prev => prev.filter(n => n._id !== id));
+      if (!notifications.find(n => n._id === id)?.isRead) setUnreadCount(c => Math.max(0, c - 1));
+    } catch (err) {}
+  };
+
+  const deleteAllNotifs = async () => {
+    try {
+      await apiClient.delete('/notifications/admin');
+      setNotifications([]);
+      setUnreadCount(0);
+    } catch (err) {}
+  };
+
+  const timeAgo = (date) => {
+    const seconds = Math.floor((new Date() - new Date(date)) / 1000);
+    if (seconds < 60) return 'Vừa xong';
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes} phút trước`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours} giờ trước`;
+    return new Date(date).toLocaleDateString('vi-VN');
+  };
+
+  const groupNotifications = (notifs) => {
+    const today = new Date().toDateString();
+    const groups = { 'Hôm nay': [], 'Trước đó': [] };
+    notifs.forEach(n => {
+      const g = new Date(n.createdAt).toDateString() === today ? 'Hôm nay' : 'Trước đó';
+      groups[g].push(n);
+    });
+    return Object.fromEntries(Object.entries(groups).filter(([_, items]) => items.length > 0));
+  };
+
+  const NOTIF_COLORS = {
+    blue:   { bg: 'bg-blue-50 text-blue-600',    dot: 'bg-blue-600' },
+    green:  { bg: 'bg-emerald-50 text-emerald-600', dot: 'bg-emerald-600' },
+    orange: { bg: 'bg-orange-50 text-orange-600',  dot: 'bg-orange-600' },
+    red:    { bg: 'bg-rose-50 text-rose-600',      dot: 'bg-rose-600' },
+    purple: { bg: 'bg-purple-50 text-purple-600',  dot: 'bg-purple-600' },
+    slate:  { bg: 'bg-slate-50 text-slate-600',    dot: 'bg-slate-600' },
+  };
+   const socket = getSocket(localStorage.getItem('adminToken'));
 
   if (loading) {
     return (
@@ -177,9 +299,99 @@ const AdminLayout = () => {
           </div>
 
           {/* Right actions */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-4">
+            
+            {/* Admin Notification Bell UI Updated */}
+            <div className="relative" ref={notifDropdownRef}>
+              <button
+                onClick={() => setIsNotifOpen(!isNotifOpen)}
+                className={`relative p-2.5 text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all ${notifShake ? 'animate-[shake_.5s_ease]' : ''}`}
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
+                </svg>
+                {unreadCount > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] bg-rose-500 text-white text-[10px] font-black rounded-full flex items-center justify-center px-1 leading-none shadow-sm">
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
+                )}
+              </button>
+
+              {isNotifOpen && (
+                <div 
+                  className="absolute right-0 mt-2 w-[360px] max-w-[calc(100vw-1rem)] bg-white rounded-2xl shadow-2xl border border-slate-100 flex flex-col overflow-hidden z-50"
+                  style={{ animation: 'dropDown .18s ease', maxHeight: '80vh' }}
+                >
+                  <div className="flex items-center justify-between px-4 py-3.5 border-b border-slate-100 flex-shrink-0 bg-white">
+                    <div className="flex items-center gap-2">
+                       <h3 className="font-bold text-slate-900 text-sm">Thông báo</h3>
+                       {unreadCount > 0 && <span className="px-1.5 py-0.5 bg-rose-500 text-white text-[10px] font-black rounded-full">{unreadCount}</span>}
+                       {/* Socket status indicator */}
+                       <span className={`w-1.5 h-1.5 rounded-full ${socket?.connected ? 'bg-emerald-400 animate-pulse' : 'bg-slate-300'}`} title={socket?.connected ? 'Real-time online' : 'Offline'}/>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {unreadCount > 0 && (
+                        <button onClick={markAllNotifsAsRead} className="text-xs font-semibold text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-2 py-1 rounded-lg transition-colors">Đọc tất cả</button>
+                      )}
+                      {notifications.length > 0 && (
+                        <button onClick={deleteAllNotifs} className="text-xs font-semibold text-slate-400 hover:text-rose-500 hover:bg-rose-50 px-2 py-1 rounded-lg transition-colors">Xóa tất cả</button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="overflow-y-auto flex-1">
+                    {notifications.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-12 px-4">
+                        <div className="w-14 h-14 bg-slate-100 rounded-2xl flex items-center justify-center mb-3 text-2xl">🔔</div>
+                        <p className="text-sm font-semibold text-slate-500">Chưa có thông báo nào</p>
+                        <p className="text-xs text-slate-400 mt-1 text-center">Các tin về đơn hàng, người dùng mới sẽ xuất hiện ở đây</p>
+                      </div>
+                    ) : (
+                      Object.entries(groupNotifications(notifications)).map(([group, items]) => (
+                        <div key={group}>
+                          <div className="px-4 py-2 bg-slate-50 border-b border-slate-100">
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{group}</p>
+                          </div>
+                          {items.map(notif => {
+                            const c = NOTIF_COLORS[notif.color] || NOTIF_COLORS.blue;
+                            return (
+                              <div key={notif._id} onClick={() => handleNotifClick(notif)}
+                                className={`group relative flex gap-3 px-4 py-3.5 border-b border-slate-50 cursor-pointer transition-colors ${notif.isRead ? 'hover:bg-slate-50' : 'bg-blue-50/40 hover:bg-blue-50/70'}`}>
+                                <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-lg flex-shrink-0 shadow-sm ${c.bg}`}>
+                                  {notif.icon || '🔔'}
+                                </div>
+                                <div className="flex-1 min-w-0 pr-6">
+                                  <p className={`text-xs font-bold leading-snug ${notif.isRead ? 'text-slate-700' : 'text-slate-900'}`}>{notif.title}</p>
+                                  <p className={`text-[11px] mt-0.5 leading-relaxed ${notif.isRead ? 'text-slate-400' : 'text-slate-600'}`}>{notif.message}</p>
+                                  <div className="flex items-center gap-2 mt-1.5">
+                                    <span className="text-[10px] text-slate-400 font-medium">{timeAgo(notif.createdAt)}</span>
+                                    {!notif.isRead && <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${c.dot}`}/>}
+                                  </div>
+                                </div>
+                                {!notif.isRead && <div className={`absolute right-9 top-4 w-2 h-2 rounded-full ${c.dot} shadow-[0_0_8px_rgba(37,99,235,0.4)]`}/>}
+                                <button onClick={(e) => deleteNotif(e, notif._id)}
+                                  className="absolute right-3 top-3.5 w-6 h-6 flex items-center justify-center text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-all rounded-full hover:bg-rose-50">
+                                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12"/></svg>
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  <div className="p-2 border-t border-slate-100 bg-slate-50/50">
+                    <button onClick={() => { navigate('/admin/orders'); setIsNotifOpen(false); }} className="w-full py-2 bg-white hover:bg-slate-100 text-slate-500 text-[11px] font-bold rounded-lg border border-slate-200 transition-colors shadow-sm">
+                      Xem tất cả đơn hàng
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* Avatar + logout */}
-            <div className="flex items-center gap-2 pl-2 border-l border-slate-100">
+            <div className="flex items-center gap-2 pl-4 border-l border-slate-100">
               <div className="w-8 h-8 rounded-xl bg-blue-600 flex items-center justify-center text-white text-xs font-bold">
                 {initials}
               </div>
@@ -203,11 +415,8 @@ const AdminLayout = () => {
       </main>
 
       <style>{`
-        * { -webkit-font-smoothing: antialiased; }
-        ::-webkit-scrollbar { width: 4px; height: 4px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 99px; }
-        ::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+        @keyframes dropDown { from{opacity:0;transform:translateY(-6px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes shake { 0%,100%{transform:rotate(0deg)} 20%{transform:rotate(-15deg)} 40%{transform:rotate(15deg)} 60%{transform:rotate(-10deg)} 80%{transform:rotate(8deg)} }
       `}</style>
     </div>
   );

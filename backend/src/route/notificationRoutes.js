@@ -2,6 +2,7 @@
 const express = require('express');
 const router  = express.Router();
 const auth       = require('../middleWare/authenticateToken'); // middleware xác thực của bạn
+
 const {
   getNotifications,
   getUnreadCount,
@@ -21,7 +22,30 @@ router.put('/:id/read',            markAsRead);             // PUT  /api/notific
 router.delete('/',                 deleteAllNotifications); // DELETE /api/notifications
 router.delete('/:id',              deleteNotification);     // DELETE /api/notifications/:id
 
+// ── ADMIN ROUTES ─────────────────────────────────────────────────────────────
+const {
+  getAdminNotifications, getAdminUnreadCount,
+  markAdminAsRead, markAllAdminAsRead,
+  deleteAdminNotification, deleteAllAdminNotifications,
+} = require('../controller/notificationController');
+
+// Helper: check admin
+const isAdmin = (req, res, next) => {
+  if (req.user?.role !== 'admin' && req.role !== 'admin') {
+    return res.status(403).json({ status: 'error', message: 'Access denied. Admin only.' });
+  }
+  next();
+};
+
+router.get('/admin',               isAdmin, getAdminNotifications);
+router.get('/admin/unread-count',  isAdmin, getAdminUnreadCount);
+router.put('/admin/read-all',      isAdmin, markAllAdminAsRead);
+router.put('/admin/:id/read',      isAdmin, markAdminAsRead);
+router.delete('/admin',            isAdmin, deleteAllAdminNotifications);
+router.delete('/admin/:id',        isAdmin, deleteAdminNotification);
+
 module.exports = router;
+
 
 // ─── Cách dùng trong app.js / server.js ───────────────────────────────────────
 // const notificationRoutes = require('./routes/notificationRoutes');

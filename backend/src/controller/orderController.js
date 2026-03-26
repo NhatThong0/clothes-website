@@ -3,6 +3,12 @@ const Product  = require('../model/Product');
 const Voucher  = require('../model/Voucher');
 const User     = require('../model/User');
 const mongoose = require('mongoose');
+const { 
+    notifyOrderStatus, 
+    notifyAdminNewOrder, 
+    notifyAdminDeliveryConfirmed, 
+    notifyAdminReturnRequest 
+} = require('./notificationController');
 
 // ─── Helper: trừ stock đúng variant ──────────────────────────────────────────
 async function decrementStock(productId, quantity, color, size) {
@@ -203,6 +209,9 @@ const createOrder = async (req, res) => {
             });
         }
 
+        // Admin Notification
+        await notifyAdminNewOrder(order, req);
+
         res.status(201).json({ status: 'success', message: 'Đơn hàng đã được tạo thành công.', data: order });
     } catch (err) {
         console.error('createOrder error:', err);
@@ -317,7 +326,9 @@ const cancelOrder = async (req, res) => {
 
         order.status      = 'cancelled';
         order.cancelledAt = new Date();
-        await order.save();
+        await notifyOrderStatus(order, 'cancelled', req);
+        const populated = await Order.findById(order._id).populate('userId', 'name email phone');
+        return res.status(200).json({ status: 'success', message: 'Đơn hàng đã được hủy.', data: populated });
 
         for (const item of order.items)
             await incrementStock(item.productId, item.quantity, item.color, item.size);
@@ -360,6 +371,9 @@ const requestReturn = async (req, res) => {
         order.returnReason      = req.body.reason.trim();
         order.returnImages      = req.body.images || [];
         await order.save();
+
+        // Admin Notification
+        await notifyAdminReturnRequest(order, req);
 
         res.status(200).json({ status: 'success', message: 'Yêu cầu hoàn trả đã được gửi.', data: order });
     } catch (err) {
@@ -491,8 +505,10 @@ const updateOrderStatus = async (req, res) => {
         }
 
         await order.save();
+        await notifyOrderStatus(order, status, req); 
         const populated = await Order.findById(order._id).populate('userId', 'name email phone');
         res.status(200).json({ status: 'success', data: populated });
+        
     } catch (err) {
         res.status(500).json({ status: 'error', message: err.message });
     }
@@ -512,7 +528,7 @@ const approveReturn = async (req, res) => {
         // Hướng dẫn gửi hàng về — admin có thể truyền lên hoặc dùng mặc định
         order.returnShipNote   = req.body.shipNote || 'Vui lòng gửi hàng về: k58/04e Cô Bắc, Hải Châu, Đà Nẵng. Liên hệ shop để được hỗ trợ.';
         await order.save();
-
+        await notifyOrderStatus(order, 'return_approved', req);
         res.json({ status: 'success', message: 'Đã duyệt yêu cầu hoàn trả.', data: order });
     } catch (err) {
         res.status(500).json({ status: 'error', message: err.message });
@@ -534,7 +550,7 @@ const rejectReturn = async (req, res) => {
         order.returnReviewedBy    = req.user?.userId || req.userId;
         order.returnRejectReason  = req.body.reason.trim();
         await order.save();
-
+        await notifyOrderStatus(order, 'return_rejected', req);
         res.json({ status: 'success', message: 'Đã từ chối yêu cầu hoàn trả.', data: order });
     } catch (err) {
         res.status(500).json({ status: 'error', message: err.message });
@@ -567,7 +583,7 @@ const confirmReturn = async (req, res) => {
         order.refundStatus = 'pending';
         order.refundAmount = order.total;
         await order.save();
-
+        await notifyOrderStatus(order, 'returned', req);
         res.json({
             status: 'success',
             message: 'Xác nhận hoàn trả thành công. Kho hàng đã được cập nhật. Vui lòng hoàn tiền cho khách.',
@@ -595,6 +611,7 @@ const confirmRefund = async (req, res) => {
         order.refundBy      = req.user?.userId || req.userId;
         order.paymentStatus = 'refunded';
         await order.save();
+        await notifyOrderStatus(order, 'returned', req);
 
         res.json({ status: 'success', message: 'Đã xác nhận hoàn tiền thành công.', data: order });
     } catch (err) {
@@ -645,6 +662,11 @@ const confirmDelivery = async (req, res) => {
         order.userConfirmedAt    = new Date();
         order.autoConfirmed      = false; // user tự xác nhận
         await order.save();
+
+        // Admin Notification
+        await notifyAdminDeliveryConfirmed(order, req);
+
+        await notifyOrderStatus(order, 'delivered', req);
         res.json({ status: 'success', message: 'Xác nhận nhận hàng thành công.', data: order });
     } catch (err) {
         res.status(500).json({ status: 'error', message: err.message });
@@ -670,6 +692,7 @@ const autoConfirmDeliveredOrders = async (req, res) => {
             order.userConfirmedAt = new Date();
             order.autoConfirmed   = true; // đánh dấu tự động
             await order.save();
+            await notifyOrderStatus(order, 'delivered', req);
             count++;
         }
 

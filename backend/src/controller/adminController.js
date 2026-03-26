@@ -3,6 +3,7 @@ const Product = require('../model/Product');
 const Category = require('../model/Category');
 const Order = require('../model/Order');
 const Voucher = require('../model/Voucher');
+const { notifyOrderStatus } = require('./notificationController');
 
 // ============= DASHBOARD =============
 
@@ -12,7 +13,7 @@ const Voucher = require('../model/Voucher');
 
 exports.getDashboardStats = async (req, res) => {
     try {
-        const ACTIVE_STATUSES    = ['delivered','shipped','confirmed','processing'];
+        const ACTIVE_STATUSES = ['delivered', 'shipped', 'confirmed', 'processing'];
         const COMPLETED_STATUSES = ['delivered'];
 
         const [
@@ -51,7 +52,7 @@ exports.getDashboardStats = async (req, res) => {
             ]),
         ]);
 
-        const totalRevenue          = revenueAgg[0]?.total   || 0;
+        const totalRevenue = revenueAgg[0]?.total || 0;
         const totalDeliveredRevenue = deliveredAgg[0]?.total || 0;
 
         const statusMap = {};
@@ -79,7 +80,7 @@ exports.getDashboardStats = async (req, res) => {
 async function incrementStock(productId, quantity, color, size) {
     const product = await Product.findById(productId);
     if (!product) return;
- 
+
     if (color && size && Array.isArray(product.variants) && product.variants.length > 0) {
         const idx = product.variants.findIndex(v => v.color === color && v.size === size);
         if (idx >= 0) {
@@ -87,7 +88,7 @@ async function incrementStock(productId, quantity, color, size) {
             await Product.findByIdAndUpdate(productId, {
                 $set: { [`variants.${idx}.stock`]: newVariantStock },
             });
-            const fresh    = await Product.findById(productId).lean();
+            const fresh = await Product.findById(productId).lean();
             const newTotal = fresh.variants.reduce((s, v) => s + (Number(v.stock) || 0), 0);
             await Product.findByIdAndUpdate(productId, { $set: { stock: newTotal } });
         }
@@ -116,21 +117,21 @@ exports.getDashboardRevenue = async (req, res) => {
             const prev = new Date(start);
             prev.setDate(prev.getDate() - 7);
             matchCurrent = { createdAt: { $gte: start } };
-            matchPrev    = { createdAt: { $gte: prev, $lt: start } };
-            groupBy      = { day: { $dayOfMonth: '$createdAt' }, month: { $month: '$createdAt' } };
+            matchPrev = { createdAt: { $gte: prev, $lt: start } };
+            groupBy = { day: { $dayOfMonth: '$createdAt' }, month: { $month: '$createdAt' } };
         } else if (period === 'month') {
             const start = new Date(now.getFullYear(), now.getMonth() - 11, 1);
-            const prev  = new Date(now.getFullYear(), now.getMonth() - 23, 1);
+            const prev = new Date(now.getFullYear(), now.getMonth() - 23, 1);
             matchCurrent = { createdAt: { $gte: start } };
-            matchPrev    = { createdAt: { $gte: prev, $lt: start } };
-            groupBy      = { month: { $month: '$createdAt' }, year: { $year: '$createdAt' } };
+            matchPrev = { createdAt: { $gte: prev, $lt: start } };
+            groupBy = { month: { $month: '$createdAt' }, year: { $year: '$createdAt' } };
         } else {
             // year
             const start = new Date(now.getFullYear() - 4, 0, 1);
-            const prev  = new Date(now.getFullYear() - 9, 0, 1);
+            const prev = new Date(now.getFullYear() - 9, 0, 1);
             matchCurrent = { createdAt: { $gte: start } };
-            matchPrev    = { createdAt: { $gte: prev, $lt: start } };
-            groupBy      = { year: { $year: '$createdAt' } };
+            matchPrev = { createdAt: { $gte: prev, $lt: start } };
+            groupBy = { year: { $year: '$createdAt' } };
         }
 
         const pipeline = (match) => [
@@ -183,17 +184,17 @@ exports.getDashboardRevenue = async (req, res) => {
             Order.aggregate(pipeline(matchPrev)),
         ]);
 
-        const totalRev        = current.reduce((s, d) => s + (d.revenue || 0), 0);
-        const totalRevPrev    = previous.reduce((s, d) => s + (d.revenue || 0), 0);
-        const totalProfit     = current.reduce((s, d) => s + (d.profit || 0), 0);
+        const totalRev = current.reduce((s, d) => s + (d.revenue || 0), 0);
+        const totalRevPrev = previous.reduce((s, d) => s + (d.revenue || 0), 0);
+        const totalProfit = current.reduce((s, d) => s + (d.profit || 0), 0);
         const totalProfitPrev = previous.reduce((s, d) => s + (d.profit || 0), 0);
 
         res.json({
             status: 'success',
             data: {
                 current,
-                totalRevenue:  totalRev,
-                totalProfit:   totalProfit,
+                totalRevenue: totalRev,
+                totalProfit: totalProfit,
                 revenueChange: totalRevPrev > 0
                     ? parseFloat(((totalRev - totalRevPrev) / totalRevPrev * 100).toFixed(1))
                     : null,
@@ -215,30 +216,36 @@ exports.getDashboardRevenue = async (req, res) => {
 exports.getDashboardCategories = async (req, res) => {
     try {
         const data = await Order.aggregate([
-            { $match: { status: { $in: ['delivered','shipped','confirmed','processing'] } } },
+            { $match: { status: { $in: ['delivered', 'shipped', 'confirmed', 'processing'] } } },
             { $unwind: '$items' },
-            { $lookup: {
-                from: 'products',
-                localField: 'items.productId',
-                foreignField: '_id',
-                as: 'product'
-            }},
+            {
+                $lookup: {
+                    from: 'products',
+                    localField: 'items.productId',
+                    foreignField: '_id',
+                    as: 'product'
+                }
+            },
             // ✅ FIX: preserveNullAndEmptyArrays (không phải preserveNullAndEmpty)
             { $unwind: { path: '$product', preserveNullAndEmptyArrays: false } },
             // ✅ FIX: lookup linh hoạt — dùng $ifNull để thử cả 'category' và 'categoryId'
-            { $lookup: {
-                from: 'categories',
-                let: { catRef: { $ifNull: ['$product.category', '$product.categoryId'] } },
-                pipeline: [{ $match: { $expr: { $eq: ['$_id', '$$catRef'] } } }],
-                as: 'catDoc'
-            }},
+            {
+                $lookup: {
+                    from: 'categories',
+                    let: { catRef: { $ifNull: ['$product.category', '$product.categoryId'] } },
+                    pipeline: [{ $match: { $expr: { $eq: ['$_id', '$$catRef'] } } }],
+                    as: 'catDoc'
+                }
+            },
             { $unwind: { path: '$catDoc', preserveNullAndEmptyArrays: false } },
-            { $group: {
-                _id:      '$catDoc._id',
-                name:     { $first: '$catDoc.name' },
-                revenue:  { $sum: { $multiply: ['$items.price', '$items.quantity'] } },
-                quantity: { $sum: '$items.quantity' },
-            }},
+            {
+                $group: {
+                    _id: '$catDoc._id',
+                    name: { $first: '$catDoc.name' },
+                    revenue: { $sum: { $multiply: ['$items.price', '$items.quantity'] } },
+                    quantity: { $sum: '$items.quantity' },
+                }
+            },
             { $sort: { revenue: -1 } },
             { $limit: 8 },
         ]);
@@ -265,23 +272,27 @@ exports.getDashboardTopProducts = async (req, res) => {
     try {
         const limit = parseInt(req.query.limit) || 10;
         const data = await Order.aggregate([
-            { $match: { status: { $in: ['delivered','shipped','confirmed','processing'] } } },
+            { $match: { status: { $in: ['delivered', 'shipped', 'confirmed', 'processing'] } } },
             { $unwind: '$items' },
-            { $group: {
-                _id:      '$items.productId',
-                name:     { $first: '$items.name' },
-                revenue:  { $sum: { $multiply: ['$items.price', '$items.quantity'] } },
-                quantity: { $sum: '$items.quantity' },
-                orders:   { $sum: 1 },
-                price:    { $first: '$items.price' },
-            }},
+            {
+                $group: {
+                    _id: '$items.productId',
+                    name: { $first: '$items.name' },
+                    revenue: { $sum: { $multiply: ['$items.price', '$items.quantity'] } },
+                    quantity: { $sum: '$items.quantity' },
+                    orders: { $sum: 1 },
+                    price: { $first: '$items.price' },
+                }
+            },
             { $sort: { revenue: -1 } },
             { $limit: limit },
             { $lookup: { from: 'products', localField: '_id', foreignField: '_id', as: 'product' } },
-            { $addFields: {
-                image: { $arrayElemAt: [{ $arrayElemAt: ['$product.images', 0] }, 0] },
-                name:  { $ifNull: [{ $arrayElemAt: ['$product.name', 0] }, '$name'] },
-            }},
+            {
+                $addFields: {
+                    image: { $arrayElemAt: [{ $arrayElemAt: ['$product.images', 0] }, 0] },
+                    name: { $ifNull: [{ $arrayElemAt: ['$product.name', 0] }, '$name'] },
+                }
+            },
             { $project: { product: 0 } }
         ]);
 
@@ -313,7 +324,7 @@ exports.adminGetAllProducts = async (req, res, next) => {
         let filter = {};
         if (search && search.trim()) {
             filter.$or = [
-                { name:        { $regex: search.trim(), $options: 'i' } },
+                { name: { $regex: search.trim(), $options: 'i' } },
                 { description: { $regex: search.trim(), $options: 'i' } },
             ];
         }
@@ -350,41 +361,41 @@ exports.adminGetAllProducts = async (req, res, next) => {
 exports.createProduct = async (req, res, next) => {
     try {
         const { name, description, price, discount, category, images, features, variants } = req.body;
- 
+
         if (!name || !description || price === undefined || !category) {
             return res.status(400).json({ status: 'error', message: 'Vui lòng cung cấp đầy đủ thông tin' });
         }
- 
+
         const variantList = Array.isArray(variants) ? variants : [];
-        const totalStock  = variantList.reduce((s, v) => s + (Number(v.stock) || 0), 0);
-        const colors      = [...new Set(variantList.map(v => v.color).filter(Boolean))];
-        const sizes       = [...new Set(variantList.map(v => v.size).filter(Boolean))];
- 
+        const totalStock = variantList.reduce((s, v) => s + (Number(v.stock) || 0), 0);
+        const colors = [...new Set(variantList.map(v => v.color).filter(Boolean))];
+        const sizes = [...new Set(variantList.map(v => v.size).filter(Boolean))];
+
         const newProduct = new Product({
             name,
             description,
-            price:    parseFloat(price),
+            price: parseFloat(price),
             discount: parseFloat(discount || 0),
             category,
-            images:   images   || [],
+            images: images || [],
             features: features || [],
             variants: variantList,
-            stock:    totalStock,
+            stock: totalStock,
             colors,
             sizes,
             isActive: true,
         });
- 
+
         await newProduct.save();
         await newProduct.populate('category', 'name');
- 
+
         res.status(201).json({ status: 'success', message: 'Tạo sản phẩm thành công', data: newProduct });
     } catch (error) {
         console.error('Create product error:', error);
         res.status(500).json({ status: 'error', message: error.message || 'Lỗi khi tạo sản phẩm' });
     }
 };
- 
+
 
 
 /**
@@ -394,28 +405,28 @@ exports.updateProduct = async (req, res, next) => {
     try {
         const { id } = req.params;
         const { name, description, price, discount, category, images, features, variants, isActive, isFeatured } = req.body;
- 
+
         const variantList = Array.isArray(variants) ? variants : [];
-        const totalStock  = variantList.reduce((s, v) => s + (Number(v.stock) || 0), 0);
-        const colors      = [...new Set(variantList.map(v => v.color).filter(Boolean))];
-        const sizes       = [...new Set(variantList.map(v => v.size).filter(Boolean))];
- 
+        const totalStock = variantList.reduce((s, v) => s + (Number(v.stock) || 0), 0);
+        const colors = [...new Set(variantList.map(v => v.color).filter(Boolean))];
+        const sizes = [...new Set(variantList.map(v => v.size).filter(Boolean))];
+
         const updateData = { updatedAt: new Date(), variants: variantList, stock: totalStock, colors, sizes };
-        if (name        !== undefined) updateData.name        = name;
+        if (name !== undefined) updateData.name = name;
         if (description !== undefined) updateData.description = description;
-        if (price       !== undefined) updateData.price       = parseFloat(price);
-        if (discount    !== undefined) updateData.discount    = parseFloat(discount || 0);
-        if (category    !== undefined) updateData.category    = category;
-        if (images      !== undefined) updateData.images      = images;
-        if (features    !== undefined) updateData.features    = features;
-        if (isActive    !== undefined) updateData.isActive    = isActive;
-        if (isFeatured  !== undefined) updateData.isFeatured  = isFeatured;
- 
+        if (price !== undefined) updateData.price = parseFloat(price);
+        if (discount !== undefined) updateData.discount = parseFloat(discount || 0);
+        if (category !== undefined) updateData.category = category;
+        if (images !== undefined) updateData.images = images;
+        if (features !== undefined) updateData.features = features;
+        if (isActive !== undefined) updateData.isActive = isActive;
+        if (isFeatured !== undefined) updateData.isFeatured = isFeatured;
+
         const product = await Product.findByIdAndUpdate(id, updateData, { new: true, runValidators: true })
             .populate('category', 'name');
- 
+
         if (!product) return res.status(404).json({ status: 'error', message: 'Không tìm thấy sản phẩm' });
- 
+
         res.status(200).json({ status: 'success', message: 'Cập nhật thành công', data: product });
     } catch (error) {
         console.error('Update product error:', error);
@@ -651,7 +662,7 @@ exports.adminGetAllOrders = async (req, res, next) => {
         if (dateFrom || dateTo) {
             const d = {};
             if (dateFrom) d.$gte = new Date(dateFrom + 'T00:00:00.000Z');
-            if (dateTo)   d.$lte = new Date(dateTo   + 'T23:59:59.999Z');
+            if (dateTo) d.$lte = new Date(dateTo + 'T23:59:59.999Z');
             conditions.push({ createdAt: d });
         }
 
@@ -661,7 +672,7 @@ exports.adminGetAllOrders = async (req, res, next) => {
 
             const matchedUsers = await User.find({
                 $or: [
-                    { name:  { $regex: q, $options: 'i' } },
+                    { name: { $regex: q, $options: 'i' } },
                     { email: { $regex: q, $options: 'i' } },
                     { phone: { $regex: q, $options: 'i' } },
                 ]
@@ -676,7 +687,7 @@ exports.adminGetAllOrders = async (req, res, next) => {
                 searchOr.push({ $expr: { $regexMatch: { input: { $toString: '$_id' }, regex: `^${q}`, options: 'i' } } });
 
             searchOr.push({ 'shippingAddress.fullName': { $regex: q, $options: 'i' } });
-            searchOr.push({ 'shippingAddress.phone':    { $regex: q, $options: 'i' } });
+            searchOr.push({ 'shippingAddress.phone': { $regex: q, $options: 'i' } });
 
             if (searchOr.length > 0) conditions.push({ $or: searchOr });
         }
@@ -698,7 +709,7 @@ exports.adminGetAllOrders = async (req, res, next) => {
             status: 'success',
             data: {
                 orders,
-                pagination: { current: parseInt(page), pages: Math.ceil(total/limit), total }
+                pagination: { current: parseInt(page), pages: Math.ceil(total / limit), total }
             }
         });
     } catch (err) {
@@ -720,9 +731,9 @@ exports.confirmReturn = async (req, res) => {
         if (order.status !== 'return_requested')
             return res.status(400).json({ status: 'error', message: 'Đơn hàng chưa có yêu cầu hoàn trả.' });
 
-        order.status     = 'returned';
+        order.status = 'returned';
         order.returnedAt = new Date();
-        order.updatedAt  = new Date();
+        order.updatedAt = new Date();
 
         // ✅ Hoàn stock đúng variant
         for (const item of order.items) {
@@ -753,8 +764,8 @@ exports.updateOrderStatus = async (req, res, next) => {
         const { status, trackingNumber } = req.body;
 
         const validStatuses = [
-            'pending','confirmed','processing','shipped',
-            'delivered','cancelled','return_requested','returned'
+            'pending', 'confirmed', 'processing', 'shipped',
+            'delivered', 'cancelled', 'return_requested', 'returned'
         ];
         if (!validStatuses.includes(status))
             return res.status(400).json({ status: 'error', message: 'Invalid status' });
@@ -764,14 +775,14 @@ exports.updateOrderStatus = async (req, res, next) => {
             return res.status(404).json({ status: 'error', message: 'Order not found' });
 
         const prevStatus = order.status;
-        order.status     = status;
-        order.updatedAt  = new Date();
+        order.status = status;
+        order.updatedAt = new Date();
         if (trackingNumber) order.trackingNumber = trackingNumber;
 
         // delivered
         if (status === 'delivered' && prevStatus !== 'delivered') {
             order.paymentStatus = 'completed';
-            order.deliveredAt   = new Date();
+            order.deliveredAt = new Date();
             if (!order.revenueRecorded) {
                 order.revenueRecorded = true;
                 await Promise.all(order.items.map(item =>
@@ -808,6 +819,7 @@ exports.updateOrderStatus = async (req, res, next) => {
         }
 
         await order.save();
+        await notifyOrderStatus(order, status, req);
         const populated = await Order.findById(order._id).populate('userId', 'name email phone');
         res.status(200).json({ status: 'success', message: 'Order status updated', data: populated });
     } catch (err) {
@@ -856,8 +868,8 @@ exports.updateOrderStatus = async (req, res, next) => {
         const { status, trackingNumber } = req.body;
 
         const validStatuses = [
-            'pending','confirmed','processing','shipped',
-            'delivered','cancelled','return_requested','returned'
+            'pending', 'confirmed', 'processing', 'shipped',
+            'delivered', 'cancelled', 'return_requested', 'returned'
         ];
         if (!validStatuses.includes(status))
             return res.status(400).json({ status: 'error', message: 'Invalid status' });
@@ -867,14 +879,14 @@ exports.updateOrderStatus = async (req, res, next) => {
             return res.status(404).json({ status: 'error', message: 'Order not found' });
 
         const prevStatus = order.status;
-        order.status     = status;
-        order.updatedAt  = new Date();
+        order.status = status;
+        order.updatedAt = new Date();
         if (trackingNumber) order.trackingNumber = trackingNumber;
 
         // ── delivered → set paymentStatus + deliveredAt + ghi nhận doanh thu ──
         if (status === 'delivered' && prevStatus !== 'delivered') {
             order.paymentStatus = 'completed';   // ✅ tự động đánh dấu đã thanh toán
-            order.deliveredAt   = new Date();    // ✅ mốc để tính 5 ngày hoàn trả
+            order.deliveredAt = new Date();    // ✅ mốc để tính 3 ngày hoàn trả
 
             if (!order.revenueRecorded) {
                 order.revenueRecorded = true;
@@ -912,6 +924,7 @@ exports.updateOrderStatus = async (req, res, next) => {
         }
 
         await order.save();
+        await notifyOrderStatus(order, status, req);
 
         const populated = await Order.findById(order._id).populate('userId', 'name email phone');
         res.status(200).json({ status: 'success', message: 'Order status updated', data: populated });
@@ -1121,9 +1134,9 @@ exports.adminUpdateUser = async (req, res, next) => {
         }
 
         const updateData = { updatedAt: Date.now() };
-        if (name     !== undefined) updateData.name     = name;
-        if (phone    !== undefined) updateData.phone    = phone;
-        if (role     !== undefined) updateData.role     = role;
+        if (name !== undefined) updateData.name = name;
+        if (phone !== undefined) updateData.phone = phone;
+        if (role !== undefined) updateData.role = role;
         if (isActive !== undefined) updateData.isActive = isActive;
 
         // Nếu có đổi mật khẩu
@@ -1215,17 +1228,17 @@ exports.adminGetAllReviews = async (req, res, next) => {
                 reviews.push({
                     ...review.toObject(),
                     productName: product.name,
-                    productId:   product._id,
+                    productId: product._id,
                 });
             }
         }
-        if (isVisible === 'true')  reviews = reviews.filter(r => r.isVisible === true);
+        if (isVisible === 'true') reviews = reviews.filter(r => r.isVisible === true);
         if (isVisible === 'false') reviews = reviews.filter(r => r.isVisible === false);
         if (rating && parseInt(rating) > 0) {
             reviews = reviews.filter(r => r.rating === parseInt(rating));
         }
         reviews.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-        
+
         const total = reviews.length;
         const pages = Math.ceil(total / limit);
         const paginated = reviews.slice(skip, skip + parseInt(limit));

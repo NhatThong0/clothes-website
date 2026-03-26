@@ -5,19 +5,27 @@ let _io = null;
 exports.setIo = (io) => { _io = io; };
 
 // ── Helper emit ───────────────────────────────────────────────────────────────
-function emitNewMessage(conv, savedMsg) {
-    if (!_io) return;
+function emitNewMessage(conv, savedMsg, req = null) {
+    const io = req?.app?.get('io') || _io;
+    if (!io) {
+        console.error('[🚨 Chat] Cannot emit message: io instance NOT found');
+        return;
+    }
+
     const payload = { convId: conv._id, message: savedMsg };
+    const targetUserId = String(conv.userId);
 
     if (savedMsg.senderRole === 'admin') {
-        // Admin gửi → user nhận
-        _io.to(`user:${conv.userId}`).emit('chat:message', payload);
+        const room = `user:${targetUserId}`;
+        const clients = io.sockets.adapter.rooms.get(room);
+        console.log(`[🚀 Chat] Server -> User [${targetUserId}]. Room: ${room}, Clients: ${clients ? clients.size : 0}`);
+        io.to(room).emit('chat:message', payload);
     } else {
-        // User/customer gửi → admin nhận
-        _io.to('admins').emit('chat:message', payload);
-        _io.to('admins').emit('chat:unread_update', {
+        console.log(`[🚀 Chat] Server -> Admins. Room: admins`);
+        io.to('admins').emit('chat:message', payload);
+        io.to('admins').emit('chat:unread_update', {
             convId:        conv._id,
-            userId:        conv.userId,
+            userId:        targetUserId,
             unreadByAdmin: conv.unreadByAdmin,
             lastMessage:   conv.lastMessage,
             lastMessageAt: conv.lastMessageAt,
@@ -59,7 +67,7 @@ exports.userSendMessage = async (req, res) => {
         await conv.save();
 
         const saved = conv.messages[conv.messages.length - 1];
-        emitNewMessage(conv, saved); // ← emit ngay sau save
+        emitNewMessage(conv, saved, req);
         res.json({ status: 'success', data: saved });
     } catch (e) {
         res.status(500).json({ status: 'error', message: e.message });
@@ -129,7 +137,7 @@ exports.adminSendMessage = async (req, res) => {
         await conv.save();
 
         const saved = conv.messages[conv.messages.length - 1];
-        emitNewMessage(conv, saved); // ← emit ngay sau save
+        emitNewMessage(conv, saved, req);
         res.json({ status: 'success', data: saved });
     } catch (e) {
         res.status(500).json({ status: 'error', message: e.message });
@@ -175,25 +183,50 @@ exports.adminToggleStatus = async (req, res) => {
     }
 };
 
-// ── Socket: chỉ xử lý typing + read ─────────────────────────────────────────
+// ── Socket: xử lý Typing + Read + Join ──────────────────────────────────────
 exports.registerChatHandlers = (io, socket) => {
-    const { userId, role } = socket.data;
+    const userId = String(socket.data.userId);
+    const role   = socket.data.role;
+
     const isUser  = role === 'user' || role === 'customer';
     const isAdmin = role === 'admin';
 
-    if (isUser)  socket.join(`user:${userId}`);
-    if (isAdmin) socket.join('admins');
+    if (isUser) {
+        socket.join(`user:${userId}`);
+        console.log(`[Socket Chat] Customer ${userId} joined room: user:${userId}`);
+    }
+    if (isAdmin) {
+        socket.join('admins');
+        console.log(`[Socket Chat] Admin ${userId} joined room: admins`);
+    }
 
-    // console.log(`[Socket] connected userId=${userId} role=${role}`);
-
-    // typing — không lưu DB, chỉ relay qua socket
+    // typing 
     socket.on('chat:typing', ({ convId, isTyping }) => {
         if (isUser) {
             io.to('admins').emit('chat:typing', { convId, userId, isTyping });
         } else {
             Conversation.findById(convId).then(conv => {
-                if (conv) io.to(`user:${conv.userId}`).emit('chat:typing', { convId, isTyping });
+                if (conv) {
+                    const room = `user:${conv.userId}`;
+                    io.to(room).emit('chat:typing', { convId, isTyping });
+                }
             }).catch(() => {});
+        }
+    });
+
+    // Support legacy typing events from Admin page
+    socket.on('typing_start', ({ conversationId }) => {
+        if (isAdmin) {
+            Conversation.findById(conversationId).then(conv => {
+                if (conv) io.to(`user:${conv.userId}`).emit('chat:typing', { convId: conversationId, isTyping: true });
+            });
+        }
+    });
+    socket.on('typing_stop', ({ conversationId }) => {
+        if (isAdmin) {
+            Conversation.findById(conversationId).then(conv => {
+                if (conv) io.to(`user:${conv.userId}`).emit('chat:typing', { convId: conversationId, isTyping: false });
+            });
         }
     });
 
@@ -202,6 +235,8 @@ exports.registerChatHandlers = (io, socket) => {
         try {
             const conv = await Conversation.findById(convId);
             if (!conv) return;
+            const targetUserRoom = `user:${conv.userId}`;
+
             if (isAdmin) {
                 conv.messages.forEach(m => { if (m.senderRole !== 'admin' && !m.readAt) m.readAt = new Date(); });
                 conv.unreadByAdmin = 0;
@@ -210,7 +245,7 @@ exports.registerChatHandlers = (io, socket) => {
                 conv.unreadByUser = 0;
             }
             await conv.save();
-            io.to(`user:${conv.userId}`).emit('chat:read_ack', { convId });
+            io.to(targetUserRoom).emit('chat:read_ack', { convId });
             io.to('admins').emit('chat:read_ack', { convId });
         } catch { /* silent */ }
     });

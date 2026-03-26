@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Toast from 'react-native-toast-message';
+import { useNotification } from '@/hooks/useNotification';
 import { useAuthStore } from '@/src/store/authStore';
 import { authEventEmitter } from '@/src/api/axiosConfig';
 
@@ -31,8 +32,12 @@ function AuthGuard() {
   return null;
 }
 
+
 export default function RootLayout() {
   const { logout } = useAuthStore();
+  
+  // ✅ Khởi tạo lắng nghe thông báo toàn cục
+  useNotification();
 
   useEffect(() => {
     return authEventEmitter.on('logout', logout);
