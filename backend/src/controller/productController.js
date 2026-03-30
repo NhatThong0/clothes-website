@@ -1,6 +1,7 @@
 const Product  = require('../model/Product');
 const Category = require('../model/Category');
 const Order    = require('../model/Order');
+const { pool } = require('../db/mysql');
 const { validateObjectId } = require('../utils/validators');
 
 // ── Helper ────────────────────────────────────────────────────────────────────
@@ -136,6 +137,47 @@ exports.createProduct = async (req, res, next) => {
         await product.save();
         await product.populate('category');
 
+        // ── LƯU SANG MYSQL (Song song - Relational) ──────────────────────────────
+        try {
+            const pid = product._id.toString();
+            const totalStock = variants?.reduce((s, v) => s + (Number(v.stock) || 0), 0) || 0;
+            
+            // 1. Insert bảng products chính
+            await pool.query(
+                `INSERT INTO products (id, name, description, price, discount, category, stock, isActive, isFeatured, createdAt, updatedAt) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+                [pid, name, description, parseFloat(price), parseFloat(discount || 0), category.toString(), totalStock, true, false]
+            );
+
+            // 2. Insert bảng product_images
+            if (images && images.length > 0) {
+                for (let i = 0; i < images.length; i++) {
+                    await pool.query('INSERT INTO product_images (productId, url, sortOrder) VALUES (?, ?, ?)', [pid, images[i], i]);
+                }
+            }
+
+            // 3. Insert bảng product_variants
+            if (variants && variants.length > 0) {
+                for (const v of variants) {
+                    await pool.query(
+                        'INSERT INTO product_variants (productId, color, size, stock, sku, price) VALUES (?, ?, ?, ?, ?, ?)',
+                        [pid, v.color, v.size, v.stock || 0, v.sku || '', v.price || 0]
+                    );
+                }
+            }
+
+            // 4. Insert bảng product_features
+            if (features && features.length > 0) {
+                for (const f of features) {
+                    await pool.query('INSERT INTO product_features (productId, feature) VALUES (?, ?)', [pid, f]);
+                }
+            }
+
+            console.log("✅ Product & Related tables saved to MySQL successfully");
+        } catch (mysqlErr) {
+            console.error("❌ MySQL Save Error (Relational Product):", mysqlErr.message);
+        }
+
         res.status(201).json({ status: 'success', message: 'Product created successfully', data: product });
     } catch (error) {
         next(error);
@@ -164,6 +206,45 @@ exports.updateProduct = async (req, res, next) => {
         if (!product)
             return res.status(404).json({ status: 'error', message: 'Product not found' });
 
+        // ── CẬP NHẬT SANG MYSQL (Song song - Relational) ─────────────────────────
+        try {
+            const pid = id;
+            // 1. Update bảng products chính
+            await pool.query(
+                `UPDATE products SET 
+                    name = ?, description = ?, price = ?, discount = ?, category = ?, 
+                    stock = ?, isActive = ?, isFeatured = ?, updatedAt = NOW() 
+                 WHERE id = ?`,
+                [
+                    product.name, product.description, product.price, product.discount, product.category._id.toString(),
+                    product.stock, product.isActive, product.isFeatured, pid
+                ]
+            );
+
+            // 2. Refresh Images
+            await pool.query('DELETE FROM product_images WHERE productId = ?', [pid]);
+            for (let i = 0; i < product.images.length; i++) {
+                await pool.query('INSERT INTO product_images (productId, url, sortOrder) VALUES (?, ?, ?)', [pid, product.images[i], i]);
+            }
+
+            // 3. Refresh Variants
+            await pool.query('DELETE FROM product_variants WHERE productId = ?', [pid]);
+            for (const v of product.variants) {
+                await pool.query(
+                    'INSERT INTO product_variants (productId, color, size, stock, sku, price) VALUES (?, ?, ?, ?, ?, ?)',
+                    [pid, v.color, v.size, v.stock || 0, v.sku || '', v.price || 0]
+                );
+            }
+
+            // 4. Refresh Features
+            await pool.query('DELETE FROM product_features WHERE productId = ?', [pid]);
+            for (const f of product.features) {
+                await pool.query('INSERT INTO product_features (productId, feature) VALUES (?, ?)', [pid, f]);
+            }
+        } catch (mysqlErr) {
+            console.error("❌ MySQL Update Error (Relational Product):", mysqlErr.message);
+        }
+
         res.status(200).json({ status: 'success', message: 'Product updated successfully', data: product });
     } catch (error) {
         next(error);
@@ -180,6 +261,13 @@ exports.deleteProduct = async (req, res, next) => {
         const product = await Product.findByIdAndDelete(id);
         if (!product)
             return res.status(404).json({ status: 'error', message: 'Product not found' });
+
+        // ── XÓA TRÊN MYSQL (Song song) ──────────────────────────────────────────
+        try {
+            await pool.query('DELETE FROM products WHERE id = ?', [id]);
+        } catch (mysqlErr) {
+            console.error("❌ MySQL Delete Error (Product):", mysqlErr.message);
+        }
 
         res.status(200).json({ status: 'success', message: 'Product deleted successfully' });
     } catch (error) {

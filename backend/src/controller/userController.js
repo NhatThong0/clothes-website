@@ -47,6 +47,18 @@ exports.changePassword = async (req, res, next) => {
         user.updatedAt = Date.now();
         await user.save();
 
+        // ── ĐỒNG BỘ MYSQL (Song song) ──────────────────────────────────────────
+        try {
+            const { pool } = require('../db/mysql');
+            await pool.query(
+                'UPDATE users SET password = ?, updatedAt = NOW() WHERE id = ?',
+                [user.password, user._id.toString()]
+            );
+            console.log("✅ User password synced to MySQL");
+        } catch (mysqlErr) {
+            console.error("❌ MySQL Password Sync Error:", mysqlErr.message);
+        }
+
         res.status(200).json({ status: 'success', message: 'Đổi mật khẩu thành công' });
     } catch (error) {
         next(error);

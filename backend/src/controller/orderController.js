@@ -1,4 +1,5 @@
 const Order    = require('../model/Order');
+const { pool } = require('../db/mysql');
 const Product  = require('../model/Product');
 const Voucher  = require('../model/Voucher');
 const User     = require('../model/User');
@@ -23,13 +24,35 @@ async function decrementStock(productId, quantity, color, size) {
             const fresh    = await Product.findById(productId).lean();
             const newTotal = fresh.variants.reduce((s, v) => s + (Number(v.stock) || 0), 0);
             await Product.findByIdAndUpdate(productId, { $set: { stock: newTotal } });
+
+            // ── CẬP NHẬT SANG MYSQL (Song song - Relational) ─────────────────────────
+            try {
+                // 1. Cụ thể hóa tồn kho tổng mới
+                await pool.query('UPDATE products SET stock = ?, updatedAt = NOW() WHERE id = ?', [newTotal, productId.toString()]);
+                
+                // 2. Cập nhật tồn kho variant lẻ
+                await pool.query(
+                    'UPDATE product_variants SET stock = ? WHERE productId = ? AND color = ? AND size = ?',
+                    [newVariantStock, productId.toString(), color, size]
+                );
+            } catch (mysqlErr) {
+                console.error("❌ MySQL Update Error (Product Stock-):", mysqlErr.message);
+            }
         } else {
             const newStock = Math.max(0, (product.stock || 0) - quantity);
             await Product.findByIdAndUpdate(productId, { $set: { stock: newStock } });
+            // Cập nhật MySQL (Trường hợp không có variants lẻ)
+            try {
+                await pool.query('UPDATE products SET stock = ?, updatedAt = NOW() WHERE id = ?', [newStock, productId.toString()]);
+            } catch (e) {}
         }
     } else {
         const newStock = Math.max(0, (product.stock || 0) - quantity);
         await Product.findByIdAndUpdate(productId, { $set: { stock: newStock } });
+        // Cập nhật MySQL
+        try {
+            await pool.query('UPDATE products SET stock = ?, updatedAt = NOW() WHERE id = ?', [newStock, productId.toString()]);
+        } catch (e) {}
     }
 }
 
@@ -47,10 +70,28 @@ async function incrementStock(productId, quantity, color, size) {
             const newTotal = fresh.variants.reduce((s, v) => s + (Number(v.stock) || 0), 0);
             await Product.findByIdAndUpdate(productId, { $set: { stock: newTotal } });
             console.log(`[stock+] ${product.name} | ${color}/${size}: → ${newVariantStock} | total: ${newTotal}`);
+
+            // ── CẬP NHẬT SANG MYSQL (Song song - Relational) ─────────────────────────
+            try {
+                // 1. Cập nhật bảng chính
+                await pool.query('UPDATE products SET stock = ?, updatedAt = NOW() WHERE id = ?', [newTotal, productId.toString()]);
+                
+                // 2. Cập nhật bảng variants lẻ
+                await pool.query(
+                    'UPDATE product_variants SET stock = ? WHERE productId = ? AND color = ? AND size = ?',
+                    [newVariantStock, productId.toString(), color, size]
+                );
+            } catch (mysqlErr) {
+                console.error("❌ MySQL Update Error (Product Stock+):", mysqlErr.message);
+            }
         }
     } else {
         const newStock = (product.stock || 0) + quantity;
         await Product.findByIdAndUpdate(productId, { $set: { stock: newStock } });
+        // Cập nhật MySQL
+        try {
+            await pool.query('UPDATE products SET stock = ?, updatedAt = NOW() WHERE id = ?', [newStock, productId.toString()]);
+        } catch (e) {}
     }
 }
 
@@ -201,6 +242,26 @@ const createOrder = async (req, res) => {
             voucherCode:    appliedVoucher ? appliedVoucher.code : null,
             total, paymentStatus: 'pending', status: 'pending', revenueRecorded: false,
         });
+
+        // ── LƯU SANG MYSQL (Song song) ──────────────────────────────────────────
+        try {
+            await pool.query(
+                `INSERT INTO orders (id, userId, total, status, paymentMethod, paymentStatus, subtotal, shippingFee, discountAmount, voucherCode, notes, shippingAddress, createdAt) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [order._id.toString(), userId.toString(), total, order.status, paymentMethod, order.paymentStatus, subtotal, shippingFee, discountAmount, order.voucherCode, notes || '', JSON.stringify(shippingAddress), order.createdAt || new Date()]
+            );
+
+            for (const item of verifiedItems) {
+                await pool.query(
+                    `INSERT INTO order_items (orderId, productId, name, price, quantity, color, size, image) 
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [order._id.toString(), item.productId.toString(), item.name, item.price, item.quantity, item.color || null, item.size || null, item.image || '']
+                );
+            }
+            console.log("✅ Order & Items saved to MySQL successfully");
+        } catch (mysqlErr) {
+            console.error("❌ MySQL Save Error (Order):", mysqlErr.message);
+        }
 
         if (appliedVoucher) {
             await Voucher.findByIdAndUpdate(appliedVoucher._id, {
@@ -505,6 +566,16 @@ const updateOrderStatus = async (req, res) => {
         }
 
         await order.save();
+        
+        // ── CẬP NHẬT SANG MYSQL (Song song) ─────────────────────────────────────
+        try {
+            await pool.query(
+                'UPDATE orders SET status = ?, trackingNumber = ?, paymentStatus = ?, updatedAt = NOW() WHERE id = ?',
+                [status, order.trackingNumber || null, order.paymentStatus || 'pending', order._id.toString()]
+            );
+        } catch (mysqlErr) {
+            console.error("❌ MySQL Update Error (Order Status):", mysqlErr.message);
+        }
         await notifyOrderStatus(order, status, req); 
         const populated = await Order.findById(order._id).populate('userId', 'name email phone');
         res.status(200).json({ status: 'success', data: populated });
@@ -528,6 +599,16 @@ const approveReturn = async (req, res) => {
         // Hướng dẫn gửi hàng về — admin có thể truyền lên hoặc dùng mặc định
         order.returnShipNote   = req.body.shipNote || 'Vui lòng gửi hàng về: k58/04e Cô Bắc, Hải Châu, Đà Nẵng. Liên hệ shop để được hỗ trợ.';
         await order.save();
+
+        // ── CẬP NHẬT SANG MYSQL (Song song) ─────────────────────────────────────
+        try {
+            await pool.query(
+                'UPDATE orders SET status = ?, updatedAt = NOW() WHERE id = ?',
+                [order.status, order._id.toString()]
+            );
+        } catch (mysqlErr) {
+            console.error("❌ MySQL Update Error (Order Return Approved):", mysqlErr.message);
+        }
         await notifyOrderStatus(order, 'return_approved', req);
         res.json({ status: 'success', message: 'Đã duyệt yêu cầu hoàn trả.', data: order });
     } catch (err) {

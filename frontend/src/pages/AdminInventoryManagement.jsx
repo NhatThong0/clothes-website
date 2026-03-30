@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Fragment } from 'react';
 import apiClient from '@services/apiClient';
 
 const fmt   = v => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(v ?? 0);
@@ -11,7 +11,15 @@ const STATUS_RECEIPT = {
     confirmed: { label:'Hoàn thành', bg:'#DCFCE7', text:'#166534', dot:'#22C55E' },
     cancelled: { label:'Đã hủy',     bg:'#FEE2E2', text:'#991B1B', dot:'#EF4444' },
 };
-const ADJUST_REASONS = ['Hàng bị hỏng / vỡ','Hàng mất / thất lạc','Quà tặng / khuyến mãi','Kiểm kê lại tồn kho','Hàng trả về nhà cung cấp','Lý do khác'];
+const ADJUST_REASONS = [
+    'Xuất hàng do tồn kho cao',
+    'Hàng bị hỏng / vỡ',
+    'Hàng mất / thất lạc',
+    'Quà tặng / khuyến mãi',
+    'Kiểm kê lại tồn kho',
+    'Hàng trả về nhà cung cấp',
+    'Lý do khác'
+];
 
 function Badge({ status, map }) {
     const cfg = map[status] || { label:status, bg:'#F1F5F9', text:'#475569', dot:'#94A3B8' };
@@ -572,7 +580,7 @@ function TabStockReport() {
                                 const hasVariants = p.variants?.length>0;
                                 const allColors = [...new Set((p.variants||[]).map(v=>v.color))];
                                 return (
-                                    <>
+                                    <Fragment key={p._id}>
                                         <tr key={p._id} className="hover:bg-slate-50 transition-colors">
                                             <td className="px-3 py-3.5 w-8">
                                                 {hasVariants && (
@@ -611,16 +619,64 @@ function TabStockReport() {
                                                 <td/>
                                                 <td colSpan={7} className="px-4 py-4">
                                                     {/* Matrix table */}
+                                                    <div className="mb-3 flex flex-wrap gap-2">
+                                                        {(() => {
+                                                            const colorTotals = {};
+                                                            const sizeTotals  = {};
+                                                            for (const v of (p.variants || [])) {
+                                                                if (v?.color) colorTotals[v.color] = (colorTotals[v.color] || 0) + (v.stock || 0);
+                                                                if (v?.size)  sizeTotals[v.size]   = (sizeTotals[v.size]   || 0) + (v.stock || 0);
+                                                            }
+                                                            const colorEntries = Object.entries(colorTotals);
+                                                            const sizeEntries  = Object.entries(sizeTotals);
+                                                            return (
+                                                                <>
+                                                                    {colorEntries.map(([c, t]) => (
+                                                                        <span
+                                                                            key={`c-${c}`}
+                                                                            className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-slate-50 border border-slate-200 text-slate-700"
+                                                                        >
+                                                                            {c}: {t}
+                                                                        </span>
+                                                                    ))}
+                                                                    {sizeEntries.map(([s, t]) => (
+                                                                        <span
+                                                                            key={`s-${s}`}
+                                                                            className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-slate-50 border border-slate-200 text-slate-700"
+                                                                        >
+                                                                            {s}: {t}
+                                                                        </span>
+                                                                    ))}
+                                                                </>
+                                                            );
+                                                        })()}
+                                                    </div>
                                                     <div className="overflow-x-auto">
                                                         {(() => {
-                                                            const colors = [...new Set(p.variants.map(v=>v.color))];
-                                                            const sizes  = [...new Set(p.variants.map(v=>v.size))];
+                                                            const variants = p.variants || [];
+                                                            const colors = [...new Set(variants.map(v=>v.color))];
+                                                            const sizes  = [...new Set(variants.map(v=>v.size))];
+                                                            const sizeTotals = {};
+                                                            for (const v of variants) {
+                                                                if (!v?.size) continue;
+                                                                sizeTotals[v.size] = (sizeTotals[v.size] || 0) + (v.stock || 0);
+                                                            }
                                                             return (
                                                                 <table className="text-xs border-collapse">
                                                                     <thead>
                                                                         <tr>
                                                                             <th className="pr-3 py-1.5 text-left font-bold text-slate-400">Màu \ Size</th>
-                                                                            {sizes.map(s=><th key={s} className="px-3 py-1.5 text-center font-bold text-slate-600 min-w-[52px]">{s}</th>)}
+                                                                            {sizes.map(s=>(
+                                                                                <th
+                                                                                    key={s}
+                                                                                    className="px-3 py-1.5 text-center font-bold text-slate-600 min-w-[52px]"
+                                                                                >
+                                                                                    {s}
+                                                                                    <div className="text-[10px] font-semibold text-slate-400 mt-0.5">
+                                                                                        {sizeTotals[s] || 0}
+                                                                                    </div>
+                                                                                </th>
+                                                                            ))}
                                                                             <th className="px-3 py-1.5 text-center font-bold text-slate-500">Tổng</th>
                                                                         </tr>
                                                                     </thead>
@@ -629,7 +685,12 @@ function TabStockReport() {
                                                                             const rowTotal = p.variants.filter(v=>v.color===color).reduce((s,v)=>s+v.stock,0);
                                                                             return (
                                                                                 <tr key={color} className="border-t border-slate-200">
-                                                                                    <td className="pr-3 py-1.5 font-semibold text-slate-700">{color}</td>
+                                                                                    <td className="pr-3 py-1.5 font-semibold text-slate-700">
+                                                                                        {color}
+                                                                                        <div className="text-[10px] font-semibold text-slate-400 mt-0.5">
+                                                                                            {rowTotal}
+                                                                                        </div>
+                                                                                    </td>
                                                                                     {sizes.map(size=>{
                                                                                         const v = p.variants.find(v=>v.color===color&&v.size===size);
                                                                                         return (
@@ -654,7 +715,7 @@ function TabStockReport() {
                                                 </td>
                                             </tr>
                                         )}
-                                    </>
+                                    </Fragment>
                                 );
                             })}
                         </tbody>
@@ -679,7 +740,9 @@ function TabStockReport() {
 // ══════════════════════════════════════════════════════════════════════════════
 function TabAdjustment() {
     const [products,   setProducts]   = useState([]);
-    const [items,      setItems]      = useState([{productId:'',productName:'',color:'',size:'',quantity:0,reason:'',note:'',_variants:[]}]);
+    const [items,      setItems]      = useState([
+        { productId:'', productName:'', color:'', size:'', quantity:0, reason:'', note:'', valueMode:'unit', unitValue:0, totalValue:0, _variants:[] }
+    ]);
     const [saving,     setSaving]     = useState(false);
     const [success,    setSuccess]    = useState('');
     const [error,      setError]      = useState('');
@@ -697,7 +760,14 @@ function TabAdjustment() {
         catch {} finally { setMovLoading(false); }
     };
 
-    const addItem    = () => setItems(p=>[...p,{productId:'',productName:'',color:'',size:'',quantity:0,reason:'',note:'',_variants:[]}]);
+    const loadProducts = async () => {
+        try {
+            const r = await apiClient.get('/admin/products?limit=200');
+            setProducts(r.data.data?.products || []);
+        } catch {}
+    };
+
+    const addItem    = () => setItems(p=>[...p,{productId:'',productName:'',color:'',size:'',quantity:0,reason:'',note:'',valueMode:'unit',unitValue:0,totalValue:0,_variants:[]}]);
     const removeItem = i  => setItems(p=>p.filter((_,idx)=>idx!==i));
     const setItem    = (i,k,v) => setItems(p=>p.map((item,idx)=>idx===i?{...item,[k]:v}:item));
 
@@ -711,11 +781,21 @@ function TabAdjustment() {
 
     const handleSave = async () => {
         if (items.some(i=>!i.productId||i.quantity===0)) { setError('Vui lòng chọn sản phẩm và nhập số lượng khác 0'); return; }
+        // Khi xuất (số âm) thì cần ít nhất 1 giá trị xuất
+        if (items.some(i=>i.quantity<0)) {
+            const needValue = items.some(i=>{
+                if (i.quantity>=0) return false;
+                if ((i.valueMode||'unit')==='total') return !(Number(i.totalValue)>0);
+                return !(Number(i.unitValue)>0);
+            });
+            if (needValue) { setError('Vui lòng nhập giá trị xuất (đơn giá hoặc tổng giá) cho các dòng xuất hàng'); return; }
+        }
         setError(''); setSaving(true);
         try {
             await apiClient.post('/admin/inventory/adjustments', { items: items.map(({_variants,...rest})=>rest) });
             setSuccess('Điều chỉnh kho thành công!');
-            setItems([{productId:'',productName:'',color:'',size:'',quantity:0,reason:'',note:'',_variants:[]}]);
+            setItems([{productId:'',productName:'',color:'',size:'',quantity:0,reason:'',note:'',valueMode:'unit',unitValue:0,totalValue:0,_variants:[]}]);
+            await loadProducts();
             loadMovements();
             setTimeout(()=>setSuccess(''),3000);
         } catch (e) { setError(e.response?.data?.message||'Lỗi điều chỉnh'); }
@@ -725,8 +805,8 @@ function TabAdjustment() {
     return (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
             <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
-                <h3 className="text-base font-bold text-slate-900 mb-1">Điều chỉnh tồn kho</h3>
-                <p className="text-xs text-slate-400 mb-5">Số dương = cộng kho · Số âm = trừ kho</p>
+                <h3 className="text-base font-bold text-slate-900 mb-1">Xuất/Điều chỉnh tồn kho</h3>
+                <p className="text-xs text-slate-400 mb-5">Số dương = cộng kho · Số âm = xuất kho (trừ tồn)</p>
 
                 {success && <div className="mb-4 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-700 font-medium">{success}</div>}
                 {error   && <div className="mb-4 px-4 py-3 bg-rose-50 border border-rose-200 rounded-xl text-sm text-rose-600">{error}</div>}
@@ -783,6 +863,46 @@ function TabAdjustment() {
                                 </div>
                                 {item.reason==='Lý do khác' && (
                                     <input className={inputCls} placeholder="Nhập lý do cụ thể..." value={item.note} onChange={e=>setItem(i,'note',e.target.value)}/>
+                                )}
+
+                                {/* Xuất hàng: yêu cầu giá trị xuất */}
+                                {item.quantity < 0 && (
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <div>
+                                            <label className="block text-[10px] font-semibold text-slate-400 uppercase mb-1">Giá trị xuất (mode)</label>
+                                            <select
+                                                className={inputCls}
+                                                value={item.valueMode || 'unit'}
+                                                onChange={e=>setItem(i,'valueMode',e.target.value)}
+                                            >
+                                                <option value="unit">Đơn giá</option>
+                                                <option value="total">Tổng giá</option>
+                                            </select>
+                                        </div>
+                                        {item.valueMode === 'total' ? (
+                                            <div>
+                                                <label className="block text-[10px] font-semibold text-slate-400 uppercase mb-1">Tổng giá trị</label>
+                                                <input
+                                                    className={inputCls}
+                                                    type="number"
+                                                    min="0"
+                                                    value={item.totalValue}
+                                                    onChange={e=>setItem(i,'totalValue',parseFloat(e.target.value)||0)}
+                                                />
+                                            </div>
+                                        ) : (
+                                            <div>
+                                                <label className="block text-[10px] font-semibold text-slate-400 uppercase mb-1">Đơn giá</label>
+                                                <input
+                                                    className={inputCls}
+                                                    type="number"
+                                                    min="0"
+                                                    value={item.unitValue}
+                                                    onChange={e=>setItem(i,'unitValue',parseFloat(e.target.value)||0)}
+                                                />
+                                            </div>
+                                        )}
+                                    </div>
                                 )}
                             </div>
                         );

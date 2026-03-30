@@ -1,6 +1,7 @@
 // controllers/notificationController.js
 const Notification      = require('../model/Notification');
 const AdminNotification = require('../model/AdminNotification');
+const { pool } = require('../db/mysql');
 
 // ── Helper: emit real-time đến user ──────────────────────────────────────────
 // controllers/notificationController.js
@@ -33,6 +34,17 @@ const createNotification = async (data, req = null) => {
             link: link || null,
             meta: meta || {},
         });
+        
+        // ── LƯU SANG MYSQL ───────────────────────────────────────────────────────
+        try {
+            await pool.query(
+                `INSERT INTO notifications (id, userId, type, title, message, icon, color, link, meta, createdAt) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+                [notif._id.toString(), targetUserId, type, title, message, icon || '🔔', color || 'blue', link || null, JSON.stringify(meta || {})]
+            );
+        } catch (mysqlErr) {
+            console.error("❌ MySQL Save Error (Notification):", mysqlErr.message);
+        }
 
         // 3. EMIT REAL-TIME
         const io = req?.app?.get('io');
@@ -92,6 +104,19 @@ const notifyNewVoucher = async (userIds, voucher, req = null) => {
     }));
     if (notifications.length > 0) {
         await Notification.insertMany(notifications);
+        
+        // ── LƯU SANG MYSQL ───────────────────────────────────────────────────────
+        try {
+            for (const n of notifications) {
+                await pool.query(
+                    `INSERT INTO notifications (id, userId, type, title, message, icon, color, link, meta, createdAt) 
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [/* MongoDB doesn't give _id before insertMany unless we specify */ null, n.userId, n.type, n.title, n.message, n.icon, n.color, n.link, JSON.stringify(n.meta), n.createdAt]
+                );
+            }
+        } catch (mysqlErr) {
+            console.error("❌ MySQL Save Error (Bulk Notification):", mysqlErr.message);
+        }
         // Emit real-time cho từng user
         if (req) {
             const io = req.app?.get('io');
@@ -209,6 +234,17 @@ const notifyAdmin = async (data, req = null) => {
             link:  link  || null,
             meta:  meta  || {},
         });
+
+        // ── LƯU SANG MYSQL ───────────────────────────────────────────────────────
+        try {
+            await pool.query(
+                `INSERT INTO admin_notifications (id, type, title, message, icon, color, link, meta, createdAt) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+                [notif._id.toString(), type, title, message, icon || '🔔', color || 'blue', link || null, JSON.stringify(meta || {})]
+            );
+        } catch (mysqlErr) {
+            console.error("❌ MySQL Save Error (AdminNotification):", mysqlErr.message);
+        }
 
         const io = req?.app?.get('io');
         if (io) {

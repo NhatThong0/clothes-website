@@ -1,4 +1,5 @@
 const User = require('../model/User');
+const { pool } = require('../db/mysql');
 const Cart = require('../model/Cart');
 const { generateToken } = require('../utils/jwtToken');
 const { validateEmail, validatePassword, validateName } = require('../utils/validators');
@@ -62,6 +63,18 @@ exports.register = async (req, res, next) => {
         });
 
         await user.save();
+
+        // ── LƯU SANG MYSQL (Song song) ──────────────────────────────────────────
+        try {
+            await pool.query(
+                'INSERT INTO users (id, name, email, password, role, createdAt) VALUES (?, ?, ?, ?, ?, ?)',
+                [user._id.toString(), user.name, user.email, user.password, user.role || 'customer', new Date()]
+            );
+            console.log("✅ User saved to MySQL successfully");
+        } catch (mysqlErr) {
+            console.error("❌ MySQL Save Error:", mysqlErr.message);
+            // Tùy chọn: ném lỗi nếu cực kỳ quan trọng, hoặc chỉ log nếu muốn hệ thống tiếp tục
+        }
 
         // Create empty cart for user
         const cart = new Cart({

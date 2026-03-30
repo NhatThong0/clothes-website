@@ -26,10 +26,12 @@ const AdminLayout = () => {
 
   // ── Notification States ──────────────────────────────────────────────────
   const [notifications, setNotifications] = useState([]);
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [isNotifOpen, setIsNotifOpen] = useState(false);
-  const [notifShake, setNotifShake] = useState(false);
+  const [unreadCount,   setUnreadCount]   = useState(0);
+  const [isNotifOpen,   setIsNotifOpen]   = useState(false);
+  const [notifShake,    setNotifShake]    = useState(false);
+  const [isSocketConnected, setIsSocketConnected] = useState(false);
   const notifDropdownRef = useRef(null);
+  const socketRef = useRef(null);
 
   const fetchNotifications = useCallback(async () => {
     try {
@@ -51,7 +53,18 @@ const AdminLayout = () => {
     if (!adminToken) return;
 
     const socket = getSocket(adminToken);
+    socketRef.current = socket;
+
+    if (socket.connected) setIsSocketConnected(true);
+
+    const onConnect    = () => {
+        console.log('[🛡️ Admin Socket] Connected to server');
+        setIsSocketConnected(true);
+    };
+    const onDisconnect = () => setIsSocketConnected(false);
+
     const handleAdminNotification = (notif) => {
+      console.log('[🚀 Received Notification]', notif);
       setNotifications(prev => [notif, ...prev].slice(0, 30));
       setUnreadCount(prev => prev + 1);
       setNotifShake(true);
@@ -59,8 +72,15 @@ const AdminLayout = () => {
       try { new Audio('/notification-sound.mp3').play().catch(() => {}); } catch (e) {}
     };
 
+    socket.on('connect',            onConnect);
+    socket.on('disconnect',         onDisconnect);
     socket.on('admin:notification', handleAdminNotification);
-    return () => socket.off('admin:notification', handleAdminNotification);
+
+    return () => {
+      socket.off('connect',            onConnect);
+      socket.off('disconnect',         onDisconnect);
+      socket.off('admin:notification', handleAdminNotification);
+    };
   }, [adminUser, fetchNotifications]);
 
   useEffect(() => {
@@ -142,7 +162,7 @@ const AdminLayout = () => {
     purple: { bg: 'bg-purple-50 text-purple-600',  dot: 'bg-purple-600' },
     slate:  { bg: 'bg-slate-50 text-slate-600',    dot: 'bg-slate-600' },
   };
-   const socket = getSocket(localStorage.getItem('adminToken'));
+   // Logic for notifications and admin login setup above
 
   if (loading) {
     return (
@@ -327,7 +347,7 @@ const AdminLayout = () => {
                        <h3 className="font-bold text-slate-900 text-sm">Thông báo</h3>
                        {unreadCount > 0 && <span className="px-1.5 py-0.5 bg-rose-500 text-white text-[10px] font-black rounded-full">{unreadCount}</span>}
                        {/* Socket status indicator */}
-                       <span className={`w-1.5 h-1.5 rounded-full ${socket?.connected ? 'bg-emerald-400 animate-pulse' : 'bg-slate-300'}`} title={socket?.connected ? 'Real-time online' : 'Offline'}/>
+                       <span className={`w-1.5 h-1.5 rounded-full ${isSocketConnected ? 'bg-emerald-400 animate-pulse' : 'bg-slate-300'}`} title={isSocketConnected ? 'Real-time online' : 'Offline'}/>
                     </div>
                     <div className="flex items-center gap-2">
                       {unreadCount > 0 && (

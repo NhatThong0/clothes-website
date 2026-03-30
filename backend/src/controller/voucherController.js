@@ -1,4 +1,5 @@
 const Voucher = require('../model/Voucher');
+const { pool } = require('../db/mysql');
 const { validateVoucherCode, calcVoucherDiscount } = require('./orderController');
 
 // ── POST /api/vouchers/validate — Frontend gọi khi nhập mã ───────────────────
@@ -104,6 +105,18 @@ const createVoucher = async (req, res) => {
             startDate:         new Date(startDate),
             endDate:           new Date(endDate),
         });
+        
+        // ── LƯU SANG MYSQL (Song song) ──────────────────────────────────────────
+        try {
+            await pool.query(
+                `INSERT INTO vouchers (id, code, description, discountType, discountValue, maxDiscountAmount, minPurchaseAmount, voucherType, maxUsageCount, maxUsagePerUser, startDate, endDate, createdAt) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+                [voucher._id.toString(), voucher.code, description || '', discountType, discountValue, maxDiscountAmount || null, minPurchaseAmount || 0, voucherType || 'all_products', maxUsageCount || null, maxUsagePerUser || 1, new Date(startDate), new Date(endDate)]
+            );
+            console.log("✅ Voucher saved to MySQL successfully");
+        } catch (mysqlErr) {
+            console.error("❌ MySQL Save Error (Voucher):", mysqlErr.message);
+        }
 
         res.status(201).json({ status: 'success', data: voucher });
     } catch (err) {
@@ -142,6 +155,16 @@ const updateVoucher = async (req, res) => {
         );
 
         if (!voucher) return res.status(404).json({ status: 'error', message: 'Không tìm thấy voucher.' });
+
+        // ── CẬP NHẬT SANG MYSQL (Song song) ─────────────────────────────────────
+        try {
+            await pool.query(
+                `UPDATE vouchers SET description = ?, discountType = ?, discountValue = ?, maxDiscountAmount = ?, minPurchaseAmount = ?, voucherType = ?, maxUsageCount = ?, maxUsagePerUser = ?, startDate = ?, endDate = ?, isActive = ?, updatedAt = NOW() WHERE id = ?`,
+                [description || voucher.description, discountType || voucher.discountType, discountValue || voucher.discountValue, maxDiscountAmount || null, minPurchaseAmount || voucher.minPurchaseAmount, voucherType || voucher.voucherType, maxUsageCount || null, maxUsagePerUser || voucher.maxUsagePerUser, startDate ? new Date(startDate) : voucher.startDate, endDate ? new Date(endDate) : voucher.endDate, isActive !== undefined ? isActive : voucher.isActive, req.params.id]
+            );
+        } catch (mysqlErr) {
+            console.error("❌ MySQL Update Error (Voucher):", mysqlErr.message);
+        }
         res.status(200).json({ status: 'success', data: voucher });
     } catch (err) {
         res.status(500).json({ status: 'error', message: err.message });

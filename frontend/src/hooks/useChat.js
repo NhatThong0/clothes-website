@@ -9,13 +9,16 @@ let socketInstance = null;
 let currentToken   = null;
 
 export function getSocket(token) {
-    // Nếu token thay đổi hoặc socket bị ngắt, ta khởi tạo lại
-    if (socketInstance?.connected && token === currentToken) {
+    if (!token) return null;
+
+    // Chỉ khởi tạo lại nếu Token thực sự thay đổi
+    // Tránh việc ngắt kết nối khi socket đang ở trạng thái 'connecting'
+    if (socketInstance && token === currentToken) {
         return socketInstance;
     }
 
     if (socketInstance) {
-        console.log('[Socket] Token changed or disconnected, re-initializing...');
+        console.log('[Socket] Token changed, re-initializing...');
         socketInstance.disconnect();
     }
 
@@ -25,7 +28,10 @@ export function getSocket(token) {
         transports: ['websocket'],
         autoConnect: true,
         reconnection: true,
+        reconnectionAttempts: 10,
+        reconnectionDelay: 2000,
     });
+    
     return socketInstance;
 }
 

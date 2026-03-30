@@ -441,6 +441,7 @@ export default function ProfilePage() {
                   { id: 'addresses', icon: '📍', label: 'Địa chỉ'     },
                   { id: 'orders',    icon: '📦', label: 'Đơn hàng',
                     badge: orders.length > 0 ? orders.length : null },
+                  { id: 'security',  icon: '🔐', label: 'Bảo mật'    },
                 ].map(item => (
                   <button key={item.id} onClick={() => setTab(item.id)}
                     className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-all text-left group ${
@@ -680,6 +681,55 @@ export default function ProfilePage() {
               <div className="flex-1 bg-white rounded-2xl border border-slate-100 shadow-sm overflow-y-auto p-5">
                 <OrderDetail order={selectedOrder} onCancel={handleCancelOrder}/>
               </div>
+            </div>
+          )}
+
+          {/* ── Security Tab ──────────────────────────────────────────────── */}
+          {tab === 'security' && (
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 max-w-lg mx-auto">
+              <div className="mb-6">
+                <h2 className="text-xl font-bold text-slate-900">Đổi mật khẩu</h2>
+                <p className="text-xs text-slate-400 mt-1">Sử dụng mật khẩu mạnh để bảo vệ tài khoản</p>
+              </div>
+
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                const cur = e.target.cur.value;
+                const n1  = e.target.n1.value;
+                const n2  = e.target.n2.value;
+                if (!cur || !n1) return alert('Vui lòng nhập đầy đủ thông tin');
+                if (n1 !== n2)     return alert('Mật khẩu mới không khớp');
+                if (n1.length < 6) return alert('Mật khẩu mới phải từ 6 ký tự');
+                
+                setSaving(true);
+                try {
+                  await apiClient.put('/user/change-password', { currentPassword: cur, newPassword: n1 });
+                  alert('Đổi mật khẩu thành công!');
+                  e.target.reset();
+                } catch (e) {
+                  alert(e.response?.data?.message || 'Lỗi khi đổi mật khẩu');
+                } finally { setSaving(false); }
+              }} className="space-y-4">
+                <div>
+                  <FieldLabel required>Mật khẩu hiện tại</FieldLabel>
+                  <input name="cur" type="password" required className={cls.input}/>
+                </div>
+                <div>
+                  <FieldLabel required>Mật khẩu mới</FieldLabel>
+                  <input name="n1" type="password" required className={cls.input} placeholder="Tối thiểu 6 ký tự"/>
+                </div>
+                <div>
+                  <FieldLabel required>Xác nhận mật khẩu mới</FieldLabel>
+                  <input name="n2" type="password" required className={cls.input}/>
+                </div>
+                <div className="pt-2">
+                  <button type="submit" disabled={saving}
+                    className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold disabled:opacity-50 flex items-center justify-center gap-2">
+                    {saving && <Spinner size={4} color="border-white"/>}
+                    {saving ? 'Đang cập nhật...' : 'Cập nhật mật khẩu'}
+                  </button>
+                </div>
+              </form>
             </div>
           )}
 

@@ -1,6 +1,7 @@
 const User = require('../model/User');
 const Product = require('../model/Product');
 const Category = require('../model/Category');
+const { pool } = require('../db/mysql');
 const Order = require('../model/Order');
 const Voucher = require('../model/Voucher');
 const { notifyOrderStatus } = require('./notificationController');
@@ -91,10 +92,28 @@ async function incrementStock(productId, quantity, color, size) {
             const fresh = await Product.findById(productId).lean();
             const newTotal = fresh.variants.reduce((s, v) => s + (Number(v.stock) || 0), 0);
             await Product.findByIdAndUpdate(productId, { $set: { stock: newTotal } });
+
+            // ── CẬP NHẬT SANG MYSQL (Song song - Relational) ─────────────────────────
+            try {
+                // 1. Cập nhật bảng chính
+                await pool.query('UPDATE products SET stock = ?, updatedAt = NOW() WHERE id = ?', [newTotal, productId.toString()]);
+                
+                // 2. Cập nhật bảng variants lẻ
+                await pool.query(
+                    'UPDATE product_variants SET stock = ? WHERE productId = ? AND color = ? AND size = ?',
+                    [newVariantStock, productId.toString(), color, size]
+                );
+            } catch (mysqlErr) {
+                console.error("❌ MySQL Update Error (Admin Product Stock+):", mysqlErr.message);
+            }
         }
     } else {
         const newStock = (product.stock || 0) + quantity;
         await Product.findByIdAndUpdate(productId, { $set: { stock: newStock } });
+        // Cập nhật MySQL
+        try {
+            await pool.query('UPDATE products SET stock = ?, updatedAt = NOW() WHERE id = ?', [newStock, productId.toString()]);
+        } catch (e) {}
     }
 }
 // ============================================================
@@ -389,6 +408,46 @@ exports.createProduct = async (req, res, next) => {
         await newProduct.save();
         await newProduct.populate('category', 'name');
 
+        // ── LƯU SANG MYSQL (Song song - Relational) ──────────────────────────────
+        try {
+            const pid = newProduct._id.toString();
+            // 1. Insert bảng products chính
+            await pool.query(
+                `INSERT INTO products (id, name, description, price, discount, category, stock, isActive, isFeatured, createdAt, updatedAt) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+                [pid, name, description, parseFloat(price), parseFloat(discount || 0), category.toString(), totalStock, true, false]
+            );
+            
+            // 2. Insert bảng product_images
+            if (images && images.length > 0) {
+                for (let i = 0; i < images.length; i++) {
+                    await pool.query('INSERT INTO product_images (productId, url, sortOrder) VALUES (?, ?, ?)', [pid, images[i], i]);
+                }
+            }
+
+            // 3. Insert bảng product_variants
+            if (variantList && variantList.length > 0) {
+                for (const v of variantList) {
+                    await pool.query(
+                        'INSERT INTO product_variants (productId, color, size, stock, sku, price) VALUES (?, ?, ?, ?, ?, ?)',
+                        [pid, v.color, v.size, v.stock || 0, v.sku || '', v.price || 0]
+                    );
+                }
+            }
+
+            // 4. Insert bảng product_features
+            if (features && features.length > 0) {
+                const featureList = Array.isArray(features) ? features : features.split(',').map(f => f.trim()).filter(Boolean);
+                for (const f of featureList) {
+                    await pool.query('INSERT INTO product_features (productId, feature) VALUES (?, ?)', [pid, f]);
+                }
+            }
+
+            console.log("✅ Product & Related tables saved to MySQL successfully");
+        } catch (mysqlErr) {
+            console.error("❌ MySQL Save Error (Relational Product):", mysqlErr.message);
+        }
+
         res.status(201).json({ status: 'success', message: 'Tạo sản phẩm thành công', data: newProduct });
     } catch (error) {
         console.error('Create product error:', error);
@@ -427,6 +486,46 @@ exports.updateProduct = async (req, res, next) => {
 
         if (!product) return res.status(404).json({ status: 'error', message: 'Không tìm thấy sản phẩm' });
 
+        // ── CẬP NHẬT SANG MYSQL (Song song - Relational) ─────────────────────────
+        try {
+            const pid = id;
+            // 1. Update bảng products chính
+            await pool.query(
+                `UPDATE products SET 
+                    name = ?, description = ?, price = ?, discount = ?, category = ?, 
+                    stock = ?, isActive = ?, isFeatured = ?, updatedAt = NOW() 
+                 WHERE id = ?`,
+                [
+                    product.name, product.description, product.price, product.discount, product.category._id.toString(),
+                    product.stock, product.isActive, product.isFeatured, pid
+                ]
+            );
+
+            // 2. Refresh Images
+            await pool.query('DELETE FROM product_images WHERE productId = ?', [pid]);
+            for (let i = 0; i < product.images.length; i++) {
+                await pool.query('INSERT INTO product_images (productId, url, sortOrder) VALUES (?, ?, ?)', [pid, product.images[i], i]);
+            }
+
+            // 3. Refresh Variants
+            await pool.query('DELETE FROM product_variants WHERE productId = ?', [pid]);
+            for (const v of product.variants) {
+                await pool.query(
+                    'INSERT INTO product_variants (productId, color, size, stock, sku, price) VALUES (?, ?, ?, ?, ?, ?)',
+                    [pid, v.color, v.size, v.stock || 0, v.sku || '', v.price || 0]
+                );
+            }
+
+            // 4. Refresh Features
+            await pool.query('DELETE FROM product_features WHERE productId = ?', [pid]);
+            for (const f of product.features) {
+                await pool.query('INSERT INTO product_features (productId, feature) VALUES (?, ?)', [pid, f]);
+            }
+
+        } catch (mysqlErr) {
+            console.error("❌ MySQL Update Error (Relational Product):", mysqlErr.message);
+        }
+
         res.status(200).json({ status: 'success', message: 'Cập nhật thành công', data: product });
     } catch (error) {
         console.error('Update product error:', error);
@@ -452,6 +551,13 @@ exports.toggleProductStatus = async (req, res, next) => {
         product.isActive = !product.isActive;
         product.updatedAt = Date.now();
         await product.save();
+
+        // ── CẬP NHẬT SANG MYSQL (Song song) ─────────────────────────────────────
+        try {
+            await pool.query('UPDATE products SET isActive = ?, updatedAt = NOW() WHERE id = ?', [product.isActive, id]);
+        } catch (mysqlErr) {
+            console.error("❌ MySQL Update Error (Product isActive):", mysqlErr.message);
+        }
 
         res.status(200).json({
             status: 'success',
@@ -480,6 +586,13 @@ exports.deleteProduct = async (req, res, next) => {
                 status: 'error',
                 message: 'Product not found'
             });
+        }
+
+        // ── XÓA TRÊN MYSQL (Song song) ──────────────────────────────────────────
+        try {
+            await pool.query('DELETE FROM products WHERE id = ?', [id]);
+        } catch (mysqlErr) {
+            console.error("❌ MySQL Delete Error (Product):", mysqlErr.message);
         }
 
         res.status(200).json({
@@ -551,6 +664,17 @@ exports.createCategory = async (req, res, next) => {
         });
 
         await newCategory.save();
+        
+        // ── LƯU SANG MYSQL (Song song) ──────────────────────────────────────────
+        try {
+            await pool.query(
+                'INSERT INTO categories (id, name, description, image, isFeatured, createdAt) VALUES (?, ?, ?, ?, ?, NOW())',
+                [newCategory._id.toString(), name, description || '', image || null, isFeatured || false]
+            );
+            console.log("✅ Category saved to MySQL successfully");
+        } catch (mysqlErr) {
+            console.error("❌ MySQL Save Error (Category):", mysqlErr.message);
+        }
 
         res.status(201).json({
             status: 'success',
@@ -591,6 +715,16 @@ exports.updateCategory = async (req, res, next) => {
                 status: 'error',
                 message: 'Category not found'
             });
+        }
+        
+        // ── CẬP NHẬT SANG MYSQL (Song song) ─────────────────────────────────────
+        try {
+            await pool.query(
+                'UPDATE categories SET name = ?, description = ?, image = ?, isFeatured = ?, updatedAt = NOW() WHERE id = ?',
+                [name || category.name, description || category.description, image || category.image, isFeatured !== undefined ? isFeatured : category.isFeatured, id]
+            );
+        } catch (mysqlErr) {
+            console.error("❌ MySQL Update Error (Category):", mysqlErr.message);
         }
 
         res.status(200).json({

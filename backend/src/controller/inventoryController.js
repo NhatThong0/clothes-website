@@ -2,6 +2,164 @@ const StockReceipt  = require('../model/StockReceipt');
 const StockMovement = require('../model/StockMovement');
 const Product       = require('../model/Product');
 const Order         = require('../model/Order');
+const { pool }     = require('../db/mysql');
+
+// ── MySQL helpers (inventory sync) ─────────────────────────────────────────────
+function toInt(val) {
+    const n = Number(val);
+    if (!Number.isFinite(n)) return 0;
+    return Math.trunc(n);
+}
+
+async function upsertStockReceiptInMySQL(receipt, reqUserId) {
+    const receiptId = receipt._id.toString();
+    const supplier = receipt.supplier || {};
+
+    // NOTE: bảng MySQL dùng status: pending/confirmed/cancelled.
+    // Ở đây receipt đã được "confirm" ở tầng Mongo nên status sẽ là 'confirmed'.
+    await pool.query(
+        `INSERT INTO stock_receipts
+            (id, code, status, totalItems, totalAmount, note,
+             supplierName, supplierPhone, supplierNote,
+             createdBy, confirmedBy, cancelledBy,
+             confirmedAt, createdAt, updatedAt)
+         VALUES (?, ?, ?, ?, ?, ?,
+                 ?, ?, ?,
+                 ?, ?, ?,
+                 ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+            status        = VALUES(status),
+            totalItems    = VALUES(totalItems),
+            totalAmount   = VALUES(totalAmount),
+            note          = VALUES(note),
+            supplierName  = VALUES(supplierName),
+            supplierPhone = VALUES(supplierPhone),
+            supplierNote  = VALUES(supplierNote),
+            confirmedBy   = VALUES(confirmedBy),
+            confirmedAt   = VALUES(confirmedAt),
+            updatedAt     = VALUES(updatedAt)`,
+        [
+            receiptId,
+            receipt.code || '',
+            receipt.status || 'confirmed',
+            toInt(receipt.totalItems),
+            toInt(receipt.totalAmount),
+            receipt.note || '',
+            supplier.name || '',
+            supplier.phone || '',
+            supplier.note || '',
+            receipt.createdBy?.toString?.() || receipt.createdBy || null,
+            reqUserId?.toString?.() || reqUserId || null,
+            receipt.cancelledBy?.toString?.() || receipt.cancelledBy || null,
+            receipt.confirmedAt || new Date(),
+            receipt.createdAt || new Date(),
+            receipt.updatedAt || new Date(),
+        ]
+    );
+}
+
+async function syncStockReceiptItemsInMySQL(receipt) {
+    const receiptId = receipt._id.toString();
+
+    await pool.query('DELETE FROM stock_receipt_items WHERE receiptId = ?', [receiptId]);
+
+    for (const item of receipt.items || []) {
+        await pool.query(
+            `INSERT INTO stock_receipt_items
+                (receiptId, itemId, productId, productName,
+                 color, size, quantity, remainingQty, costPrice, totalCost)
+             VALUES (?, ?, ?, ?,
+                     ?, ?, ?, ?, ?, ?)`,
+            [
+                receiptId,
+                item._id?.toString?.() || item._id || null,
+                item.productId?.toString?.() || item.productId || null,
+                item.productName || '',
+                item.color || '',
+                item.size || '',
+                toInt(item.quantity),
+                toInt(item.remainingQty ?? item.quantity),
+                toInt(item.costPrice),
+                toInt(item.totalCost ?? (Number(item.quantity) || 0) * (Number(item.costPrice) || 0)),
+            ]
+        );
+    }
+}
+
+async function insertStockMovementInMySQL(movement) {
+    const movementId = movement._id.toString();
+    await pool.query(
+        `INSERT INTO stock_movements
+            (id, productId, productName, type, quantity, stockAfter,
+             costPrice, salePrice, refType, refId, refCode,
+             reason, note, createdBy, createdAt)
+         VALUES (?, ?, ?, ?, ?, ?,
+                 ?, ?, ?, ?, ?,
+                 ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+            productId   = VALUES(productId),
+            productName = VALUES(productName),
+            type        = VALUES(type),
+            quantity    = VALUES(quantity),
+            stockAfter  = VALUES(stockAfter),
+            costPrice   = VALUES(costPrice),
+            salePrice   = VALUES(salePrice),
+            refType     = VALUES(refType),
+            refId       = VALUES(refId),
+            refCode     = VALUES(refCode),
+            reason      = VALUES(reason),
+            note        = VALUES(note),
+            createdBy   = VALUES(createdBy),
+            createdAt   = VALUES(createdAt)`,
+        [
+            movementId,
+            movement.productId?.toString?.() || movement.productId || null,
+            movement.productName || '',
+            movement.type,
+            toInt(movement.quantity),
+            toInt(movement.stockAfter),
+            toInt(movement.costPrice),
+            toInt(movement.salePrice),
+            movement.refType || null,
+            movement.refId?.toString?.() || movement.refId || null,
+            movement.refCode || null,
+            movement.reason || null,
+            movement.note || null,
+            movement.createdBy?.toString?.() || movement.createdBy || null,
+            movement.createdAt || new Date(),
+        ]
+    );
+}
+
+async function syncProductStockForReceiptItemInMySQL({ product, item, newStock }) {
+    const productId = product._id.toString();
+    const pid = productId;
+
+    const hasVariant = Boolean(item.color && item.size && product.variants?.length > 0);
+
+    if (hasVariant) {
+        const variant = product.variants?.find(v => v.color === item.color && v.size === item.size);
+        const variantStock = toInt(variant?.stock ?? item.quantity);
+
+        // Try update first; if variant row doesn't exist yet, insert it (Mongo may have pushed it).
+        const [upd] = await pool.query(
+            'UPDATE product_variants SET stock = ? WHERE productId = ? AND color = ? AND size = ?',
+            [variantStock, pid, item.color, item.size]
+        );
+
+        if (upd?.affectedRows === 0) {
+            await pool.query(
+                'INSERT INTO product_variants (productId, color, size, sku, price, stock) VALUES (?, ?, ?, ?, ?, ?)',
+                [pid, item.color, item.size, '', 0, variantStock]
+            );
+        }
+    }
+
+    await pool.query(
+        'UPDATE products SET stock = ?, avgCost = ?, costPrice = ?, updatedAt = NOW() WHERE id = ?',
+        [toInt(newStock), toInt(product.avgCost), toInt(product.costPrice), pid]
+    );
+}
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -187,6 +345,7 @@ exports.confirmReceipt = async (req, res) => {
         if (!receipt) return res.status(404).json({ status: 'error', message: 'Không tìm thấy phiếu nhập' });
         if (receipt.status !== 'draft') return res.status(400).json({ status: 'error', message: 'Phiếu này đã được xử lý' });
 
+        const mysqlErrors = [];
         for (const item of receipt.items) {
             const product = await Product.findById(item.productId);
             if (!product) continue;
@@ -231,7 +390,7 @@ exports.confirmReceipt = async (req, res) => {
             await product.save();
 
             // Ghi movement
-            await StockMovement.create({
+            const movement = await StockMovement.create({
                 productId:   item.productId,
                 productName: item.productName,
                 color:       item.color || '',
@@ -246,6 +405,23 @@ exports.confirmReceipt = async (req, res) => {
                 note:        `Nhập kho: ${receipt.code}`,
                 createdBy:   req.userId,
             });
+            // ── Sync sang MySQL (products + stock_movements + stock_receipts/items) ──
+            try {
+                await syncProductStockForReceiptItemInMySQL({
+                    product,
+                    item,
+                    newStock,
+                });
+
+                await insertStockMovementInMySQL(movement);
+            } catch (mysqlErr) {
+                // Best-effort: Mongo đã update. Nếu MySQL fail, log để admin kiểm tra.
+                console.error('[confirmReceipt][mysql-sync] product/movement:', mysqlErr.message);
+                mysqlErrors.push({
+                    productId: item.productId?.toString?.() || item.productId || null,
+                    message: mysqlErr.message,
+                });
+            }
         }
 
         receipt.status      = 'confirmed';
@@ -253,7 +429,24 @@ exports.confirmReceipt = async (req, res) => {
         receipt.confirmedAt = new Date();
         await receipt.save();
 
-        res.json({ status: 'success', message: 'Xác nhận nhập kho thành công', data: receipt });
+        // ── Ghi receipt + items + movements vào MySQL ─────────────────────────────
+        // Lưu ở đây để chắc chắn receipt đã ở trạng thái confirmed.
+        try {
+            await upsertStockReceiptInMySQL(receipt, req.userId);
+            await syncStockReceiptItemsInMySQL(receipt);
+
+        } catch (mysqlErr) {
+            console.error('[confirmReceipt][mysql-sync] receipt/items/movements:', mysqlErr.message);
+            mysqlErrors.push({ message: mysqlErr.message });
+        }
+
+        res.json({
+            status: 'success',
+            message: 'Xác nhận nhập kho thành công',
+            data: receipt,
+            mysqlSync: mysqlErrors.length ? 'partial' : 'ok',
+            mysqlErrors: mysqlErrors.length ? mysqlErrors : undefined,
+        });
     } catch (e) {
         console.error(e);
         res.status(500).json({ status: 'error', message: e.message });
@@ -290,10 +483,13 @@ exports.createAdjustment = async (req, res) => {
         if (!items?.length) return res.status(400).json({ status: 'error', message: 'Cần ít nhất 1 sản phẩm' });
 
         const results = [];
+        const mysqlErrors = [];
 
         for (const item of items) {
             const product = await Product.findById(item.productId);
             if (!product) continue;
+
+            const oldStock = product.stock || 0;
 
             // ✅ Cập nhật variant stock nếu có color + size
             if (item.color && item.size && product.variants?.length > 0) {
@@ -319,6 +515,17 @@ exports.createAdjustment = async (req, res) => {
 
             await product.save();
             const newStock = product.stock;
+            const appliedQty = newStock - oldStock; // phản ánh thực tế (do clamp về 0)
+
+            const absAppliedQty = Math.abs(appliedQty);
+            const valueMode = item.valueMode || 'unit';
+            const unitValue =
+                appliedQty < 0
+                    ? (valueMode === 'total'
+                        ? (absAppliedQty > 0 ? (Number(item.totalValue || 0) || 0) / absAppliedQty : 0)
+                        : (Number(item.unitValue || 0) || 0))
+                    : (product.avgCost || 0);
+            const costPriceForMovement = Math.round(unitValue || 0);
 
             const movement = await StockMovement.create({
                 productId:   item.productId,
@@ -326,19 +533,34 @@ exports.createAdjustment = async (req, res) => {
                 color:       item.color || '',
                 size:        item.size  || '',
                 type:        'adjustment',
-                quantity:    item.quantity,
+                quantity:    appliedQty,
                 stockAfter:  newStock,
-                costPrice:   product.avgCost || 0,
+                costPrice:   costPriceForMovement,
                 refType:     'Manual',
                 reason:      item.reason || '',
                 note:        item.note || note || '',
                 createdBy:   req.userId,
             });
 
-            results.push({ product: product.name, quantity: item.quantity, stockAfter: newStock, movement });
+            results.push({ product: product.name, quantity: appliedQty, stockAfter: newStock, movement });
+
+            // ── Sync sang MySQL (stock + movement) ───────────────────────────────
+            try {
+                await syncProductStockForReceiptItemInMySQL({ product, item, newStock });
+                await insertStockMovementInMySQL(movement);
+            } catch (mysqlErr) {
+                console.error('[createAdjustment][mysql-sync]:', mysqlErr.message);
+                mysqlErrors.push({ message: mysqlErr.message });
+            }
         }
 
-        res.status(201).json({ status: 'success', message: 'Điều chỉnh kho thành công', data: results });
+        res.status(201).json({
+            status: 'success',
+            message: 'Điều chỉnh kho thành công',
+            data: results,
+            mysqlSync: mysqlErrors.length ? 'partial' : 'ok',
+            mysqlErrors: mysqlErrors.length ? mysqlErrors : undefined,
+        });
     } catch (e) {
         res.status(500).json({ status: 'error', message: e.message });
     }

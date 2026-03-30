@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
 const connectDB = require("./src/db/db");
+const { connectMySQL } = require("./src/db/mysql");
 const http = require('http');
 const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
@@ -40,7 +41,8 @@ const io = new Server(server, {
 // Gán io vào app để có thể sử dụng ở các controller khác qua req.app.get('io')
 app.set('io', io);
 
-connectDB();
+connectDB(); // MongoDB
+connectMySQL(); // MySQL
 startAutoConfirmCron();
 
 // ── CORS & Middleware ────────────────────────────────────────────────────────
