@@ -9,6 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '@/src/store/authStore';
 import chatApi, { ChatMessage, ChatConversation } from '@/src/api/chatApi';
 import { useChatSocket } from '@/hooks/useChatSocket';
+import aiChatApi, { AiChatMessage, SuggestedProduct } from '@/src/api/aiChatApi';
 
 const TOKEN = { black: '#1A1A1A', surface: '#F5F5F0', border: '#E8E8E4', muted: '#AAAAAA' };
 
@@ -28,6 +29,44 @@ const groupByDate = (msgs: ChatMessage[]) => {
   });
   return groups;
 };
+
+type Mode = 'support' | 'ai';
+
+const groupByDateAi = (msgs: AiChatMessage[]) => {
+  const groups: { date: string; messages: AiChatMessage[] }[] = [];
+  msgs.forEach(msg => {
+    const date = fmtDate(msg.createdAt);
+    const last = groups[groups.length - 1];
+    if (last && last.date === date) last.messages.push(msg);
+    else groups.push({ date, messages: [msg] });
+  });
+  return groups;
+};
+
+function ProductSuggestionCard({ p, onPress }: { p: SuggestedProduct; onPress: () => void }) {
+  return (
+    <TouchableOpacity style={pc.wrap} activeOpacity={0.85} onPress={onPress}>
+      <View style={{ flex: 1 }}>
+        <Text style={pc.name} numberOfLines={2}>{p.name}</Text>
+        <View style={{ flexDirection: 'row', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+          {!!p.discount && p.discount > 0 && (
+            <View style={pc.badgeRed}><Text style={pc.badgeText}>-{p.discount}%</Text></View>
+          )}
+          {!!p.categoryName && (
+            <View style={pc.badgeBlue}><Text style={pc.badgeBlueText}>{p.categoryName}</Text></View>
+          )}
+        </View>
+        <Text style={pc.price}>
+          {typeof p.price === 'number' ? p.price.toLocaleString('vi-VN') + ' ₫' : ''}
+        </Text>
+      </View>
+      <View style={pc.btn}>
+        <Text style={pc.btnText}>Xem</Text>
+        <Ionicons name="chevron-forward" size={14} color="#2563EB" />
+      </View>
+    </TouchableOpacity>
+  );
+}
 
 // ── In-app notification banner ────────────────────────────────────────────────
 function NotifBanner({ message, onDismiss }: { message: string; onDismiss: () => void }) {
@@ -73,6 +112,8 @@ export default function ChatScreen() {
   const router   = useRouter();
   const { user } = useAuthStore();
 
+  const [mode, setMode] = useState<Mode>('ai');
+
   const [conv, setConv]               = useState<ChatConversation | null>(null);
   const [messages, setMessages]       = useState<ChatMessage[]>([]);
   const [input, setInput]             = useState('');
@@ -82,6 +123,9 @@ export default function ChatScreen() {
   const [notifMsg, setNotifMsg]       = useState<string | null>(null);
   const [error, setError]             = useState<string | null>(null);
 
+  const [aiMessages, setAiMessages]   = useState<AiChatMessage[]>([]);
+  const [aiTyping, setAiTyping]       = useState(false);
+
   const flatRef  = useRef<FlatList>(null);
   const inputRef = useRef<TextInput>(null);
 
@@ -90,10 +134,15 @@ export default function ChatScreen() {
     (async () => {
       try {
         setError(null);
-        const data = await chatApi.getMyConversation();
-        setConv(data);
-        setMessages(data.messages ?? []);
-        if (data.unreadByUser > 0) chatApi.markRead().catch(() => {});
+        if (mode === 'support') {
+          const data = await chatApi.getMyConversation();
+          setConv(data);
+          setMessages(data.messages ?? []);
+          if (data.unreadByUser > 0) chatApi.markRead().catch(() => {});
+        } else {
+          const ai = await aiChatApi.getMyConversation();
+          setAiMessages(ai.messages ?? []);
+        }
       } catch (e: any) {
         console.error('[Chat] load error:', e?.response?.data || e?.message || e);
         setError('Không thể tải cuộc trò chuyện. Vui lòng thử lại.');
@@ -101,7 +150,7 @@ export default function ChatScreen() {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [mode]);
 
   // ── Nhận tin nhắn mới ─────────────────────────────────────────────────────
   const handleNewMessage = useCallback((msg: ChatMessage) => {
@@ -132,7 +181,7 @@ export default function ChatScreen() {
   });
 
   useEffect(() => {
-    if (conv?._id) emitRead();
+    if (mode === 'support' && conv?._id) emitRead();
   }, [conv?._id]);
 
   useEffect(() => {
@@ -146,6 +195,35 @@ export default function ChatScreen() {
     if (!text) return;
     if (sending) return;
 
+    if (mode === 'ai') {
+      const tmpId = `tmp_ai_${Date.now()}`;
+      const optimistic: AiChatMessage = {
+        _id: tmpId,
+        senderRole: 'user',
+        content: text,
+        createdAt: new Date().toISOString(),
+      };
+      setAiMessages(prev => [...prev, optimistic]);
+      setInput('');
+      setAiTyping(true);
+      setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 80);
+
+      try {
+        setSending(true);
+        const { ai } = await aiChatApi.sendMessage(text);
+        // keep optimistic user message, append ai message
+        setAiMessages(prev => [...prev, ai]);
+      } catch (e: any) {
+        setAiMessages(prev => prev.filter(m => m._id !== tmpId));
+        setInput(text);
+        const errMsg = e?.response?.data?.message || e?.message || 'Không thể gửi tin nhắn AI';
+        Alert.alert('Lỗi chatbot AI', errMsg);
+      } finally {
+        setSending(false);
+        setAiTyping(false);
+      }
+      return;
+    }
 
     const tmpId = `tmp_${Date.now()}`;
     const optimistic: ChatMessage = {
@@ -186,9 +264,14 @@ export default function ChatScreen() {
     setLoading(true);
     setError(null);
     try {
-      const data = await chatApi.getMyConversation();
-      setConv(data);
-      setMessages(data.messages ?? []);
+      if (mode === 'support') {
+        const data = await chatApi.getMyConversation();
+        setConv(data);
+        setMessages(data.messages ?? []);
+      } else {
+        const ai = await aiChatApi.getMyConversation();
+        setAiMessages(ai.messages ?? []);
+      }
     } catch (e: any) {
       setError('Không thể kết nối. Kiểm tra mạng và thử lại.');
     } finally {
@@ -222,14 +305,14 @@ export default function ChatScreen() {
     </View>
   );
 
-  const groups = groupByDate(messages);
+  const groups = mode === 'support' ? groupByDate(messages) : groupByDateAi(aiMessages);
 
   return (
     <View style={s.root}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
 
       {/* In-app notification banner */}
-      {notifMsg && (
+      {mode === 'support' && notifMsg && (
         <NotifBanner message={notifMsg} onDismiss={() => setNotifMsg(null)} />
       )}
 
@@ -239,16 +322,36 @@ export default function ChatScreen() {
           <Ionicons name="arrow-back" size={18} color={TOKEN.black} />
         </TouchableOpacity>
         <View style={s.headerCenter}>
-          <View style={s.adminAvatar}>
-            <Ionicons name="headset" size={16} color="#fff" />
-          </View>
           <View>
-            <Text style={s.headerName}>Hỗ trợ khách hàng</Text>
+            <Text style={s.headerName}>{mode === 'ai' ? 'Chatbot AI' : 'Hỗ trợ khách hàng'}</Text>
             <Text style={s.headerSub}>
-              {adminTyping ? '🟢 Đang nhập...' : 'Thường phản hồi trong vài phút'}
+              {mode === 'ai'
+                ? (aiTyping ? '🟢 Đang trả lời...' : 'Gợi ý sản phẩm theo nhu cầu')
+                : (adminTyping ? '🟢 Đang nhập...' : 'Thường phản hồi trong vài phút')
+              }
             </Text>
           </View>
         </View>
+      </View>
+
+      {/* Mode switch */}
+      <View style={s.modeRow}>
+        <TouchableOpacity
+          style={[s.modeBtn, mode === 'ai' && s.modeBtnActive]}
+          onPress={() => setMode('ai')}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="sparkles-outline" size={14} color={mode === 'ai' ? '#fff' : TOKEN.black} />
+          <Text style={[s.modeText, mode === 'ai' && s.modeTextActive]}>AI</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[s.modeBtn, mode === 'support' && s.modeBtnActive]}
+          onPress={() => setMode('support')}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="headset-outline" size={14} color={mode === 'support' ? '#fff' : TOKEN.black} />
+          <Text style={[s.modeText, mode === 'support' && s.modeTextActive]}>Hỗ trợ</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Messages + Input */}
@@ -271,27 +374,49 @@ export default function ChatScreen() {
                 <View style={s.dateLine} />
               </View>
 
-              {group.messages.map((msg: ChatMessage, idx: number) => {
-                const isMe         = msg.senderRole === 'customer';
-                const isOptimistic = msg._id.startsWith('tmp_');
-                const showAvatar   = !isMe && (idx === 0 || group.messages[idx - 1]?.senderRole !== 'admin');
+              {group.messages.map((msg: any, idx: number) => {
+                const isMe =
+                  mode === 'support'
+                    ? (msg as ChatMessage).senderRole === 'customer'
+                    : (msg as AiChatMessage).senderRole === 'user';
+                const isOptimistic = String(msg._id || '').startsWith(mode === 'support' ? 'tmp_' : 'tmp_ai_');
+                const showAvatar =
+                  mode === 'support'
+                    ? (!isMe && (idx === 0 || group.messages[idx - 1]?.senderRole !== 'admin'))
+                    : (!isMe && (idx === 0 || group.messages[idx - 1]?.senderRole !== 'ai'));
 
                 return (
                   <View key={msg._id} style={[s.msgRow, isMe ? s.msgRowMe : s.msgRowThem]}>
                     {!isMe && (
                       showAvatar
-                        ? <View style={s.adminAvatarSm}><Ionicons name="headset" size={12} color="#fff" /></View>
+                        ? <View style={s.adminAvatarSm}><Ionicons name={mode === 'ai' ? 'sparkles' : 'headset'} size={12} color="#fff" /></View>
                         : <View style={{ width: 28 }} />
                     )}
                     <View style={[s.bubble, isMe ? s.bubbleMe : s.bubbleThem]}>
                       <Text style={[s.bubbleText, isMe ? s.bubbleTextMe : s.bubbleTextThem]}>
                         {msg.content}
                       </Text>
+
+                      {mode === 'ai' && (msg as AiChatMessage).senderRole === 'ai' && Array.isArray((msg as AiChatMessage).suggestedProducts) && (msg as AiChatMessage).suggestedProducts!.length > 0 && (
+                        <View style={{ marginTop: 10, gap: 8 }}>
+                          {(msg as AiChatMessage).suggestedProducts!.slice(0, 3).map((p, i) => (
+                            <ProductSuggestionCard
+                              key={`${p.productId || i}`}
+                              p={p}
+                              onPress={() => {
+                                const pid = p.productId;
+                                if (pid) router.push(`/product/${pid}` as any);
+                              }}
+                            />
+                          ))}
+                        </View>
+                      )}
+
                       <View style={s.bubbleMeta}>
                         <Text style={[s.timeText, isMe && { color: 'rgba(255,255,255,0.55)' }]}>
                           {fmtTime(msg.createdAt)}
                         </Text>
-                        {isMe && (
+                        {mode === 'support' && isMe && (
                           <Ionicons
                             name={isOptimistic ? 'time-outline' : msg.readAt ? 'checkmark-done' : 'checkmark'}
                             size={12}
@@ -315,10 +440,10 @@ export default function ChatScreen() {
             </View>
           }
           ListFooterComponent={
-            adminTyping ? (
+            (mode === 'support' ? adminTyping : aiTyping) ? (
               <View style={[s.msgRow, s.msgRowThem, { marginTop: 4 }]}>
                 <View style={s.adminAvatarSm}>
-                  <Ionicons name="headset" size={12} color="#fff" />
+                  <Ionicons name={mode === 'ai' ? 'sparkles' : 'headset'} size={12} color="#fff" />
                 </View>
                 <View style={[s.bubble, s.bubbleThem, { paddingVertical: 14 }]}>
                   <View style={s.typingDots}>
@@ -336,11 +461,11 @@ export default function ChatScreen() {
             ref={inputRef}
             style={s.input}
             value={input}
-            onChangeText={v => { setInput(v); if (conv?._id) emitTyping(); }}
-            placeholder="Nhập tin nhắn..."
+            onChangeText={v => { setInput(v); if (mode === 'support' && conv?._id) emitTyping(); }}
+            placeholder={mode === 'ai' ? 'Bạn muốn mua gì?' : 'Nhập tin nhắn...'}
             placeholderTextColor={TOKEN.muted}
             multiline
-            maxLength={2000}
+            maxLength={mode === 'ai' ? 1000 : 2000}
           />
           <TouchableOpacity
             style={[s.sendBtn, (!input.trim() || sending) && s.sendBtnDisabled]}
@@ -364,12 +489,17 @@ const s = StyleSheet.create({
   root:   { flex: 1, backgroundColor: '#fff' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
-  header:       { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingTop: 56, paddingBottom: 14, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: TOKEN.surface },
+  header:       { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingTop: 56, paddingBottom: 12, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: TOKEN.surface },
   backBtn:      { width: 36, height: 36, borderRadius: 18, backgroundColor: TOKEN.surface, alignItems: 'center', justifyContent: 'center' },
   headerCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
-  adminAvatar:  { width: 38, height: 38, borderRadius: 19, backgroundColor: TOKEN.black, alignItems: 'center', justifyContent: 'center' },
   headerName:   { fontSize: 14, fontWeight: '700', color: TOKEN.black },
   headerSub:    { fontSize: 11, color: TOKEN.muted, marginTop: 1 },
+
+  modeRow: { flexDirection: 'row', gap: 10, paddingHorizontal: 16, paddingVertical: 10, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: TOKEN.surface },
+  modeBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 10, borderRadius: 14, backgroundColor: TOKEN.surface, borderWidth: 1, borderColor: TOKEN.border },
+  modeBtnActive: { backgroundColor: TOKEN.black, borderColor: TOKEN.black },
+  modeText: { fontSize: 12, fontWeight: '800', color: TOKEN.black, letterSpacing: 0.2 },
+  modeTextActive: { color: '#fff' },
 
   msgList:     { paddingHorizontal: 16, paddingVertical: 12, paddingBottom: 8 },
   dateDivider: { flexDirection: 'row', alignItems: 'center', gap: 8, marginVertical: 12 },
@@ -411,6 +541,27 @@ const s = StyleSheet.create({
   },
   sendBtn:         { width: 42, height: 42, borderRadius: 21, backgroundColor: TOKEN.black, alignItems: 'center', justifyContent: 'center' },
   sendBtnDisabled: { backgroundColor: TOKEN.border },
+});
+
+const pc = StyleSheet.create({
+  wrap: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: TOKEN.border,
+    borderRadius: 14,
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 10,
+  },
+  name: { fontSize: 13, fontWeight: '800', color: TOKEN.black, lineHeight: 18 },
+  price: { marginTop: 8, fontSize: 12, fontWeight: '800', color: '#2563EB' },
+  btn: { flexDirection: 'row', alignItems: 'center', gap: 2, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 12, backgroundColor: '#EFF6FF', borderWidth: 1, borderColor: '#DBEAFE' },
+  btnText: { fontSize: 12, fontWeight: '900', color: '#2563EB' },
+  badgeRed: { backgroundColor: '#EF4444', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
+  badgeText: { fontSize: 10, fontWeight: '900', color: '#fff' },
+  badgeBlue: { backgroundColor: '#EFF6FF', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, borderWidth: 1, borderColor: '#DBEAFE' },
+  badgeBlueText: { fontSize: 10, fontWeight: '900', color: '#2563EB' },
 });
 
 const nb = StyleSheet.create({

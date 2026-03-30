@@ -4,17 +4,33 @@ import { useAuth } from '@hooks/useAuth';
 import apiClient from '@services/apiClient';
 import { getSocket } from '@hooks/useChat';
 
-const NAV_ITEMS = [
-  { label: 'Dashboard',       icon: '▦',  path: '/admin' },
-  { label: 'Sản phẩm',        icon: '◈',  path: '/admin/products' },
-  { label: 'Danh mục',        icon: '◉',  path: '/admin/categories' },
-  { label: 'Đơn hàng',        icon: '◻',  path: '/admin/orders' },
-  { label: 'Người dùng',      icon: '◯',  path: '/admin/users' },
-  { label: 'Đánh giá',        icon: '◇',  path: '/admin/reviews' },
-  { label: 'Voucher',         icon: '◈',  path: '/admin/vouchers' },
-  { label: 'Banner',          icon: '◆', path: '/admin/banners' },
-  { label: 'Kho hàng',        icon: '▣',  path: '/admin/inventory' },
-  { label: 'Chat',            icon: '💬', path: '/admin/chat' }
+const NAV_SECTIONS = [
+  {
+    title: 'Tổng quan',
+    items: [
+      { label: 'Dashboard', icon: '▦', path: '/admin' },
+    ],
+  },
+  {
+    title: 'Quản lý',
+    items: [
+      { label: 'Sản phẩm',   icon: '◈', path: '/admin/products' },
+      { label: 'Danh mục',   icon: '◉', path: '/admin/categories' },
+      { label: 'Đơn hàng',   icon: '◻', path: '/admin/orders' },
+      { label: 'Người dùng', icon: '◯', path: '/admin/users' },
+      { label: 'Đánh giá',   icon: '◇', path: '/admin/reviews' },
+      { label: 'Voucher',    icon: '◈', path: '/admin/vouchers' },
+      { label: 'Banner',     icon: '◆', path: '/admin/banners' },
+      { label: 'Kho hàng',   icon: '▣', path: '/admin/inventory' },
+    ],
+  },
+  {
+    title: 'Hỗ trợ',
+    items: [
+      { label: 'Chat',       icon: '💬', path: '/admin/chat' },
+      { label: 'Chatbot AI', icon: '🤖', path: '/admin/ai-chat' },
+    ],
+  },
 ];
 
 const AdminLayout = () => {
@@ -208,43 +224,51 @@ const AdminLayout = () => {
 
       {/* Nav */}
       <nav className="flex-1 py-4 px-3 space-y-0.5 overflow-y-auto">
-        {!collapsed && (
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em] px-3 pb-2">Menu</p>
-        )}
-        {NAV_ITEMS.map(item => {
-          const active = isActive(item.path);
-          return (
-            <Link
-              key={item.path}
-              to={item.path}
-              onClick={() => setMobileOpen(false)}
-              title={collapsed ? item.label : undefined}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-150 group relative
-                ${active
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
-                }
-                ${collapsed ? 'justify-center' : ''}
-              `}
-            >
-              <span className={`text-base leading-none flex-shrink-0 ${active ? 'text-white' : 'text-slate-400 group-hover:text-blue-600'}`}>
-                {item.icon}
-              </span>
-              {!collapsed && (
-                <span className="text-sm font-semibold truncate">{item.label}</span>
-              )}
-              {active && !collapsed && (
-                <span className="ml-auto w-1.5 h-1.5 rounded-full bg-white/70"/>
-              )}
-              {/* Tooltip for collapsed */}
-              {collapsed && (
-                <div className="absolute left-full ml-3 px-2.5 py-1.5 bg-slate-900 text-white text-xs font-semibold rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 shadow-lg">
-                  {item.label}
-                </div>
-              )}
-            </Link>
-          );
-        })}
+        {NAV_SECTIONS.map(section => (
+          <div key={section.title} className="mb-3">
+            {!collapsed && (
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em] px-3 pb-2">
+                {section.title}
+              </p>
+            )}
+            <div className="space-y-0.5">
+              {section.items.map(item => {
+                const active = isActive(item.path);
+                return (
+                  <Link
+                    key={item.path}
+                    to={item.path}
+                    onClick={() => setMobileOpen(false)}
+                    title={collapsed ? item.label : undefined}
+                    className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-150 group relative
+                      ${active
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
+                      }
+                      ${collapsed ? 'justify-center' : ''}
+                    `}
+                  >
+                    <span className={`text-base leading-none flex-shrink-0 ${active ? 'text-white' : 'text-slate-400 group-hover:text-blue-600'}`}>
+                      {item.icon}
+                    </span>
+                    {!collapsed && (
+                      <span className="text-sm font-semibold truncate">{item.label}</span>
+                    )}
+                    {active && !collapsed && (
+                      <span className="ml-auto w-1.5 h-1.5 rounded-full bg-white/70"/>
+                    )}
+                    {/* Tooltip for collapsed */}
+                    {collapsed && (
+                      <div className="absolute left-full ml-3 px-2.5 py-1.5 bg-slate-900 text-white text-xs font-semibold rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 shadow-lg">
+                        {item.label}
+                      </div>
+                    )}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </nav>
 
       {/* Divider */}
@@ -313,7 +337,7 @@ const AdminLayout = () => {
               <span className="font-medium text-blue-600">Admin</span>
               <span>/</span>
               <span className="font-semibold text-slate-700 capitalize">
-                {NAV_ITEMS.find(n => isActive(n.path))?.label || 'Dashboard'}
+                {NAV_SECTIONS.flatMap(s => s.items).find(n => isActive(n.path))?.label || 'Dashboard'}
               </span>
             </nav>
           </div>
@@ -415,8 +439,10 @@ const AdminLayout = () => {
               <div className="w-8 h-8 rounded-xl bg-blue-600 flex items-center justify-center text-white text-xs font-bold">
                 {initials}
               </div>
-              <span className="hidden md:block text-sm font-semibold text-slate-700">{adminUser?.name}</span>
-              <span className="hidden md:block text-xs text-slate-400">({adminUser?.email})</span>
+              <div className="hidden md:flex flex-col leading-tight min-w-0">
+                <span className="text-sm font-semibold text-slate-700 truncate max-w-[220px]">{adminUser?.name}</span>
+                <span className="text-[11px] text-slate-400 truncate max-w-[220px]">{adminUser?.email}</span>
+              </div>
               <button
                 onClick={handleLogout}
                 className="ml-1 px-3 py-1.5 text-xs font-semibold text-rose-500 hover:bg-rose-50 rounded-xl transition-colors border border-transparent hover:border-rose-200"

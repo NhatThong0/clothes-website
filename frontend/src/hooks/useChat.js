@@ -51,7 +51,12 @@ export function useChat({ token, isAdmin = false }) {
     const [isTyping,        setIsTyping]         = useState(false);
     const [loading,         setLoading]          = useState(false);
     const socketRef = useRef(null);
+    const activeConvRef = useRef(activeConv);
     const typingTimeout = useRef(null);
+
+    useEffect(() => {
+        activeConvRef.current = activeConv;
+    }, [activeConv]);
 
     // ── Connect socket ────────────────────────────────────────────────────────
     useEffect(() => {
@@ -176,13 +181,14 @@ export function useChat({ token, isAdmin = false }) {
 
     // ── Mark read by user ─────────────────────────────────────────────────────
     const markReadByUser = useCallback(async () => {
-        if (!activeConv?._id) return;
+        const current = activeConvRef.current;
+        if (!current?._id) return;
         try {
             await apiClient.post('/chat/my/read');
             setUnreadCount(0);
-            socketRef.current?.emit('chat:read', { convId: activeConv._id });
+            socketRef.current?.emit('chat:read', { convId: current._id });
         } catch { /* silent */ }
-    }, [activeConv]);
+    }, []);
 
     return {
         connected, loading, isTyping,

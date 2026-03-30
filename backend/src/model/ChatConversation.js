@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 
 const MessageSchema = new mongoose.Schema({
     senderId:   { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-    senderRole: { type: String, enum: ['customer', 'admin'], required: true },
+    senderRole: { type: String, enum: ['customer', 'admin', 'ai'], required: true },
     content:    { type: String, required: true, trim: true, maxlength: 2000 },
     type:       { type: String, enum: ['text', 'image'], default: 'text' },
     isRead:     { type: Boolean, default: false },

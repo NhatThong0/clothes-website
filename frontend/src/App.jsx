@@ -36,6 +36,7 @@ import AdminBannerManagement from '@pages/AdminBannerManagement';
 import AdminInventoryManagement from '@pages/AdminInventoryManagement';
 import ChatWidget from '@components/ChatWidget';
 import AdminChat from '@pages/AdminChat';
+import AdminAiChat from '@pages/AdminAiChat';
 
 function ProtectedAdminRoute({ children }) {
   const { adminUser, loading } = useAuth();
@@ -92,6 +93,7 @@ function AppRoutes() {
           <Route path="/admin/banners" element={<AdminBannerManagement />} />
           <Route path="/admin/inventory" element={<AdminInventoryManagement />} />
           <Route path="/admin/chat" element={<AdminChat />} />
+          <Route path="/admin/ai-chat" element={<AdminAiChat />} />
         </Route>
 
         {/* Catch all */}

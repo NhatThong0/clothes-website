@@ -15,14 +15,17 @@ function emitNewMessage(conv, savedMsg, req = null) {
     const payload = { convId: conv._id, message: savedMsg };
     const targetUserId = String(conv.userId);
 
+    const room = `user:${targetUserId}`;
+
     if (savedMsg.senderRole === 'admin') {
-        const room = `user:${targetUserId}`;
         const clients = io.sockets.adapter.rooms.get(room);
         console.log(`[🚀 Chat] Server -> User [${targetUserId}]. Room: ${room}, Clients: ${clients ? clients.size : 0}`);
         io.to(room).emit('chat:message', payload);
-    } else {
+    } else if (savedMsg.senderRole === 'customer') {
         console.log(`[🚀 Chat] Server -> Admins. Room: admins`);
         io.to('admins').emit('chat:message', payload);
+        // Để phía user cập nhật activeConv (tránh mất message optimistic khi bot trả lời)
+        io.to(room).emit('chat:message', payload);
         io.to('admins').emit('chat:unread_update', {
             convId:        conv._id,
             userId:        targetUserId,
@@ -43,6 +46,9 @@ exports.getMyConversation = async (req, res) => {
             conv = await Conversation.create({ userId, messages: [] });
             conv = await Conversation.findById(conv._id).populate('userId', 'name email avatar');
         }
+        // Tách kênh chatbot AI khỏi kênh chat với admin:
+        // không trả về message có senderRole='ai' ở endpoint này.
+        conv.messages = (conv.messages || []).filter(m => m.senderRole !== 'ai');
         res.json({ status: 'success', data: conv });
     } catch (e) {
         res.status(500).json({ status: 'error', message: e.message });
@@ -113,6 +119,7 @@ exports.adminGetConversation = async (req, res) => {
         const conv = await Conversation.findById(req.params.id)
             .populate('userId', 'name email avatar');
         if (!conv) return res.status(404).json({ status: 'error', message: 'Not found' });
+        conv.messages = (conv.messages || []).filter(m => m.senderRole !== 'ai');
         res.json({ status: 'success', data: conv });
     } catch (e) {
         res.status(500).json({ status: 'error', message: e.message });
@@ -149,7 +156,7 @@ exports.adminMarkRead = async (req, res) => {
     try {
         const conv = await Conversation.findById(req.params.id);
         if (!conv) return res.status(404).json({ status: 'error', message: 'Not found' });
-        conv.messages.forEach(m => { if (m.senderRole !== 'admin' && !m.readAt) m.readAt = new Date(); });
+        conv.messages.forEach(m => { if (m.senderRole === 'customer' && !m.readAt) m.readAt = new Date(); });
         conv.unreadByAdmin = 0;
         await conv.save();
         res.json({ status: 'success' });
@@ -175,9 +182,9 @@ exports.adminToggleStatus = async (req, res) => {
     try {
         const conv = await Conversation.findById(req.params.id);
         if (!conv) return res.status(404).json({ status: 'error', message: 'Not found' });
-        conv.isOpen = !conv.isOpen;
+        conv.status = conv.status === 'open' ? 'closed' : 'open';
         await conv.save();
-        res.json({ status: 'success', data: { isOpen: conv.isOpen } });
+        res.json({ status: 'success', data: { status: conv.status } });
     } catch (e) {
         res.status(500).json({ status: 'error', message: e.message });
     }
@@ -238,10 +245,12 @@ exports.registerChatHandlers = (io, socket) => {
             const targetUserRoom = `user:${conv.userId}`;
 
             if (isAdmin) {
-                conv.messages.forEach(m => { if (m.senderRole !== 'admin' && !m.readAt) m.readAt = new Date(); });
+                conv.messages.forEach(m => { if (m.senderRole === 'customer' && !m.readAt) m.readAt = new Date(); });
                 conv.unreadByAdmin = 0;
             } else {
-                conv.messages.forEach(m => { if (m.senderRole === 'admin' && !m.readAt) m.readAt = new Date(); });
+                conv.messages.forEach(m => {
+                    if (m.senderRole === 'admin' && !m.readAt) m.readAt = new Date();
+                });
                 conv.unreadByUser = 0;
             }
             await conv.save();
