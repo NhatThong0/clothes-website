@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { Outlet, useLocation } from 'react-router-dom'; // 👈 thêm useLocation
-import Header from '@components/Header';
-import Footer from '@components/Footer';
+import Header from '@components/layout/Header';
+import Footer from '@components/layout/Footer';
 
 export default function MainLayout() {
   const location = useLocation(); // 👈 thêm

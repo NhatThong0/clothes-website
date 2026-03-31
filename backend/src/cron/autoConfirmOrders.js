@@ -1,5 +1,6 @@
 const cron                           = require('node-cron');
-const { autoConfirmDeliveredOrders } = require('../controller/orderController');
+const { controller: orderModule } = require('../modules/order');
+const { autoConfirmDeliveredOrders } = orderModule;
  
 const startAutoConfirmCron = () => {
     // Chạy mỗi giờ (0 * * * *)

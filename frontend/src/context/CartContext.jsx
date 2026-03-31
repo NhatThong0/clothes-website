@@ -1,6 +1,6 @@
 import { createContext, useState, useCallback, useEffect, useContext, useRef } from 'react';
 import { AuthContext } from './AuthContext';
-import LoginRequiredModal from '@components/LoginRequiredModal';
+import LoginRequiredModal from '@components/common/LoginRequiredModal';
 
 export const CartContext = createContext();
 

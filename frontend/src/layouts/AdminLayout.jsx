@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, Outlet, useLocation, useNavigate, Navigate } from 'react-router-dom';
-import { useAuth } from '@hooks/useAuth';
-import apiClient from '@services/apiClient';
-import { getSocket } from '@hooks/useChat';
+import { useAuth } from '@features/auth/hooks/useAuth';
+import apiClient from '@features/shared/services/apiClient';
+import { getSocket } from '@features/chat/hooks/useChat';
 
 const NAV_SECTIONS = [
   {

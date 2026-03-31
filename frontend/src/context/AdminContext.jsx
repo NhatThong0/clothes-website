@@ -1,5 +1,5 @@
 import React, { createContext, useState, useCallback } from 'react';
-import  apiClient  from '@services/apiClient';
+import apiClient from '@features/shared/services/apiClient';
 
 export const AdminContext = createContext();
 
