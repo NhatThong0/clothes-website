@@ -1,10 +1,185 @@
 const User = require('../../model/User');
 const Product = require('../../model/Product');
 const Category = require('../../model/Category');
+const SizeChart = require('../../model/SizeChart');
+const XLSX = require('xlsx');
 const { pool } = require('../../db/mysql');
 const Order = require('../../model/Order');
 const Voucher = require('../../model/Voucher');
 const { notifyOrderStatus } = require('../notification/notification.controller');
+
+function slugify(value) {
+    return String(value || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[đĐ]/g, 'd')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+}
+
+function sanitizeSizeRules(sizeRules) {
+    return (Array.isArray(sizeRules) ? sizeRules : [])
+        .map((rule, index) => ({
+            size: String(rule?.size || '').trim(),
+            heightMin: rule?.heightMin ?? undefined,
+            heightMax: rule?.heightMax ?? undefined,
+            weightMin: rule?.weightMin ?? undefined,
+            weightMax: rule?.weightMax ?? undefined,
+            chestMin: rule?.chestMin ?? undefined,
+            chestMax: rule?.chestMax ?? undefined,
+            waistMin: rule?.waistMin ?? undefined,
+            waistMax: rule?.waistMax ?? undefined,
+            hipMin: rule?.hipMin ?? undefined,
+            hipMax: rule?.hipMax ?? undefined,
+            footLengthMin: rule?.footLengthMin ?? undefined,
+            footLengthMax: rule?.footLengthMax ?? undefined,
+            priority: Number.isFinite(Number(rule?.priority)) ? Number(rule.priority) : index + 1,
+        }))
+        .filter((rule) => rule.size);
+}
+
+function normalizeImportHeader(value) {
+    return String(value || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '');
+}
+
+const SIZE_COLUMN_ALIASES = {
+    size: ['size', 'kichthuoc', 'kichco', 'co', 'sz'],
+    heightMin: ['heightmin', 'chieucaotu', 'chieucaomin', 'caotu', 'caomin', 'mintall'],
+    heightMax: ['heightmax', 'chieucaoden', 'chieucaomax', 'caoden', 'caomax', 'maxtall'],
+    weightMin: ['weightmin', 'cannangtu', 'cannangmin', 'nangtu', 'nangmin', 'minweight'],
+    weightMax: ['weightmax', 'cannangden', 'cannangmax', 'nangden', 'nangmax', 'maxweight'],
+    chestMin: ['chestmin', 'nguctu', 'ngucmin', 'vongnguctu'],
+    chestMax: ['chestmax', 'ngucden', 'ngucmax', 'vongngucden'],
+    waistMin: ['waistmin', 'eotu', 'eomin', 'vongeotu'],
+    waistMax: ['waistmax', 'eoden', 'eomax', 'vongeoden'],
+    hipMin: ['hipmin', 'mongtu', 'mongmin', 'vongmongtu'],
+    hipMax: ['hipmax', 'mongden', 'mongmax', 'vongmongden'],
+    footLengthMin: ['footlengthmin', 'banchantu', 'dodai banchantu'.replace(/\s+/g, ''), 'chieudaibanchantu'],
+    footLengthMax: ['footlengthmax', 'banchanden', 'dodai banchanden'.replace(/\s+/g, ''), 'chieudaibanchanden'],
+    priority: ['priority', 'uutien', 'thutu', 'stt'],
+};
+
+function detectSizeFormat(sizes) {
+    const values = sizes.map((item) => String(item?.size || '').trim()).filter(Boolean);
+    if (!values.length) return 'mixed';
+    const allNumeric = values.every((value) => /^[0-9]+([.,][0-9]+)?$/.test(value));
+    const allAlpha = values.every((value) => /[a-z]/i.test(value) && !/[0-9]/.test(value));
+    if (allNumeric) return 'numeric';
+    if (allAlpha) return 'alpha';
+    return 'mixed';
+}
+
+function parseWorksheetRows(buffer, originalName = '') {
+    const workbook = XLSX.read(buffer, { type: 'buffer' });
+    const firstSheetName = workbook.SheetNames[0];
+    if (!firstSheetName) return [];
+    const worksheet = workbook.Sheets[firstSheetName];
+    return XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+}
+
+function mapImportedSizeRows(rows) {
+    const headerMap = new Map();
+    const rawHeaders = rows.length ? Object.keys(rows[0]) : [];
+
+    rawHeaders.forEach((header) => {
+        const normalized = normalizeImportHeader(header);
+        Object.entries(SIZE_COLUMN_ALIASES).forEach(([field, aliases]) => {
+            if (!headerMap.has(field) && aliases.includes(normalized)) {
+                headerMap.set(field, header);
+            }
+        });
+    });
+
+    const mappedRows = rows.map((row, index) => {
+        const mapped = {};
+        Object.keys(SIZE_COLUMN_ALIASES).forEach((field) => {
+            const sourceHeader = headerMap.get(field);
+            if (!sourceHeader) return;
+            mapped[field] = row[sourceHeader];
+        });
+
+        return {
+            ...mapped,
+            priority: mapped.priority === '' || mapped.priority === undefined ? index + 1 : mapped.priority,
+        };
+    });
+
+    return {
+        headerMap,
+        mappedRows: sanitizeSizeRules(mappedRows),
+        rawHeaders,
+    };
+}
+
+function buildImportedSizeChartPreview({ rows, categoryName = '', notes = '' }) {
+    const { headerMap, mappedRows, rawHeaders } = mapImportedSizeRows(rows);
+    if (!headerMap.has('size')) {
+        return {
+            ok: false,
+            message: 'File import cần có cột size hoặc kích thước để nhận diện bảng size.',
+            rawHeaders,
+            detectedColumns: Array.from(headerMap.keys()),
+        };
+    }
+
+    if (!mappedRows.length) {
+        return {
+            ok: false,
+            message: 'Không tìm thấy dòng size hợp lệ trong file import.',
+            rawHeaders,
+            detectedColumns: Array.from(headerMap.keys()),
+        };
+    }
+
+    return {
+        ok: true,
+        sizeChart: {
+            name: `Bảng size ${categoryName || 'danh mục'}`,
+            sizeFormat: detectSizeFormat(mappedRows),
+            notes,
+            sizes: mappedRows,
+        },
+        meta: {
+            rowCount: mappedRows.length,
+            rawHeaders,
+            detectedColumns: Array.from(headerMap.keys()),
+            missingOptionalColumns: Object.keys(SIZE_COLUMN_ALIASES).filter((field) => field !== 'size' && !headerMap.has(field)),
+        },
+    };
+}
+
+async function upsertCategorySizeChart({ categoryId, categoryName, sizeChart }) {
+    if (!sizeChart || typeof sizeChart !== 'object') return null;
+
+    const sizes = sanitizeSizeRules(sizeChart.sizes);
+    if (!sizes.length) return null;
+
+    const code = sizeChart.code || `category-${categoryId}-${slugify(categoryName)}`;
+    const payload = {
+        name: sizeChart.name || `Bảng size ${categoryName}`,
+        code,
+        categoryKey: sizeChart.categoryKey || 'generic',
+        gender: sizeChart.gender || 'unisex',
+        fit: sizeChart.fit || 'regular',
+        sizeFormat: sizeChart.sizeFormat || 'mixed',
+        unit: sizeChart.unit || 'cm',
+        notes: sizeChart.notes || '',
+        isDefault: false,
+        isActive: sizeChart.isActive !== undefined ? Boolean(sizeChart.isActive) : true,
+        sizes,
+    };
+
+    return SizeChart.findOneAndUpdate(
+        { code },
+        payload,
+        { upsert: true, new: true, runValidators: true }
+    );
+}
 
 // ============= DASHBOARD =============
 
@@ -616,7 +791,7 @@ exports.deleteProduct = async (req, res, next) => {
  */
 exports.adminGetAllCategories = async (req, res, next) => {
     try {
-        const categories = await Category.find();
+        const categories = await Category.find().populate('sizeChart');
 
         // Get product count for each category
         const categoriesWithCount = await Promise.all(
@@ -647,7 +822,7 @@ exports.adminGetAllCategories = async (req, res, next) => {
  */
 exports.createCategory = async (req, res, next) => {
     try {
-        const { name, description, image, isFeatured } = req.body;
+        const { name, description, image, isFeatured, sizeChart } = req.body;
 
         if (!name) {
             return res.status(400).json({
@@ -664,6 +839,18 @@ exports.createCategory = async (req, res, next) => {
         });
 
         await newCategory.save();
+
+        const categorySizeChart = await upsertCategorySizeChart({
+            categoryId: newCategory._id,
+            categoryName: name,
+            sizeChart,
+        });
+
+        if (categorySizeChart) {
+            newCategory.sizeChart = categorySizeChart._id;
+            await newCategory.save();
+        }
+        await newCategory.populate('sizeChart');
         
         // ── LƯU SANG MYSQL (Song song) ──────────────────────────────────────────
         try {
@@ -702,13 +889,9 @@ exports.createCategory = async (req, res, next) => {
 exports.updateCategory = async (req, res, next) => {
     try {
         const { id } = req.params;
-        const { name, description, image, isFeatured } = req.body;
-
-        const category = await Category.findByIdAndUpdate(
-            id,
-            { name, description, image, isFeatured },
-            { new: true, runValidators: true }
-        );
+        const { name, description, image, isFeatured, sizeChart, clearSizeChart } = req.body;
+        const updateData = { name, description, image, isFeatured };
+        const category = await Category.findById(id);
 
         if (!category) {
             return res.status(404).json({
@@ -716,6 +899,24 @@ exports.updateCategory = async (req, res, next) => {
                 message: 'Category not found'
             });
         }
+
+        Object.keys(updateData).forEach((key) => {
+            if (updateData[key] !== undefined) category[key] = updateData[key];
+        });
+
+        if (clearSizeChart) {
+            category.sizeChart = null;
+        } else if (sizeChart && typeof sizeChart === 'object') {
+            const chart = await upsertCategorySizeChart({
+                categoryId: category._id,
+                categoryName: category.name,
+                sizeChart,
+            });
+            if (chart) category.sizeChart = chart._id;
+        }
+
+        await category.save();
+        await category.populate('sizeChart');
         
         // ── CẬP NHẬT SANG MYSQL (Song song) ─────────────────────────────────────
         try {
@@ -764,6 +965,10 @@ exports.deleteCategory = async (req, res, next) => {
                 status: 'error',
                 message: 'Category not found'
             });
+        }
+
+        if (category.sizeChart) {
+            await SizeChart.findByIdAndDelete(category.sizeChart).catch(() => null);
         }
 
         res.status(200).json({
@@ -1664,5 +1869,43 @@ exports.toggleReviewVisibility = async (req, res, next) => {
         });
     } catch (error) {
         next(error);
+    }
+};
+
+exports.previewCategorySizeChartImport = async (req, res) => {
+    try {
+        if (!req.file?.buffer) {
+            return res.status(400).json({
+                status: 'error',
+                message: 'Vui lòng tải lên file Excel hoặc CSV.',
+            });
+        }
+
+        const rows = parseWorksheetRows(req.file.buffer, req.file.originalname);
+        const preview = buildImportedSizeChartPreview({
+            rows,
+            categoryName: req.body?.categoryName || '',
+            notes: req.body?.notes || '',
+        });
+
+        if (!preview.ok) {
+            return res.status(400).json({
+                status: 'error',
+                message: preview.message,
+                data: preview,
+            });
+        }
+
+        return res.status(200).json({
+            status: 'success',
+            message: 'Đã đọc file size chart thành công.',
+            data: preview,
+        });
+    } catch (error) {
+        console.error('Preview category size chart import error:', error);
+        return res.status(500).json({
+            status: 'error',
+            message: 'Không thể đọc file size chart.',
+        });
     }
 };

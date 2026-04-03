@@ -1,8 +1,10 @@
 const express = require('express');
 const router  = express.Router();
+const multer = require('multer');
 const authenticateToken = require('../../middleware/authenticateToken');
 const authorizeAdmin    = require('../../middleware/authorizeAdmin');
 const adminController   = require('./admin.controller');
+const uploadMemory = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
 router.use(authenticateToken, authorizeAdmin);
 
@@ -21,6 +23,7 @@ router.delete('/products/:id',               adminController.deleteProduct);
 
 // ── CATEGORY MANAGEMENT ────────────────────────────────────────────
 router.get   ('/categories',      adminController.adminGetAllCategories);
+router.post  ('/categories/size-chart/preview-import', uploadMemory.single('file'), adminController.previewCategorySizeChartImport);
 router.post  ('/categories',      adminController.createCategory);
 router.put   ('/categories/:id',  adminController.updateCategory);
 router.delete('/categories/:id',  adminController.deleteCategory);

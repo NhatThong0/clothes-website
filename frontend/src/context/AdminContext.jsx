@@ -143,6 +143,23 @@ export const AdminProvider = ({ children }) => {
         }
     }, []);
 
+    const previewCategorySizeChartImport = useCallback(async (formData) => {
+        try {
+            setLoading(true);
+            setError(null);
+            const response = await apiClient.post('/admin/categories/size-chart/preview-import', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' },
+            });
+            return response.data.data;
+        } catch (err) {
+            setError(err.response?.data?.message || 'Failed to preview size chart import');
+            console.error('Preview size chart import error:', err);
+            throw err;
+        } finally {
+            setLoading(false);
+        }
+    }, []);
+
     const deleteCategory = useCallback(async (categoryId) => {
         try {
             setLoading(true);
@@ -371,6 +388,7 @@ export const AdminProvider = ({ children }) => {
         fetchCategories,
         createCategory,
         updateCategory,
+        previewCategorySizeChartImport,
         deleteCategory,
 
         // Orders

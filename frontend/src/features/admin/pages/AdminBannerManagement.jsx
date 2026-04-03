@@ -231,11 +231,11 @@ const AdminBannerManagement = () => {
 
       {/* Drawer */}
       {drawerOpen && (
-        <div className="fixed inset-0 z-50 flex">
-          <div className="flex-1 bg-black/40 backdrop-blur-sm" onClick={closeDrawer}/>
-          <div className="w-full max-w-md bg-white shadow-2xl flex flex-col h-full"
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm p-3 sm:p-6" onClick={closeDrawer}>
+          <div className="mx-auto flex h-full w-full max-w-3xl items-center justify-center" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full bg-white shadow-2xl flex max-h-[calc(100vh-1.5rem)] sm:max-h-[calc(100vh-3rem)] flex-col overflow-hidden rounded-2xl sm:rounded-3xl"
             style={{animation:'slideIn .25s cubic-bezier(.4,0,.2,1)'}}>
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 sticky top-0 bg-white">
+            <div className="flex items-start justify-between gap-4 px-4 py-4 sm:px-6 border-b border-slate-100 sticky top-0 bg-white">
               <h2 className="text-base font-bold text-slate-900">
                 {editing ? '✏️ Chỉnh sửa Banner' : '🖼️ Thêm Banner mới'}
               </h2>
@@ -243,7 +243,7 @@ const AdminBannerManagement = () => {
             </div>
 
             <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
-              <div className="px-6 py-5 space-y-5">
+              <div className="mx-auto w-full max-w-2xl px-4 py-5 sm:px-6 sm:py-6 space-y-5">
 
                 <div className="space-y-1.5">
                   <label className="block text-xs font-bold text-slate-600 uppercase tracking-wide">
@@ -286,7 +286,8 @@ const AdminBannerManagement = () => {
                 </div>
               </div>
 
-              <div className="sticky bottom-0 px-6 py-4 bg-white border-t border-slate-100 flex gap-3">
+              <div className="sticky bottom-0 bg-white border-t border-slate-100 px-4 py-4 sm:px-6">
+                <div className="mx-auto flex w-full max-w-2xl flex-col-reverse gap-3 sm:flex-row">
                 <button type="button" onClick={closeDrawer}
                   className="flex-1 py-2.5 border border-slate-200 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50">Hủy</button>
                 <button type="submit" disabled={saving}
@@ -294,8 +295,10 @@ const AdminBannerManagement = () => {
                   {saving && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>}
                   {saving ? 'Đang lưu...' : editing ? 'Cập nhật' : 'Tạo Banner'}
                 </button>
+                </div>
               </div>
             </form>
+          </div>
           </div>
         </div>
       )}

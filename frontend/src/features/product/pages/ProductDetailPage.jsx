@@ -7,6 +7,27 @@ import { formatPrice } from '@utils/helpers';
 import { productAPI } from '@features/shared/services/api';
 import { useAuth } from '@context/AuthContext';
 
+const sizeChartColumns = [
+    { key: 'size', label: 'Size' },
+    { key: 'heightMin', label: 'Cao từ' },
+    { key: 'heightMax', label: 'Cao đến' },
+    { key: 'weightMin', label: 'Nặng từ' },
+    { key: 'weightMax', label: 'Nặng đến' },
+    { key: 'chestMin', label: 'Ngực từ' },
+    { key: 'chestMax', label: 'Ngực đến' },
+    { key: 'waistMin', label: 'Eo từ' },
+    { key: 'waistMax', label: 'Eo đến' },
+    { key: 'hipMin', label: 'Mông từ' },
+    { key: 'hipMax', label: 'Mông đến' },
+    { key: 'footLengthMin', label: 'Bàn chân từ' },
+    { key: 'footLengthMax', label: 'Bàn chân đến' },
+];
+
+const formatSizeChartValue = (value) => {
+    if (value === undefined || value === null || value === '') return '—';
+    return Number.isInteger(value) ? value.toString() : `${value}`;
+};
+
 // ── Toast ─────────────────────────────────────────────────────────────────────
 function Toast({ message, type = 'success', onClose }) {
     useEffect(() => { const t = setTimeout(onClose, 2500); return () => clearTimeout(t); }, [onClose]);
@@ -60,6 +81,8 @@ export default function ProductDetailPage() {
                 discountedPrice: data.discount > 0 ? Math.round(data.price * (1 - data.discount / 100)) : data.price,
                 discount:        data.discount || 0,
                 category:        data.category?.name || data.category || '',
+                categoryName:    data.category?.name || data.category || '',
+                categoryData:    typeof data.category === 'object' ? data.category : null,
                 images:          data.images?.length > 0 ? data.images : ['https://placehold.co/500x600?text=No+Image'],
                 rating:          data.averageRating || data.rating || 0,
                 reviewCount:     data.reviewCount || (Array.isArray(data.reviews) ? data.reviews.length : 0),
@@ -67,6 +90,8 @@ export default function ProductDetailPage() {
                 variants:        data.variants || [],
                 colors:          data.colors || [],
                 sizes:           data.sizes  || [],
+                resolvedSizeChart: data.resolvedSizeChart || data.category?.sizeChart || null,
+                sizeChartSource: data.sizeChartSource || (data.category?.sizeChart ? 'category' : null),
                 features:        data.features || [],
                 isActive:        data.isActive,
                 soldCount:       data.soldCount || 0,
@@ -210,6 +235,9 @@ export default function ProductDetailPage() {
     if (!product) return <Error message="Không tìm thấy sản phẩm" />;
 
     const hasVariants = product.variants?.length > 0;
+    const visibleSizeChartColumns = sizeChartColumns.filter((column) =>
+        product.resolvedSizeChart?.sizes?.some((row) => row?.[column.key] !== undefined && row?.[column.key] !== null && row?.[column.key] !== '')
+    );
 
     return (
         <div className="bg-white rounded-lg shadow-sm-blue p-6 md:p-10">
@@ -243,7 +271,7 @@ export default function ProductDetailPage() {
                 {/* ── Info ────────────────────────────────────────────────────── */}
                 <div>
                     <div className="mb-4">
-                        <span className="inline-block px-3 py-1 bg-primary text-white rounded-full text-sm font-semibold">{product.category}</span>
+                        <span className="inline-block px-3 py-1 bg-primary text-white rounded-full text-sm font-semibold">{product.categoryName || product.category}</span>
                     </div>
                     <h1 className="text-3xl font-bold text-dark mb-2">{product.name}</h1>
 
@@ -389,6 +417,56 @@ export default function ProductDetailPage() {
                             {!selectedColor && (
                                 <p className="text-sm text-slate-500">👆 Vui lòng chọn màu sắc</p>
                             )}
+                        </div>
+                    )}
+
+                    {product.resolvedSizeChart?.sizes?.length > 0 && (
+                        <div className="mb-8 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                            <div className="flex flex-col gap-2 border-b border-slate-100 bg-slate-50 px-4 py-4 md:flex-row md:items-center md:justify-between">
+                                <div>
+                                    <h3 className="text-base font-semibold text-slate-900">Bảng size tham khảo</h3>
+                                    <p className="text-sm text-slate-500">
+                                        Dùng để đối chiếu nhanh trước khi chọn size. AI cũng sẽ dựa trên bảng này để tư vấn.
+                                    </p>
+                                </div>
+                                <div className="flex flex-wrap gap-2 text-xs font-medium">
+                                    <span className="rounded-full bg-indigo-100 px-3 py-1 text-indigo-700">
+                                        {product.resolvedSizeChart.sizeFormat === 'numeric' ? 'Size số' : product.resolvedSizeChart.sizeFormat === 'alpha' ? 'Size chữ' : 'Size hỗn hợp'}
+                                    </span>
+                                    <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-600">
+                                        {product.sizeChartSource === 'category' ? 'Theo danh mục' : 'Theo sản phẩm'}
+                                    </span>
+                                </div>
+                            </div>
+                            {product.resolvedSizeChart.notes && (
+                                <div className="border-b border-slate-100 px-4 py-3 text-sm text-slate-600">
+                                    {product.resolvedSizeChart.notes}
+                                </div>
+                            )}
+                            <div className="overflow-x-auto">
+                                <table className="min-w-full text-sm">
+                                    <thead className="bg-white">
+                                        <tr className="border-b border-slate-100">
+                                            {visibleSizeChartColumns.map((column) => (
+                                                <th key={column.key} className="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                                    {column.label}
+                                                </th>
+                                            ))}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {product.resolvedSizeChart.sizes.map((row, index) => (
+                                            <tr key={`${row.size}-${index}`} className="border-b border-slate-100 last:border-b-0">
+                                                {visibleSizeChartColumns.map((column) => (
+                                                    <td key={column.key} className="whitespace-nowrap px-4 py-3 text-slate-700">
+                                                        {formatSizeChartValue(row[column.key])}
+                                                    </td>
+                                                ))}
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     )}
 

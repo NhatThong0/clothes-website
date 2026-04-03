@@ -15,6 +15,11 @@ const categorySchema = new mongoose.Schema({
         type: String,
         default: null,
     },
+    sizeChart: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'SizeChart',
+        default: null,
+    },
     isFeatured: {          // ✅ thêm field này
         type: Boolean,
         default: false,

@@ -1,6 +1,7 @@
 const Product  = require('../../model/Product');
 const Category = require('../../model/Category');
 const Order    = require('../../model/Order');
+require('../../model/SizeChart');
 const { pool } = require('../../db/mysql');
 const { validateObjectId } = require('../../utils/validators');
 
@@ -15,6 +16,23 @@ const getSoldMap = async (productIds) => {
     const map = {};
     data.forEach(s => { map[s._id.toString()] = s.soldCount; });
     return map;
+};
+
+const productPopulate = [
+    {
+        path: 'category',
+        populate: { path: 'sizeChart' },
+    },
+    { path: 'sizeChart' },
+];
+
+const withResolvedSizeChart = (product) => {
+    const resolvedSizeChart = product?.sizeChart || product?.category?.sizeChart || null;
+    return {
+        ...product,
+        resolvedSizeChart,
+        sizeChartSource: product?.sizeChart ? 'product' : resolvedSizeChart ? 'category' : null,
+    };
 };
 
 // ── GET /api/products ─────────────────────────────────────────────────────────
@@ -58,7 +76,7 @@ exports.getAllProducts = async (req, res, next) => {
 
         const skip     = (parseInt(page) - 1) * parseInt(limit);
         const products = await Product.find(filter)
-            .populate('category')
+            .populate(productPopulate)
             .sort(sortObj)
             .skip(skip)
             .limit(parseInt(limit));
@@ -66,7 +84,7 @@ exports.getAllProducts = async (req, res, next) => {
         const total   = await Product.countDocuments(filter);
         const soldMap = await getSoldMap(products.map(p => p._id));
 
-        const result = products.map(p => ({
+        const result = products.map(p => withResolvedSizeChart({
             ...p.toObject(),
             soldCount: soldMap[p._id.toString()] || p.soldCount || 0,
         }));
@@ -94,17 +112,17 @@ exports.getProductById = async (req, res, next) => {
             return res.status(400).json({ status: 'error', message: 'Invalid product ID' });
 
         const product = await Product.findById(id)
-            .populate('category')
+            .populate(productPopulate)
             .populate('reviews.userId', 'name email avatar');
 
         if (!product)
             return res.status(404).json({ status: 'error', message: 'Product not found' });
 
         const soldMap = await getSoldMap([product._id]);
-        const result  = {
+        const result  = withResolvedSizeChart({
             ...product.toObject(),
             soldCount: soldMap[product._id.toString()] || product.soldCount || 0,
-        };
+        });
 
         res.status(200).json({ status: 'success', data: result });
     } catch (error) {
@@ -118,6 +136,7 @@ exports.createProduct = async (req, res, next) => {
         const {
             name, description, price, discount,
             category, images, features,
+            shortDescription, sizeChart, fit, genderTarget, material, styleTags, occasionTags, seasonTags, matchWith, colorFamilies, aiSummary,
             variants, // [{ color, size, stock, sku?, price? }]
         } = req.body;
 
@@ -129,13 +148,24 @@ exports.createProduct = async (req, res, next) => {
             name, description, price,
             discount: discount || 0,
             category,
+            shortDescription: shortDescription || '',
+            sizeChart: sizeChart || null,
             images:   images   || [],
             features: features || [],
+            fit: fit || 'regular',
+            genderTarget: genderTarget || 'unisex',
+            material: material || '',
+            styleTags: styleTags || [],
+            occasionTags: occasionTags || [],
+            seasonTags: seasonTags || [],
+            matchWith: matchWith || [],
+            colorFamilies: colorFamilies || [],
+            aiSummary: aiSummary || '',
             variants: variants || [],
         });
 
         await product.save();
-        await product.populate('category');
+        await product.populate(productPopulate);
 
         // ── LƯU SANG MYSQL (Song song - Relational) ──────────────────────────────
         try {
@@ -201,7 +231,7 @@ exports.updateProduct = async (req, res, next) => {
 
         const product = await Product.findByIdAndUpdate(id, updateData, {
             new: true, runValidators: true,
-        }).populate('category');
+        }).populate(productPopulate);
 
         if (!product)
             return res.status(404).json({ status: 'error', message: 'Product not found' });
@@ -295,19 +325,19 @@ exports.getFeaturedProducts = async (req, res, next) => {
         let products = [];
         if (productIds.length > 0) {
             products = await Product.find({ _id: { $in: productIds }, isActive: { $ne: false } })
-                .populate('category');
+                .populate(productPopulate);
         }
 
         if (products.length < parseInt(limit)) {
             const existingIds = products.map(p => p._id.toString());
             const extra = await Product.find({ _id: { $nin: existingIds }, isActive: { $ne: false } })
-                .populate('category')
+                .populate(productPopulate)
                 .sort({ createdAt: -1 })
                 .limit(parseInt(limit) - products.length);
             products = [...products, ...extra];
         }
 
-        const result = products.map(p => ({
+        const result = products.map(p => withResolvedSizeChart({
             ...p.toObject(),
             soldCount: soldMap[p._id.toString()] || p.soldCount || 0,
         })).sort((a, b) => b.soldCount - a.soldCount);
@@ -321,7 +351,7 @@ exports.getFeaturedProducts = async (req, res, next) => {
 // ── GET /api/products/categories ─────────────────────────────────────────────
 exports.getCategories = async (req, res, next) => {
     try {
-        const categories = await Category.find();
+        const categories = await Category.find().populate('sizeChart');
         res.status(200).json({ status: 'success', data: categories });
     } catch (error) {
         next(error);

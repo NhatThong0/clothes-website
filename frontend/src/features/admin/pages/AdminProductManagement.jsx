@@ -10,9 +10,29 @@ const savePool  = (key, val) => localStorage.setItem(key, JSON.stringify(val));
 
 const DEFAULT_COLORS = ['Đỏ','Xanh dương','Xanh lá','Đen','Trắng','Vàng','Hồng','Tím','Cam','Xám','Be','Navy'];
 const DEFAULT_SIZES  = ['XS','S','M','L','XL','XXL','3XL','38','39','40','41','42','43','44'];
-
 const fmt = v => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(v ?? 0);
 const inputCls = 'w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white transition';
+
+const getCategorySizeChart = (category) => category?.sizeChart || null;
+const getCategorySizeOptions = (category) => {
+    const chart = getCategorySizeChart(category);
+    if (!chart?.sizes?.length) return [];
+    return [...new Set(chart.sizes.map((rule) => rule.size).filter(Boolean))];
+};
+
+const buildCategorySizeState = (categories, categoryId) => {
+    const selectedCategory = categories.find((category) => category._id === categoryId) || null;
+    const categorySizeChart = getCategorySizeChart(selectedCategory);
+    const categorySizeOptions = getCategorySizeOptions(selectedCategory);
+
+    return { selectedCategory, categorySizeChart, categorySizeOptions };
+};
+
+const syncVariantsWithSizeOptions = (variants, sizeOptions) => {
+    if (!Array.isArray(variants)) return [];
+    if (!sizeOptions?.length) return variants;
+    return variants.filter((variant) => sizeOptions.includes(variant.size));
+};
 
 // ─── Badge ────────────────────────────────────────────────────────────────────
 function Badge({ active }) {
@@ -80,7 +100,7 @@ function ImageUploader({ images, onChange }) {
 // ─── VariantMatrix — thay thế component cùng tên trong AdminProductManagement.jsx
 // Thay thế toàn bộ component VariantMatrix trong AdminProductManagement.jsx
 
-function VariantMatrix({ variants, onChange, colorPool, sizePool, onAddColor, onAddSize, onDelColor, onDelSize }) {
+function VariantMatrix({ variants, onChange, colorPool, sizePool, onAddColor, onAddSize, onDelColor, onDelSize, lockSizes = false, sizeGuideLabel = '' }) {
     const [newColor,       setNewColor]       = useState('');
     const [newSize,        setNewSize]        = useState('');
     // ✅ Lưu màu/size đã chọn riêng — không phụ thuộc vào variants
@@ -232,28 +252,36 @@ function VariantMatrix({ variants, onChange, colorPool, sizePool, onAddColor, on
                                     }`}>
                                     {isActive && <span className="mr-1">✓</span>}{s}
                                 </button>
-                                <button type="button"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        onDelSize(s);
-                                        const newSizes = selectedSizes.filter(x => x !== s);
-                                        setSelectedSizes(newSizes);
-                                        onChange(rebuildVariants(selectedColors, newSizes));
-                                    }}
-                                    className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-rose-500 text-white rounded-full text-[10px] items-center justify-center hidden group-hover:flex">×</button>
+                                {!lockSizes && (
+                                    <button type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onDelSize(s);
+                                            const newSizes = selectedSizes.filter(x => x !== s);
+                                            setSelectedSizes(newSizes);
+                                            onChange(rebuildVariants(selectedColors, newSizes));
+                                        }}
+                                        className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-rose-500 text-white rounded-full text-[10px] items-center justify-center hidden group-hover:flex">×</button>
+                                )}
                             </div>
                         );
                     })}
                     {sizePool.length === 0 && <span className="text-xs text-slate-400 italic self-center">Chưa có size — thêm bên dưới</span>}
                 </div>
-                <div className="flex gap-2 mt-2">
-                    <input value={newSize} onChange={e => setNewSize(e.target.value)}
-                        onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addNewSize())}
-                        placeholder="Nhập size mới (VD: 4XL, 44)..."
-                        className="flex-1 text-sm px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"/>
-                    <button type="button" onClick={addNewSize}
-                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded-lg font-medium">+ Thêm</button>
-                </div>
+                {lockSizes ? (
+                    <p className="mt-2 text-xs text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-2">
+                        Danh sách size đang lấy từ bảng size của danh mục{sizeGuideLabel ? `: ${sizeGuideLabel}` : ''}.
+                    </p>
+                ) : (
+                    <div className="flex gap-2 mt-2">
+                        <input value={newSize} onChange={e => setNewSize(e.target.value)}
+                            onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addNewSize())}
+                            placeholder="Nhập size mới (VD: 4XL, 44)..."
+                            className="flex-1 text-sm px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"/>
+                        <button type="button" onClick={addNewSize}
+                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded-lg font-medium">+ Thêm</button>
+                    </div>
+                )}
             </div>
 
             {/* ── Hint / Bảng ───────────────────────────────────────────────── */}
@@ -371,9 +399,22 @@ const AdminProductManagement = () => {
 
     const emptyForm = { name:'', description:'', price:'', discount:'0', category:'', features:'', images:[], variants:[] };
     const [form, setForm] = useState(emptyForm);
+    const { selectedCategory, categorySizeChart, categorySizeOptions } = useMemo(
+        () => buildCategorySizeState(categories, form.category),
+        [categories, form.category],
+    );
+    const effectiveSizePool = categorySizeOptions.length ? categorySizeOptions : sizePool;
 
     useEffect(() => { loadCategories(); }, []);
     useEffect(() => { loadProducts();   }, [page, search, selCat]);
+    useEffect(() => {
+        if (!categorySizeOptions.length) return;
+        setForm((current) => {
+            const normalizedVariants = syncVariantsWithSizeOptions(current.variants, categorySizeOptions);
+            if (normalizedVariants.length === current.variants.length) return current;
+            return { ...current, variants: normalizedVariants };
+        });
+    }, [categorySizeOptions]);
 
     const loadCategories = async () => {
         const data = await fetchCategories();
@@ -394,27 +435,40 @@ const AdminProductManagement = () => {
     const openCreate = () => { setEditingProduct(null); setForm(emptyForm); setDrawerOpen(true); };
 
     const openEdit = (p) => {
+        const categoryId = p.category?._id || p.category || '';
+        const { categorySizeOptions: nextSizeOptions } = buildCategorySizeState(categories, categoryId);
+
         setEditingProduct(p);
         setForm({
             name:        p.name,
             description: p.description,
             price:       p.price.toString(),
             discount:    (p.discount || 0).toString(),
-            category:    p.category?._id || p.category,
-            features:    (p.features || []).join(', '),
+            category:    categoryId,
+            features:    (p.features || []).map(feature => `${feature}.`).join('\n'),
             images:      p.images || [],
-            variants:    p.variants || [],
+            variants:    syncVariantsWithSizeOptions(p.variants || [], nextSizeOptions),
         });
         setDrawerOpen(true);
     };
 
     const closeDrawer = () => { setDrawerOpen(false); setEditingProduct(null); };
 
+    const handleCategoryChange = (categoryId) => {
+        const { categorySizeOptions: nextSizeOptions } = buildCategorySizeState(categories, categoryId);
+        setForm((current) => ({
+            ...current,
+            category: categoryId,
+            variants: syncVariantsWithSizeOptions(current.variants, nextSizeOptions),
+        }));
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         setSaving(true);
         try {
-            const totalStock = form.variants.reduce((s, v) => s + (v.stock || 0), 0);
+            const normalizedVariants = syncVariantsWithSizeOptions(form.variants, categorySizeOptions)
+                .filter(v => v.color && v.color.trim() && v.size && v.size.trim());
             const payload = {
                 name:        form.name,
                 description: form.description,
@@ -422,11 +476,14 @@ const AdminProductManagement = () => {
                 discount:    parseFloat(form.discount || 0),
                 category:    form.category,
                 images:      form.images,
-                features:    form.features.split(',').map(f => f.trim()).filter(Boolean),
-                variants:    form.variants.filter(v => v.color && v.color.trim() && v.size && v.size.trim()),
-                stock:       form.variants.filter(v => v.color && v.size).reduce((s, v) => s + (Number(v.stock) || 0), 0),
-                colors:      [...new Set(form.variants.filter(v => v.color && v.size).map(v => v.color))],
-                sizes:       [...new Set(form.variants.filter(v => v.color && v.size).map(v => v.size))],
+                features:    form.features
+                    .split('.')
+                    .map(f => f.trim())
+                    .filter(Boolean),
+                variants:    normalizedVariants,
+                stock:       normalizedVariants.reduce((s, v) => s + (Number(v.stock) || 0), 0),
+                colors:      [...new Set(normalizedVariants.map(v => v.color))],
+                sizes:       [...new Set(normalizedVariants.map(v => v.size))],
             };
             if (editingProduct) await updateProduct(editingProduct._id, payload);
             else                await createProduct(payload);
@@ -606,19 +663,19 @@ const AdminProductManagement = () => {
 
             {/* ── Drawer ──────────────────────────────────────────────────────── */}
             {drawerOpen && (
-                <div className="fixed inset-0 z-50 flex">
-                    <div className="flex-1 bg-black/40 backdrop-blur-sm" onClick={closeDrawer}/>
-                    <div className="w-full max-w-2xl bg-white shadow-2xl flex flex-col h-full animate-slide-in overflow-hidden">
-                        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-white">
+                <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm p-3 sm:p-6" onClick={closeDrawer}>
+                    <div className="mx-auto flex h-full w-full max-w-5xl items-center justify-center" onClick={(e) => e.stopPropagation()}>
+                    <div className="w-full bg-white shadow-2xl flex max-h-[calc(100vh-1.5rem)] sm:max-h-[calc(100vh-3rem)] flex-col overflow-hidden rounded-2xl sm:rounded-3xl animate-slide-in">
+                        <div className="flex items-start justify-between gap-4 px-4 py-4 sm:px-6 border-b border-slate-200 bg-white">
                             <div>
                                 <h2 className="text-lg font-bold text-slate-900">{editingProduct ? '✏️ Chỉnh sửa sản phẩm' : '➕ Thêm sản phẩm mới'}</h2>
-                                {editingProduct && <p className="text-sm text-slate-500 mt-0.5 truncate max-w-xs">{editingProduct.name}</p>}
+                                {editingProduct && <p className="text-sm text-slate-500 mt-0.5 truncate max-w-xs sm:max-w-md">{editingProduct.name}</p>}
                             </div>
                             <button onClick={closeDrawer} className="p-2 hover:bg-slate-100 rounded-xl text-slate-500 text-xl">✕</button>
                         </div>
 
                         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
-                            <div className="px-6 py-5 space-y-6">
+                            <div className="mx-auto w-full max-w-4xl px-4 py-5 sm:px-6 sm:py-6 space-y-6">
 
                                 {/* Thông tin cơ bản */}
                                 <section>
@@ -631,7 +688,7 @@ const AdminProductManagement = () => {
                                         </FormField>
                                         <FormField label="Danh mục" required>
                                             <select required value={form.category}
-                                                onChange={e => setForm(f=>({...f,category:e.target.value}))}
+                                                onChange={e => handleCategoryChange(e.target.value)}
                                                 className={inputCls}>
                                                 <option value="">-- Chọn danh mục --</option>
                                                 {categories.map(c=><option key={c._id} value={c._id}>{c.name}</option>)}
@@ -689,15 +746,23 @@ const AdminProductManagement = () => {
                                 <section>
                                     <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Màu sắc × Kích thước × Số lượng</h3>
                                     <p className="text-xs text-slate-400 mb-4">Chọn màu và size, sau đó nhập số lượng cho từng tổ hợp</p>
+                                    {categorySizeChart?.sizes?.length > 0 && (
+                                        <div className="mb-4 rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm text-indigo-700">
+                                            Size cho sản phẩm này đang lấy theo bảng size của danh mục
+                                            <span className="font-semibold"> {categorySizeChart.name || selectedCategory?.name}</span>.
+                                        </div>
+                                    )}
                                     <VariantMatrix
                                         variants={form.variants}
                                         onChange={v => setForm(f=>({...f,variants:v}))}
                                         colorPool={colorPool}
-                                        sizePool={sizePool}
+                                        sizePool={effectiveSizePool}
                                         onAddColor={addColor}
                                         onAddSize={addSize}
                                         onDelColor={delColor}
                                         onDelSize={delSize}
+                                        lockSizes={categorySizeOptions.length > 0}
+                                        sizeGuideLabel={categorySizeChart?.name || selectedCategory?.name || ''}
                                     />
                                 </section>
 
@@ -706,16 +771,17 @@ const AdminProductManagement = () => {
                                 {/* Đặc điểm */}
                                 <section>
                                     <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Đặc điểm</h3>
-                                    <FormField label="Đặc điểm nổi bật (cách nhau bằng dấu phẩy)">
+                                    <FormField label="Đặc điểm nổi bật (mỗi ý kết thúc bằng dấu chấm)">
                                         <textarea rows={2} value={form.features}
                                             onChange={e=>setForm(f=>({...f,features:e.target.value}))}
-                                            placeholder="VD: Chất liệu cotton 100%, Thoáng mát, Dễ giặt"
+                                            placeholder={"VD:\nChất liệu cotton 100%.\nThoáng mát.\nDễ giặt."}
                                             className={inputCls+' resize-none'}/>
                                     </FormField>
                                 </section>
                             </div>
 
-                            <div className="sticky bottom-0 px-6 py-4 bg-white border-t border-slate-200 flex gap-3">
+                            <div className="sticky bottom-0 bg-white border-t border-slate-200 px-4 py-4 sm:px-6">
+                                <div className="mx-auto flex w-full max-w-4xl flex-col-reverse gap-3 sm:flex-row">
                                 <button type="button" onClick={closeDrawer}
                                     className="flex-1 px-4 py-2.5 border border-slate-300 text-slate-700 rounded-xl text-sm font-semibold hover:bg-slate-50">Hủy</button>
                                 <button type="submit" disabled={saving}
@@ -723,8 +789,10 @@ const AdminProductManagement = () => {
                                     {saving && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>}
                                     {saving ? 'Đang lưu...' : editingProduct ? 'Cập nhật' : 'Tạo sản phẩm'}
                                 </button>
+                                </div>
                             </div>
                         </form>
+                    </div>
                     </div>
                 </div>
             )}
