@@ -58,6 +58,14 @@ const promotionSchema = new mongoose.Schema({
     // ── FLASH SALE fields ─────────────────────────────────────────────────────
     flashSaleStock:     { type: Number, default: null },  // số lượng tồn flash sale
     flashSaleRemaining: { type: Number, default: null },  // còn lại
+    flashSalePrice:     { type: Number, default: null, min: 0 },  // giá flash sale (final price)
+    // Per-product flash sale prices (preferred over flashSalePrice)
+    flashSaleItems: [
+        {
+            productId: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },
+            price:     { type: Number, required: true, min: 0 },
+        }
+    ],
     flashSaleHour: {                                       // khung giờ (HH:mm)
         start: { type: String, default: null },
         end:   { type: String, default: null },

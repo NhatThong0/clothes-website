@@ -263,6 +263,20 @@ export const AdminProvider = ({ children }) => {
         }
     }, []);
 
+    const fetchUserLoyalty = useCallback(async (userId, params = {}) => {
+        try {
+            setLoading(true);
+            setError(null);
+            const response = await apiClient.get(`/admin/users/${userId}/loyalty`, { params });
+            return response.data.data;
+        } catch (err) {
+            setError(err.response?.data?.message || 'Failed to fetch user loyalty');
+            console.error('Fetch user loyalty error:', err);
+        } finally {
+            setLoading(false);
+        }
+    }, []);
+
     // Reviews
     const fetchReviews = useCallback(async (params = {}) => {
         try {
@@ -400,6 +414,7 @@ export const AdminProvider = ({ children }) => {
         fetchAdminUsers,
         updateUserRole,
         fetchUserOrderHistory,
+        fetchUserLoyalty,
 
         // Reviews
         fetchReviews,

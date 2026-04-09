@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import Loading from '@components/common/Loading';
 import { formatPrice, formatDate } from '@utils/helpers';
-import { orderAPI } from '@features/shared/services/api';
+import { orderAPI, productAPI } from '@features/shared/services/api';
 import apiClient from '@features/shared/services/apiClient';
 
 const STATUS_CFG = {
@@ -173,6 +173,111 @@ function ReturnModal({ onClose, onSubmit, submitting }) {
     );
 }
 
+function ReviewModal({ modal, form, setForm, images, setImages, loading, onClose, onSubmit, onSelectProduct }) {
+    const handleImageUpload = (e) => {
+        const files = Array.from(e.target.files || []);
+        Promise.all(
+            files.map((file) => new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onload = (event) => resolve(event.target.result);
+                reader.readAsDataURL(file);
+            })),
+        ).then((results) => setImages((prev) => [...prev, ...results].slice(0, 5)));
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl max-h-[90vh] overflow-y-auto">
+                <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-lg font-bold text-slate-900">Danh gia san pham</h2>
+                    <button onClick={onClose} className="w-8 h-8 flex items-center justify-center hover:bg-slate-100 rounded-xl text-slate-400">✕</button>
+                </div>
+
+                {modal.items?.length > 1 && (
+                    <div className="mb-4">
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">Chon san pham</label>
+                        <select
+                            className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            value={modal.selectedIndex ?? 0}
+                            onChange={(e) => onSelectProduct(Number(e.target.value))}
+                        >
+                            {modal.items.map((item, index) => (
+                                <option key={index} value={index}>{item.name}</option>
+                            ))}
+                        </select>
+                    </div>
+                )}
+
+                <p className="text-sm text-slate-500 mb-4 font-medium">{modal.productName}</p>
+
+                <div className="mb-4">
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">So sao</label>
+                    <div className="flex gap-1.5">
+                        {[1, 2, 3, 4, 5].map((star) => (
+                            <button
+                                key={star}
+                                onClick={() => setForm((prev) => ({ ...prev, rating: star }))}
+                                className={`text-3xl transition-transform hover:scale-110 ${star <= form.rating ? 'text-yellow-400' : 'text-slate-200'}`}
+                            >
+                                ★
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
+                <div className="mb-4">
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Nhan xet</label>
+                    <textarea
+                        rows={4}
+                        placeholder="Chia se trai nghiem cua ban..."
+                        value={form.comment}
+                        onChange={(e) => setForm((prev) => ({ ...prev, comment: e.target.value }))}
+                        className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none resize-none"
+                    />
+                </div>
+
+                <div className="mb-5">
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Hinh anh (toi da 5)</label>
+                    <input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        onChange={handleImageUpload}
+                        className="w-full text-sm text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-blue-50 file:text-blue-600 file:font-semibold cursor-pointer"
+                    />
+                    {images.length > 0 && (
+                        <div className="flex gap-2 mt-3 flex-wrap">
+                            {images.map((img, index) => (
+                                <div key={index} className="relative">
+                                    <img src={img} alt="" className="w-14 h-14 object-cover rounded-lg border border-slate-200" />
+                                    <button
+                                        onClick={() => setImages((prev) => prev.filter((_, current) => current !== index))}
+                                        className="absolute -top-1 -right-1 bg-rose-500 text-white rounded-full w-4 h-4 text-[10px] flex items-center justify-center font-bold"
+                                    >
+                                        ×
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                <div className="flex gap-3">
+                    <button onClick={onClose} className="flex-1 py-2.5 border-2 border-slate-200 text-slate-600 rounded-xl font-semibold text-sm hover:bg-slate-50">Huy</button>
+                    <button
+                        onClick={onSubmit}
+                        disabled={loading}
+                        className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold text-sm disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                        {loading && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                        {loading ? 'Dang gui...' : 'Gui danh gia'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 export default function OrderDetailPage() {
     const { id } = useParams();
     const [order,              setOrder]              = useState(null);
@@ -183,11 +288,36 @@ export default function OrderDetailPage() {
     const [retryLoading,       setRetryLoading]       = useState(false);
     const [confirmingDelivery, setConfirmingDelivery] = useState(false);
     const [isExpired,          setIsExpired]          = useState(false);
+    const [reviewModal,        setReviewModal]        = useState(null);
+    const [reviewForm,         setReviewForm]         = useState({ rating: 5, comment: '' });
+    const [reviewImages,       setReviewImages]       = useState([]);
+    const [reviewLoading,      setReviewLoading]      = useState(false);
+    const [hasReviewed,        setHasReviewed]        = useState(false);
 
     useEffect(() => { fetchOrder(); }, [id]);
-
     const fetchOrder = async () => {
-        try { const res=await orderAPI.getOrderById(id); setOrder(res.data?.data||res.data); }
+        try {
+            const res=await orderAPI.getOrderById(id);
+            const nextOrder = res.data?.data||res.data;
+            setOrder(nextOrder);
+
+            const productIds = (nextOrder?.items || [])
+                .map((item) => item.productId?._id || item.productId)
+                .filter(Boolean);
+
+            if (productIds.length === 0) {
+                setHasReviewed(false);
+            } else {
+                const reviews = await Promise.all(
+                    productIds.map((productId) =>
+                        productAPI.getMyReview(productId)
+                            .then((response) => response.data?.data || null)
+                            .catch(() => null),
+                    ),
+                );
+                setHasReviewed(reviews.some(Boolean));
+            }
+        }
         catch(err) { setError(err.response?.data?.message||'Không tìm thấy đơn hàng'); }
         finally { setLoading(false); }
     };
@@ -233,6 +363,64 @@ export default function OrderDetailPage() {
         } catch { alert('Không thể thêm vào giỏ hàng'); }
     };
 
+    const openReviewModal = () => {
+        const items = order?.items || [];
+        const firstItem = items[0];
+        if (!firstItem) return;
+
+        setReviewModal({
+            orderId: order._id,
+            items,
+            selectedIndex: 0,
+            productId: firstItem.productId?._id || firstItem.productId,
+            productName: firstItem.name,
+        });
+        setReviewForm({ rating: 5, comment: '' });
+        setReviewImages([]);
+    };
+
+    const handleSelectReviewProduct = (selectedIndex) => {
+        const selectedItem = reviewModal?.items?.[selectedIndex];
+        if (!selectedItem) return;
+
+        setReviewModal((prev) => ({
+            ...prev,
+            selectedIndex,
+            productId: selectedItem.productId?._id || selectedItem.productId,
+            productName: selectedItem.name,
+        }));
+    };
+
+    const handleSubmitReview = async () => {
+        if (!reviewModal?.productId) {
+            alert('Khong tim thay san pham de danh gia');
+            return;
+        }
+
+        if (!reviewForm.comment.trim()) {
+            alert('Vui long nhap noi dung danh gia');
+            return;
+        }
+
+        try {
+            setReviewLoading(true);
+            await productAPI.addReview(reviewModal.productId, {
+                rating: Number(reviewForm.rating),
+                comment: reviewForm.comment.trim(),
+                images: reviewImages,
+            });
+            alert('Danh gia thanh cong!');
+            setHasReviewed(true);
+            setReviewModal(null);
+            setReviewForm({ rating: 5, comment: '' });
+            setReviewImages([]);
+        } catch (error) {
+            alert(error.response?.data?.message || 'Khong the gui danh gia');
+        } finally {
+            setReviewLoading(false);
+        }
+    };
+
     if (loading) return <Loading/>;
     if (error)   return <div className="text-center py-12"><p className="text-red-500 mb-4">{error}</p><Link to="/orders" className="text-blue-600 hover:underline">← Quay lại</Link></div>;
     if (!order)  return null;
@@ -244,7 +432,7 @@ export default function OrderDetailPage() {
     const isReturn      = ['return_requested','return_approved','return_rejected','returned'].includes(order.status);
 
     // ✅ Hoàn trả chỉ tính từ ngày user xác nhận nhận hàng
-    const canReturn = isDelivered && userConfirmed &&
+    const canReturn = !hasReviewed && isDelivered && userConfirmed &&
         (Date.now() - new Date(order.userConfirmedAt).getTime()) / 86400000 <= RETURN_WINDOW_DAYS;
     const canRetryPayment = order.paymentMethod==='vnpay' && order.paymentStatus!=='completed'
         && order.status!=='cancelled' && !isExpired;
@@ -254,6 +442,7 @@ export default function OrderDetailPage() {
             <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap'); .od-card{background:#fff;border-radius:16px;border:1px solid #f1f5f9;box-shadow:0 1px 4px rgba(0,0,0,.05)} .od-btn{transition:all .2s} .od-btn:hover:not(:disabled){transform:translateY(-1px)}`}</style>
 
             {showModal&&<ReturnModal onClose={()=>setShowModal(false)} onSubmit={handleReturnSubmit} submitting={submitting}/>}
+            {reviewModal&&<ReviewModal modal={reviewModal} form={reviewForm} setForm={setReviewForm} images={reviewImages} setImages={setReviewImages} loading={reviewLoading} onClose={() => setReviewModal(null)} onSubmit={handleSubmitReview} onSelectProduct={handleSelectReviewProduct}/>}
 
             {/* Header */}
             <div className="flex items-center justify-between mb-6">
@@ -324,8 +513,14 @@ export default function OrderDetailPage() {
                                         {order.autoConfirmed && <p className="text-xs text-slate-400 mt-0.5">Hệ thống tự xác nhận vì bạn chưa phản hồi sau 24 giờ</p>}
                                     </div>
                                 </div>
-                                {canReturn&&(
-                                    <div className="flex items-center gap-2"><span>⏱</span><ReturnCountdown confirmedAt={order.userConfirmedAt}/></div>
+                                {!hasReviewed && canReturn&&(
+                                    <div className="flex items-center gap-2"><span>Hoàn trả:</span><ReturnCountdown confirmedAt={order.userConfirmedAt}/></div>
+                                )}
+                                {hasReviewed&&(
+                                    <div className="flex items-center gap-2 p-3 bg-emerald-50 border border-emerald-100 rounded-xl">
+                                        <span>Đã đánh giá</span>
+                                        <p className="text-sm font-semibold text-emerald-700">Ban da danh gia thanh cong</p>
+                                    </div>
                                 )}
                             </div>
                         )}
@@ -450,16 +645,22 @@ export default function OrderDetailPage() {
                         {/* ✅ Confirmed → Đánh giá + Mua lại + Hoàn trả */}
                         {isDelivered&&userConfirmed&&(
                             <>
-                                <Link to={`/orders/${id}/review`} className="od-btn block w-full py-3 text-center bg-slate-900 text-white rounded-xl font-semibold text-sm hover:bg-slate-700 transition-colors">⭐ Đánh giá sản phẩm</Link>
-                                <button onClick={handleReorder} className="od-btn w-full py-3 border-2 border-slate-200 text-slate-700 hover:bg-slate-50 rounded-xl font-semibold text-sm">🔄 Mua lại</button>
-                                {canReturn&&<button onClick={()=>setShowModal(true)} className="od-btn w-full py-3 border-2 border-orange-200 text-orange-500 hover:bg-orange-50 rounded-xl font-semibold text-sm">↩️ Yêu cầu hoàn trả (trong 3 ngày)</button>}
+                                {hasReviewed ? (
+                                    <div className="od-btn w-full py-3 text-center bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl font-semibold text-sm">
+                                        Bạn đã đánh giá thành công
+                                    </div>
+                                ) : (
+                                    <button onClick={openReviewModal} className="od-btn w-full py-3 text-center bg-slate-900 text-white rounded-xl font-semibold text-sm hover:bg-slate-700 transition-colors"> Đánh giá sản phẩm</button>
+                                )}
+                                <button onClick={handleReorder} className="od-btn w-full py-3 border-2 border-slate-200 text-slate-700 hover:bg-slate-50 rounded-xl font-semibold text-sm"> Mua lại</button>
+                                {!hasReviewed && canReturn&&<button onClick={()=>setShowModal(true)} className="od-btn w-full py-3 border-2 border-orange-200 text-orange-500 hover:bg-orange-50 rounded-xl font-semibold text-sm"> Yêu cầu hoàn trả (trong 3 ngày)</button>}
                             </>
                         )}
                         {order.status==='return_requested'&&<div className="od-card p-3 text-center"><p className="text-xs text-orange-500 font-semibold">⏳ Đang chờ admin xác nhận</p></div>}
                         {order.status==='returned'&&(
                             <>
-                                <button onClick={handleReorder} className="od-btn w-full py-3 border-2 border-slate-200 text-slate-700 hover:bg-slate-50 rounded-xl font-semibold text-sm">🔄 Mua lại</button>
-                                <div className="od-card p-3 text-center"><p className="text-xs text-slate-500 font-semibold">✔️ Hoàn trả hoàn tất</p></div>
+                                <button onClick={handleReorder} className="od-btn w-full py-3 border-2 border-slate-200 text-slate-700 hover:bg-slate-50 rounded-xl font-semibold text-sm"> Mua lại</button>
+                                <div className="od-card p-3 text-center"><p className="text-xs text-slate-500 font-semibold"> Hoàn trả hoàn tất</p></div>
                             </>
                         )}
                         <Link to="/products" className="od-btn block w-full py-3 text-center border border-slate-200 text-slate-600 rounded-xl font-semibold text-sm hover:bg-slate-50 transition-colors">Tiếp tục mua sắm</Link>

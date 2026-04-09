@@ -1,6 +1,7 @@
 const User    = require('../../model/User');
 const Order   = require('../../model/Order');
 const Address = require('../../model/Address');
+const loyaltyService = require('../loyalty/loyalty.service');
 
 // ─── Profile ──────────────────────────────────────────────────────────────────
 
@@ -9,7 +10,33 @@ exports.getProfile = async (req, res, next) => {
         const user = await User.findById(req.userId).select('-password');
         if (!user) return res.status(404).json({ status: 'error', message: 'User not found' });
 
-        res.status(200).json({ status: 'success', data: user });
+        let loyalty = null;
+        try {
+            loyalty = await loyaltyService.getUserPointsWithTier(req.userId);
+            await loyaltyService.syncUserLoyaltySnapshot(req.userId, loyalty).catch(() => null);
+        } catch (e) {
+            // Nếu MySQL lỗi (chưa migrate/connection fail) thì vẫn trả profile.
+            console.error('[Loyalty] getUserPointsWithTier failed:', e.message);
+        }
+
+        res.status(200).json({
+            status: 'success',
+            data: {
+                ...user.toObject(),
+                loyalty: loyalty
+                    ? {
+                        spendable_points: loyalty.spendable_points,
+                        tier_points: loyalty.tier_points,
+                        tier: {
+                            id: loyalty.current_tier_id,
+                            name: loyalty.tier_name,
+                            discount_percent: loyalty.tier_discount_percent,
+                            icon_key: loyalty.tier_icon_key,
+                        },
+                    }
+                    : null,
+            },
+        });
     } catch (error) {
         next(error);
     }

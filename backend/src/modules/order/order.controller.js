@@ -2,6 +2,7 @@ const Order    = require('../../model/Order');
 const { pool } = require('../../db/mysql');
 const Product  = require('../../model/Product');
 const Voucher  = require('../../model/Voucher');
+const Promotion = require('../../model/Promotion');
 const User     = require('../../model/User');
 const mongoose = require('mongoose');
 const { 
@@ -165,17 +166,65 @@ const createOrder = async (req, res) => {
                     });
             }
 
-            const itemPrice = item.price || product.price;
+            // Base price (never trust client-provided price)
+            let basePrice = Number(product.price) || 0;
+            if (color && size && product.variants?.length > 0) {
+                const variant = product.variants.find(v => v.color === color && v.size === size);
+                if (variant && Number(variant.price) > 0) basePrice = Number(variant.price);
+            }
+
+            const discountPercent = Number(product.discount) || 0;
+            const sellingPrice = discountPercent > 0
+                ? Math.round(basePrice * (1 - discountPercent / 100))
+                : basePrice;
+
+            let itemPrice = sellingPrice;
+            let flashSalePromotionId = item.flashSalePromotionId || null;
+
+            // Flash sale price (server-side validate if client provides promotion id)
+            if (flashSalePromotionId) {
+                const now = new Date();
+                const promo = await Promotion.findOne({
+                    _id: flashSalePromotionId,
+                    type: 'flash_sale',
+                    isActive: true,
+                    startDate: { $lte: now },
+                    endDate: { $gte: now },
+                    productIds: product._id,
+                })
+                    .select('flashSaleRemaining flashSaleItems flashSalePrice')
+                    .lean();
+
+                if (!promo) {
+                    return res.status(400).json({ status: 'error', message: 'Flash sale Ä‘Ã£ káº¿t thÃºc hoáº·c khÃ´ng hÃ²a há»£p.' });
+                }
+
+                const pid = String(product._id);
+                const itemPriceOverride = Array.isArray(promo.flashSaleItems)
+                    ? promo.flashSaleItems.find((it) => String(it.productId) === pid)?.price
+                    : undefined;
+                const priceOverride = itemPriceOverride ?? promo.flashSalePrice;
+
+                if (priceOverride === null || priceOverride === undefined) {
+                    return res.status(400).json({ status: 'error', message: 'Flash sale khÃ´ng cÃ³ giÃ¡ cho sáº£n pháº©m nÃ y.' });
+                }
+                if (promo.flashSaleRemaining !== null && promo.flashSaleRemaining < item.quantity) {
+                    return res.status(400).json({ status: 'error', message: 'Flash sale Ä‘Ã£ háº¿t slot.' });
+                }
+
+                itemPrice = Number(priceOverride);
+            }
             subtotal += itemPrice * item.quantity;
             verifiedItems.push({
                 productId: product._id,
                 name:      product.name,
                 price:     itemPrice,
                 costPrice: product.costPrice || product.avgCost || 0,
-                discount:  item.discount || 0,
+                discount:  discountPercent,
                 quantity:  item.quantity,
                 color, size,
                 image:     product.images?.[0] || '',
+                flashSalePromotionId,
             });
         }
 
@@ -195,11 +244,12 @@ const createOrder = async (req, res) => {
         const shippingFee = Number(clientShippingFee) || 0;
         const total       = subtotal + shippingFee - discountAmount;
 
-        // Atomic decrement stock
+        // Atomic decrement stock (+ flash sale remaining)
         const reservedItems = [];
+        const reservedFlashSales = [];
         try {
             for (const item of verifiedItems) {
-                const { productId, quantity, color, size } = item;
+                const { productId, quantity, color, size, flashSalePromotionId } = item;
                 let updated;
                 if (color && size) {
                     const product = await Product.findById(productId);
@@ -225,14 +275,53 @@ const createOrder = async (req, res) => {
                 if (!updated) {
                     for (const reserved of reservedItems)
                         await incrementStock(reserved.productId, reserved.quantity, reserved.color, reserved.size);
+                    for (const reserved of reservedFlashSales)
+                        await Promotion.findByIdAndUpdate(reserved.promotionId, { $inc: { flashSaleRemaining: reserved.quantity } });
                     const product = await Product.findById(productId).lean();
                     return res.status(400).json({ status: 'error', message: `"${product?.name || productId}" vừa hết hàng.` });
                 }
                 reservedItems.push({ productId, quantity, color, size });
+
+                if (flashSalePromotionId) {
+                    const now = new Date();
+                    const promoUpdated = await Promotion.findOneAndUpdate(
+                        {
+                            _id: flashSalePromotionId,
+                            type: 'flash_sale',
+                            isActive: true,
+                            startDate: { $lte: now },
+                            endDate: { $gte: now },
+                            productIds: productId,
+                            flashSaleRemaining: { $gte: quantity },
+                        },
+                        { $inc: { flashSaleRemaining: -quantity } },
+                        { new: true },
+                    ).lean();
+
+                    if (!promoUpdated) {
+                        for (const reserved of reservedItems)
+                            await incrementStock(reserved.productId, reserved.quantity, reserved.color, reserved.size);
+                        for (const reserved of reservedFlashSales)
+                            await Promotion.findByIdAndUpdate(reserved.promotionId, { $inc: { flashSaleRemaining: reserved.quantity } });
+                        return res.status(400).json({ status: 'error', message: 'Flash sale Ä‘Ã£ háº¿t slot.' });
+                    }
+
+                    reservedFlashSales.push({ promotionId: flashSalePromotionId, quantity });
+
+                    const io = req.app.get('io');
+                    if (io) {
+                        io.emit('flash-sale:remaining', {
+                            promotionId: String(promoUpdated._id),
+                            remaining: promoUpdated.flashSaleRemaining,
+                        });
+                    }
+                }
             }
         } catch (err) {
             for (const reserved of reservedItems)
                 await incrementStock(reserved.productId, reserved.quantity, reserved.color, reserved.size);
+            for (const reserved of reservedFlashSales)
+                await Promotion.findByIdAndUpdate(reserved.promotionId, { $inc: { flashSaleRemaining: reserved.quantity } });
             throw err;
         }
 

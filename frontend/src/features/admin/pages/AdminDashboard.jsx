@@ -1,181 +1,281 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { useAdmin } from '@features/admin/hooks/useAdmin';
+﻿import React, { useEffect, useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
+import { useAdmin } from '@features/admin/hooks/useAdmin';
 import apiClient from '@features/shared/services/apiClient';
+import { AdminPage, AdminPageBody, AdminSectionCard, AdminSkeletonBlock } from '@features/admin/components/AdminUI';
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
-const fmt      = v => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(v);
-const fmtShort = v => {
-  if (v >= 1_000_000_000) return (v / 1_000_000_000).toFixed(1) + 'B';
-  if (v >= 1_000_000)     return (v / 1_000_000).toFixed(1) + 'M';
-  if (v >= 1_000)         return (v / 1_000).toFixed(0) + 'K';
-  return String(Math.round(v));
+const fmt = (value) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(value || 0);
+const fmtShort = (value) => {
+  if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)}B`;
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `${Math.round(value / 1_000)}K`;
+  return String(Math.round(value || 0));
 };
-const MONTHS = ['T1','T2','T3','T4','T5','T6','T7','T8','T9','T10','T11','T12'];
+const MONTHS = ['T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10', 'T11', 'T12'];
 const STATUS_CFG = {
-  pending:    { label:'Chờ xác nhận', dot:'#F59E0B', bg:'#FFFBEB', text:'#B45309' },
-  confirmed:  { label:'Đã xác nhận',  dot:'#3B82F6', bg:'#EFF6FF', text:'#1D4ED8' },
-  processing: { label:'Đang xử lý',   dot:'#8B5CF6', bg:'#F5F3FF', text:'#6D28D9' },
-  shipped:    { label:'Đang giao',    dot:'#06B6D4', bg:'#ECFEFF', text:'#0E7490' },
-  delivered:  { label:'Đã giao',      dot:'#10B981', bg:'#ECFDF5', text:'#047857' },
-  cancelled:  { label:'Đã hủy',       dot:'#EF4444', bg:'#FEF2F2', text:'#B91C1C' },
+  pending: { label: 'Chờ xác nhận', dot: '#F59E0B', bg: '#FFFBEB', text: '#B45309' },
+  confirmed: { label: 'Đã xác nhận', dot: '#3B82F6', bg: '#EFF6FF', text: '#1D4ED8' },
+  processing: { label: 'Đang xử lý', dot: '#8B5CF6', bg: '#F5F3FF', text: '#6D28D9' },
+  shipped: { label: 'Đang giao', dot: '#06B6D4', bg: '#ECFEFF', text: '#0E7490' },
+  delivered: { label: 'Đã giao', dot: '#10B981', bg: '#ECFDF5', text: '#047857' },
+  cancelled: { label: 'Đã hủy', dot: '#EF4444', bg: '#FEF2F2', text: '#B91C1C' },
 };
-const sc = s => STATUS_CFG[s] || { label:s, dot:'#94A3B8', bg:'#F8FAFC', text:'#475569' };
-const CAT_COLORS = ['#3B82F6','#8B5CF6','#10B981','#F59E0B','#EF4444','#06B6D4','#EC4899','#84CC16'];
+const CAT_COLORS = ['#2563EB', '#7C3AED', '#10B981', '#F59E0B', '#EF4444', '#06B6D4', '#EC4899', '#84CC16'];
 
-// ── Animated Counter ──────────────────────────────────────────────────────────
-function Counter({ target, duration = 1000 }) {
-  const [val, setVal] = useState(0);
-  const raf = useRef(null);
-  useEffect(() => {
-    const start = performance.now();
-    const run = now => {
-      const p = Math.min((now - start) / duration, 1);
-      setVal(Math.round((1 - Math.pow(1 - p, 3)) * target));
-      if (p < 1) raf.current = requestAnimationFrame(run);
-    };
-    raf.current = requestAnimationFrame(run);
-    return () => cancelAnimationFrame(raf.current);
-  }, [target]);
-  return <>{val.toLocaleString('vi-VN')}</>;
+const QUICK_LINKS = [
+  { label: 'Sản phẩm', desc: 'Quản lý kho', to: '/admin/products', icon: 'product', tint: 'bg-blue-50 text-blue-700' },
+  { label: 'Danh mục', desc: 'Phân loại', to: '/admin/categories', icon: 'category', tint: 'bg-violet-50 text-violet-700' },
+  { label: 'Đơn hàng', desc: 'Xử lý đơn', to: '/admin/orders', icon: 'order', tint: 'bg-cyan-50 text-cyan-700' },
+  { label: 'Người dùng', desc: 'Tài khoản', to: '/admin/users', icon: 'user', tint: 'bg-emerald-50 text-emerald-700' },
+  { label: 'Đánh giá', desc: 'Phản hồi', to: '/admin/reviews', icon: 'review', tint: 'bg-amber-50 text-amber-700' },
+  { label: 'Voucher', desc: 'Khuyến mãi', to: '/admin/vouchers', icon: 'voucher', tint: 'bg-rose-50 text-rose-700' },
+];
+
+const statusConfig = (status) => STATUS_CFG[status] || { label: status, dot: '#94A3B8', bg: '#F8FAFC', text: '#475569' };
+
+function Glyph({ name, className = 'h-5 w-5' }) {
+  switch (name) {
+    case 'users':
+      return (
+        <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15.5 7.75a3.5 3.5 0 11-7 0 3.5 3.5 0 017 0zM4.75 18a6.25 6.25 0 0112.5 0M17 8.5a2.5 2.5 0 012.25 2.25M18.5 18a4.75 4.75 0 00-1.3-3.25" />
+        </svg>
+      );
+    case 'product':
+      return (
+        <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 3.75l7 3.5-7 3.5-7-3.5 7-3.5zm7 3.5v9.5l-7 3.5-7-3.5v-9.5m7 3.5v9.5" />
+        </svg>
+      );
+    case 'order':
+      return (
+        <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8 7.25h10.25M8 12h10.25M8 16.75h6.25M5.75 7.25h.01M5.75 12h.01M5.75 16.75h.01" />
+        </svg>
+      );
+    case 'revenue':
+      return (
+        <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M6.75 15.25l3.25-3.25 2.5 2.5 4.75-5.25M19 19.25H5" />
+        </svg>
+      );
+    case 'category':
+      return (
+        <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M5 6.5h14M5 12h14M5 17.5h14M3.75 6.5h.01M3.75 12h.01M3.75 17.5h.01" />
+        </svg>
+      );
+    case 'user':
+      return (
+        <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15.5 7.75a3.5 3.5 0 11-7 0 3.5 3.5 0 017 0zM4.75 18a6.25 6.25 0 0112.5 0" />
+        </svg>
+      );
+    case 'review':
+      return (
+        <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 4.75l1.93 3.92 4.32.63-3.13 3.05.74 4.31L12 14.63l-3.86 2.03.74-4.31-3.13-3.05 4.32-.63L12 4.75z" />
+        </svg>
+      );
+    case 'voucher':
+      return (
+        <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8 6.75h8.75a2 2 0 012 2V11a1.75 1.75 0 010 3.5v2.25a2 2 0 01-2 2H8a2 2 0 01-2-2V14.5a1.75 1.75 0 010-3.5V8.75a2 2 0 012-2zm3-1.5l2 14" />
+        </svg>
+      );
+    default:
+      return null;
+  }
 }
 
-// ── Change Badge ──────────────────────────────────────────────────────────────
+function Counter({ target, duration = 900, formatter = (value) => value.toLocaleString('vi-VN') }) {
+  const [value, setValue] = useState(0);
+  const raf = useRef(null);
+
+  useEffect(() => {
+    const start = performance.now();
+    const run = (now) => {
+      const progress = Math.min((now - start) / duration, 1);
+      setValue(Math.round((1 - Math.pow(1 - progress, 3)) * (target || 0)));
+      if (progress < 1) raf.current = requestAnimationFrame(run);
+    };
+
+    raf.current = requestAnimationFrame(run);
+    return () => cancelAnimationFrame(raf.current);
+  }, [target, duration]);
+
+  return formatter(value);
+}
+
 function ChangeBadge({ value }) {
-  if (!value && value !== 0) return null;
-  if (value === 0) return <span className="text-xs text-slate-400 font-semibold">— Không đổi</span>;
-  const up = value > 0;
+  if (value === undefined || value === null) return null;
+  if (value === 0) return <span className="text-xs font-semibold text-slate-400">Không đổi</span>;
+
+  const positive = value > 0;
   return (
-    <span className={`inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full ${up ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-600'}`}>
-      {up ? '↑' : '↓'} {Math.abs(value)}% so với kỳ trước
+    <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold ${positive ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-600'}`}>
+      <span>{positive ? '↑' : '↓'}</span>
+      <span>{Math.abs(value)}% so với kỳ trước</span>
     </span>
   );
 }
 
-// ── KPI Card ──────────────────────────────────────────────────────────────────
-function KpiCard({ label, rawValue, sub, icon, gradient, delay = 0 }) {
+function MetricCard({ title, value, caption, icon, tone, formatter }) {
+  const tones = {
+    blue: 'from-blue-600 to-blue-500 text-white shadow-[0_18px_40px_rgba(37,99,235,0.18)]',
+    violet: 'from-violet-600 to-violet-500 text-white shadow-[0_18px_40px_rgba(124,58,237,0.18)]',
+    cyan: 'from-cyan-600 to-cyan-500 text-white shadow-[0_18px_40px_rgba(8,145,178,0.18)]',
+    emerald: 'from-emerald-600 to-emerald-500 text-white shadow-[0_18px_40px_rgba(5,150,105,0.18)]',
+  };
+
   return (
-    <div className="kpi-card relative overflow-hidden rounded-2xl p-5 shadow-sm hover:shadow-lg transition-all duration-300"
-      style={{ background: gradient, animationDelay: `${delay}ms` }}>
-      <div className="absolute -top-6 -right-6 w-24 h-24 rounded-full bg-white/10"/>
-      <div className="absolute -bottom-8 right-2 w-16 h-16 rounded-full bg-white/5"/>
-      <div className="relative z-10">
-        <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center text-xl mb-3">{icon}</div>
-        <p className="text-white/60 text-[11px] font-semibold uppercase tracking-widest mb-1">{label}</p>
-        <p className="text-white text-3xl font-bold tracking-tight"><Counter target={rawValue || 0}/></p>
-        {sub && <p className="text-white/50 text-[11px] mt-1.5">{sub}</p>}
+    <div className={`relative overflow-hidden rounded-[28px] bg-gradient-to-br p-5 ${tones[tone]}`}>
+      <div className="absolute -right-8 -top-8 h-28 w-28 rounded-full bg-white/10" />
+      <div className="absolute bottom-0 right-0 h-20 w-20 rounded-full bg-white/5 blur-2xl" />
+      <div className="relative">
+        <div className="mb-5 flex h-11 w-11 items-center justify-center rounded-2xl bg-white/14 backdrop-blur">
+          <Glyph name={icon} className="h-5 w-5" />
+        </div>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white/70">{title}</p>
+        <p className="mt-3 text-3xl font-black tracking-[-0.04em]">
+          <Counter target={value || 0} formatter={formatter} />
+        </p>
+        <p className="mt-2 text-sm text-white/70">{caption}</p>
       </div>
     </div>
   );
 }
 
-// ── Area Chart ────────────────────────────────────────────────────────────────
-function AreaChart({ series, period }) {
+function SectionCard({ title, subtitle, action, children, className = '' }) {
+  return (
+    <section className={`rounded-[30px] border border-slate-200/70 bg-white p-6 shadow-[0_12px_40px_rgba(15,23,42,0.04)] ${className}`}>
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-bold tracking-[-0.03em] text-slate-900">{title}</h2>
+          {subtitle && <p className="mt-1 text-sm text-slate-400">{subtitle}</p>}
+        </div>
+        {action}
+      </div>
+      {children}
+    </section>
+  );
+}
+function AreaChart({ series }) {
   const [hovered, setHovered] = useState(null);
   const svgRef = useRef(null);
 
-  if (!series || series.length === 0) return (
-    <div className="h-56 flex items-center justify-center text-slate-300 text-sm">Chưa có dữ liệu</div>
-  );
+  if (!series?.length) {
+    return <div className="flex h-64 items-center justify-center text-sm text-slate-300">Chưa có dữ liệu</div>;
+  }
 
-  const W = 600, H = 180;
-  const PAD = { t: 10, r: 10, b: 32, l: 52 };
-  const iW  = W - PAD.l - PAD.r;
-  const iH  = H - PAD.t - PAD.b;
-  const maxVal = Math.max(...series.map(d => Math.max(d.revenue || 0, d.profit || 0)), 1);
-  const xS = i  => PAD.l + (i / Math.max(series.length - 1, 1)) * iW;
-  const yS = v  => PAD.t + iH - (v / maxVal) * iH;
-  const toPath = key => series.map((d, i) => `${i === 0 ? 'M' : 'L'}${xS(i)},${yS(d[key] || 0)}`).join('');
-  const toArea = key => `${toPath(key)}L${xS(series.length-1)},${PAD.t+iH}L${xS(0)},${PAD.t+iH}Z`;
-  const getLabel = d => d._id?.day ? `${d._id.day}/${d._id.month}` : MONTHS[(d._id?.month || 1) - 1];
+  const width = 640;
+  const height = 210;
+  const pad = { top: 14, right: 12, bottom: 34, left: 56 };
+  const innerWidth = width - pad.left - pad.right;
+  const innerHeight = height - pad.top - pad.bottom;
+  const maxValue = Math.max(...series.map((item) => Math.max(item.revenue || 0, item.profit || 0)), 1);
+  const xScale = (index) => pad.left + (index / Math.max(series.length - 1, 1)) * innerWidth;
+  const yScale = (value) => pad.top + innerHeight - (value / maxValue) * innerHeight;
+  const labelOf = (item) => (item._id?.day ? `${item._id.day}/${item._id.month}` : MONTHS[(item._id?.month || 1) - 1]);
 
+  const linePath = (key) => series.map((item, index) => `${index === 0 ? 'M' : 'L'}${xScale(index)},${yScale(item[key] || 0)}`).join(' ');
+  const areaPath = (key) => `${linePath(key)} L${xScale(series.length - 1)},${pad.top + innerHeight} L${xScale(0)},${pad.top + innerHeight} Z`;
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((point) => ({ value: Math.round(point * maxValue), y: yScale(point * maxValue) }));
   const xLabels = series.length <= 12
-    ? series.map((d, i) => ({ i, label: getLabel(d) }))
-    : series.reduce((acc, d, i) => {
-        if (i % Math.ceil(series.length / 7) === 0 || i === series.length - 1) acc.push({ i, label: getLabel(d) });
-        return acc;
+    ? series.map((item, index) => ({ index, label: labelOf(item) }))
+    : series.reduce((result, item, index) => {
+        const step = Math.ceil(series.length / 7);
+        if (index % step === 0 || index === series.length - 1) result.push({ index, label: labelOf(item) });
+        return result;
       }, []);
 
-  const yTicks = [0, 0.25, 0.5, 0.75, 1].map(p => ({ pct: p, v: Math.round(p * maxVal), y: yS(p * maxVal) }));
-
   return (
-    <div className="relative select-none">
-      <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="w-full"
+    <div className="relative">
+      <svg
+        ref={svgRef}
+        viewBox={`0 0 ${width} ${height}`}
+        className="w-full"
         onMouseLeave={() => setHovered(null)}
-        onMouseMove={e => {
+        onMouseMove={(event) => {
           if (!svgRef.current) return;
           const rect = svgRef.current.getBoundingClientRect();
-          const mx = (e.clientX - rect.left) / rect.width * W;
-          let ci = 0, md = Infinity;
-          series.forEach((_, i) => { const d = Math.abs(xS(i) - mx); if (d < md) { md = d; ci = i; } });
-          setHovered(md < 36 ? ci : null);
-        }}>
+          const mouseX = ((event.clientX - rect.left) / rect.width) * width;
+          let nearest = 0;
+          let minDistance = Infinity;
+          series.forEach((_, index) => {
+            const distance = Math.abs(xScale(index) - mouseX);
+            if (distance < minDistance) {
+              minDistance = distance;
+              nearest = index;
+            }
+          });
+          setHovered(minDistance < 40 ? nearest : null);
+        }}
+      >
         <defs>
-          <linearGradient id="gRev" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#3B82F6" stopOpacity="0.22"/>
-            <stop offset="100%" stopColor="#3B82F6" stopOpacity="0"/>
+          <linearGradient id="dashboardRevenue" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#2563EB" stopOpacity="0.24" />
+            <stop offset="100%" stopColor="#2563EB" stopOpacity="0" />
           </linearGradient>
-          <linearGradient id="gPro" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#10B981" stopOpacity="0.18"/>
-            <stop offset="100%" stopColor="#10B981" stopOpacity="0"/>
+          <linearGradient id="dashboardProfit" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#10B981" stopOpacity="0.18" />
+            <stop offset="100%" stopColor="#10B981" stopOpacity="0" />
           </linearGradient>
         </defs>
-        {yTicks.map(({ pct, v, y }) => (
-          <g key={pct}>
-            <line x1={PAD.l} y1={y} x2={W - PAD.r} y2={y} stroke="#E2E8F0" strokeWidth="1"/>
-            <text x={PAD.l - 5} y={y + 4} textAnchor="end" fontSize="9" fill="#94A3B8">{fmtShort(v)}</text>
+
+        {yTicks.map((tick) => (
+          <g key={tick.y}>
+            <line x1={pad.left} y1={tick.y} x2={width - pad.right} y2={tick.y} stroke="#E2E8F0" strokeWidth="1" />
+            <text x={pad.left - 8} y={tick.y + 4} textAnchor="end" fontSize="9" fill="#94A3B8">{fmtShort(tick.value)}</text>
           </g>
         ))}
-        <path d={toArea('revenue')} fill="url(#gRev)"/>
-        <path d={toArea('profit')}  fill="url(#gPro)"/>
-        <path d={toPath('revenue')} fill="none" stroke="#3B82F6" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-        <path d={toPath('profit')}  fill="none" stroke="#10B981" strokeWidth="2"   strokeLinecap="round" strokeLinejoin="round"/>
+
+        <path d={areaPath('revenue')} fill="url(#dashboardRevenue)" />
+        <path d={areaPath('profit')} fill="url(#dashboardProfit)" />
+        <path d={linePath('revenue')} fill="none" stroke="#2563EB" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+        <path d={linePath('profit')} fill="none" stroke="#10B981" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+
         {hovered !== null && (
           <>
-            <line x1={xS(hovered)} y1={PAD.t} x2={xS(hovered)} y2={PAD.t+iH} stroke="#CBD5E1" strokeWidth="1" strokeDasharray="4 3"/>
-            <circle cx={xS(hovered)} cy={yS(series[hovered].revenue||0)} r="5" fill="#3B82F6" stroke="white" strokeWidth="2"/>
-            <circle cx={xS(hovered)} cy={yS(series[hovered].profit||0)}  r="4" fill="#10B981" stroke="white" strokeWidth="2"/>
+            <line x1={xScale(hovered)} y1={pad.top} x2={xScale(hovered)} y2={pad.top + innerHeight} stroke="#CBD5E1" strokeWidth="1" strokeDasharray="4 4" />
+            <circle cx={xScale(hovered)} cy={yScale(series[hovered].revenue || 0)} r="5" fill="#2563EB" stroke="white" strokeWidth="2" />
+            <circle cx={xScale(hovered)} cy={yScale(series[hovered].profit || 0)} r="4.5" fill="#10B981" stroke="white" strokeWidth="2" />
           </>
         )}
-        {xLabels.map(({ i, label }) => (
-          <text key={i} x={xS(i)} y={H - 2} textAnchor="middle" fontSize="9"
-            fill={hovered === i ? '#3B82F6' : '#94A3B8'} fontWeight={hovered === i ? '700' : '500'}>{label}</text>
+
+        {xLabels.map((item) => (
+          <text
+            key={item.index}
+            x={xScale(item.index)}
+            y={height - 4}
+            textAnchor="middle"
+            fontSize="9"
+            fill={hovered === item.index ? '#2563EB' : '#94A3B8'}
+            fontWeight={hovered === item.index ? '700' : '500'}
+          >
+            {item.label}
+          </text>
         ))}
       </svg>
 
-      {hovered !== null && (() => {
-        const d = series[hovered];
-        const xPct = (xS(hovered) / W) * 100;
-        const isRight = xPct > 65;
-        return (
-          <div className="absolute top-2 pointer-events-none z-20"
-            style={{ left: isRight ? 'auto' : `${xPct}%`, right: isRight ? `${100 - xPct}%` : 'auto', marginLeft: isRight ? 0 : 12 }}>
-            <div className="bg-slate-900 text-white text-xs rounded-xl px-3 py-2.5 shadow-xl min-w-[145px]">
-              <p className="font-bold text-slate-300 mb-2">{getLabel(d)}</p>
-              <div className="space-y-1">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="flex items-center gap-1.5 text-slate-400"><span className="w-2 h-2 rounded-full bg-blue-400"/>Doanh thu</span>
-                  <span className="font-bold text-blue-300">{fmtShort(d.revenue||0)}₫</span>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <span className="flex items-center gap-1.5 text-slate-400"><span className="w-2 h-2 rounded-full bg-emerald-400"/>Lợi nhuận</span>
-                  <span className="font-bold text-emerald-300">{fmtShort(d.profit||0)}₫</span>
-                </div>
-                <div className="border-t border-slate-700 pt-1 flex items-center justify-between">
-                  <span className="text-slate-400">Đơn hàng</span>
-                  <span className="font-bold">{d.orders}</span>
-                </div>
-              </div>
+      {hovered !== null && (
+        <div className="pointer-events-none absolute left-0 top-2 z-10" style={{ transform: `translateX(${Math.min((xScale(hovered) / width) * 100, 82)}%)` }}>
+          <div className="min-w-[160px] rounded-2xl bg-slate-950 px-3.5 py-3 text-xs text-white shadow-2xl">
+            <p className="mb-2 font-bold text-slate-300">{labelOf(series[hovered])}</p>
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between gap-4"><span className="text-slate-400">Doanh thu</span><span className="font-bold text-blue-300">{fmtShort(series[hovered].revenue || 0)}₫</span></div>
+              <div className="flex items-center justify-between gap-4"><span className="text-slate-400">Lợi nhuận</span><span className="font-bold text-emerald-300">{fmtShort(series[hovered].profit || 0)}₫</span></div>
+              <div className="flex items-center justify-between gap-4 border-t border-slate-800 pt-1.5"><span className="text-slate-400">Đơn hàng</span><span className="font-bold">{series[hovered].orders || 0}</span></div>
             </div>
           </div>
-        );
-      })()}
+        </div>
+      )}
 
-      <div className="flex items-center justify-end gap-4 mt-2">
-        {[['#3B82F6','Doanh thu'],['#10B981','Lợi nhuận']].map(([c,l]) => (
-          <div key={l} className="flex items-center gap-1.5">
-            <div className="w-5 h-0.5 rounded" style={{ background: c }}/>
-            <span className="text-[11px] text-slate-400 font-medium">{l}</span>
+      <div className="mt-2 flex items-center justify-end gap-5">
+        {[['#2563EB', 'Doanh thu'], ['#10B981', 'Lợi nhuận']].map(([color, label]) => (
+          <div key={label} className="flex items-center gap-2 text-[11px] font-medium text-slate-400">
+            <span className="h-0.5 w-5 rounded" style={{ background: color }} />
+            <span>{label}</span>
           </div>
         ))}
       </div>
@@ -183,59 +283,74 @@ function AreaChart({ series, period }) {
   );
 }
 
-// ── Category Donut ────────────────────────────────────────────────────────────
 function CategoryDonut({ data }) {
   const [hovered, setHovered] = useState(null);
-  if (!data?.length) return <div className="h-48 flex items-center justify-center text-slate-300 text-sm">Chưa có dữ liệu</div>;
 
-  const total = data.reduce((s, d) => s + d.revenue, 0);
-  const r = 15.9, circ = 2 * Math.PI * r;
-  let cum = 0;
-  const segs = data.map((d, i) => {
-    const pct = d.revenue / total;
-    const off = cum;
-    cum += pct;
-    return { ...d, pct, off, color: CAT_COLORS[i % CAT_COLORS.length] };
+  if (!data?.length) {
+    return <div className="flex h-56 items-center justify-center text-sm text-slate-300">Chưa có dữ liệu</div>;
+  }
+
+  const total = data.reduce((sum, item) => sum + (item.revenue || 0), 0) || 1;
+  const radius = 15.9;
+  const circumference = 2 * Math.PI * radius;
+  let cumulative = 0;
+  const segments = data.map((item, index) => {
+    const ratio = (item.revenue || 0) / total;
+    const segment = { ...item, ratio, offset: cumulative, color: CAT_COLORS[index % CAT_COLORS.length] };
+    cumulative += ratio;
+    return segment;
   });
 
   return (
-    <div className="flex gap-5 items-center">
-      <div className="relative w-40 h-40 flex-shrink-0">
-        <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90">
-          <circle cx="18" cy="18" r={r} fill="none" stroke="#F1F5F9" strokeWidth="3.5"/>
-          {segs.map((seg, i) => (
-            <circle key={i} cx="18" cy="18" r={r} fill="none" stroke={seg.color}
-              strokeWidth={hovered === i ? 5 : 3.5}
-              strokeDasharray={`${seg.pct * circ} ${circ}`}
-              strokeDashoffset={-seg.off * circ}
-              style={{ cursor:'pointer', transition:'stroke-width .15s' }}
-              onMouseEnter={() => setHovered(i)}
-              onMouseLeave={() => setHovered(null)}/>
+    <div className="flex flex-col gap-5 xl:flex-row xl:items-center">
+      <div className="relative mx-auto h-40 w-40 flex-shrink-0 xl:mx-0">
+        <svg viewBox="0 0 36 36" className="h-full w-full -rotate-90">
+          <circle cx="18" cy="18" r={radius} fill="none" stroke="#E2E8F0" strokeWidth="3.6" />
+          {segments.map((segment, index) => (
+            <circle
+              key={segment._id || index}
+              cx="18"
+              cy="18"
+              r={radius}
+              fill="none"
+              stroke={segment.color}
+              strokeWidth={hovered === index ? 5 : 3.6}
+              strokeDasharray={`${segment.ratio * circumference} ${circumference}`}
+              strokeDashoffset={-segment.offset * circumference}
+              style={{ transition: 'stroke-width .15s ease', cursor: 'pointer' }}
+              onMouseEnter={() => setHovered(index)}
+              onMouseLeave={() => setHovered(null)}
+            />
           ))}
         </svg>
-        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center px-3">
+        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
           {hovered !== null ? (
             <>
-              <span className="text-lg font-bold text-slate-800">{segs[hovered].percentage}%</span>
-              <span className="text-[10px] text-slate-400 leading-tight">{segs[hovered].name}</span>
+              <span className="text-xl font-black tracking-[-0.04em] text-slate-900">{segments[hovered].percentage}%</span>
+              <span className="mt-1 max-w-[90px] text-[11px] leading-4 text-slate-400">{segments[hovered].name}</span>
             </>
           ) : (
             <>
-              <span className="text-lg font-bold text-slate-800">{data.length}</span>
-              <span className="text-[10px] text-slate-400">danh mục</span>
+              <span className="text-xl font-black tracking-[-0.04em] text-slate-900">{data.length}</span>
+              <span className="mt-1 text-[11px] text-slate-400">danh mục</span>
             </>
           )}
         </div>
       </div>
-      <div className="flex-1 space-y-2 min-w-0">
-        {segs.map((seg, i) => (
-          <div key={i} className={`flex items-center gap-2 p-1.5 rounded-lg cursor-pointer transition-colors ${hovered===i?'bg-slate-50':''}`}
-            onMouseEnter={() => setHovered(i)} onMouseLeave={() => setHovered(null)}>
-            <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: seg.color }}/>
-            <span className="text-xs text-slate-600 truncate flex-1">{seg.name}</span>
-            <div className="flex-shrink-0 text-right">
-              <span className="text-xs font-bold text-slate-700">{seg.percentage}%</span>
-              <p className="text-[10px] text-slate-400">{fmtShort(seg.revenue)}₫</p>
+
+      <div className="min-w-0 flex-1 space-y-2.5">
+        {segments.map((segment, index) => (
+          <div
+            key={segment._id || index}
+            className={`flex items-center gap-3 rounded-2xl px-3 py-2.5 transition-colors ${hovered === index ? 'bg-slate-50' : 'bg-transparent'}`}
+            onMouseEnter={() => setHovered(index)}
+            onMouseLeave={() => setHovered(null)}
+          >
+            <span className="h-2.5 w-2.5 flex-shrink-0 rounded-sm" style={{ background: segment.color }} />
+            <span className="flex-1 truncate text-sm font-medium text-slate-600">{segment.name}</span>
+            <div className="text-right">
+              <p className="text-sm font-bold text-slate-800">{segment.percentage}%</p>
+              <p className="text-[11px] text-slate-400">{fmtShort(segment.revenue || 0)}₫</p>
             </div>
           </div>
         ))}
@@ -244,91 +359,75 @@ function CategoryDonut({ data }) {
   );
 }
 
-// ── Top Products ──────────────────────────────────────────────────────────────
 function TopProductsChart({ data }) {
-  const [hov, setHov] = useState(null);
-  if (!data?.length) return <div className="h-48 flex items-center justify-center text-slate-300 text-sm">Chưa có dữ liệu</div>;
+  const [hovered, setHovered] = useState(null);
+
+  if (!data?.length) {
+    return <div className="flex h-56 items-center justify-center text-sm text-slate-300">Chưa có dữ liệu</div>;
+  }
 
   return (
     <div className="space-y-3">
-      {data.map((p, i) => (
-        <div key={p._id || i}
-          className={`flex items-center gap-3 p-2 rounded-xl transition-colors ${hov===i?'bg-slate-50':''}`}
-          onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)}>
-          <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-[11px] font-black flex-shrink-0 ${
-            i===0?'bg-amber-100 text-amber-700':i===1?'bg-slate-200 text-slate-600':i===2?'bg-orange-100 text-orange-700':'bg-slate-100 text-slate-500'
-          }`}>{i+1}</div>
-          <div className="w-9 h-9 rounded-xl bg-slate-100 flex-shrink-0 overflow-hidden border border-slate-200">
-            {p.image
-              ? <img src={p.image} alt={p.name} className="w-full h-full object-cover"/>
-              : <div className="w-full h-full flex items-center justify-center text-slate-300 text-sm">📦</div>}
+      {data.map((item, index) => (
+        <div
+          key={item._id || index}
+          className={`flex items-center gap-3 rounded-2xl border border-transparent px-2 py-2 transition-all ${hovered === index ? 'border-slate-200 bg-slate-50' : 'bg-transparent'}`}
+          onMouseEnter={() => setHovered(index)}
+          onMouseLeave={() => setHovered(null)}
+        >
+          <div className={`flex h-7 w-7 items-center justify-center rounded-xl text-[11px] font-black ${index === 0 ? 'bg-amber-100 text-amber-700' : index === 1 ? 'bg-slate-200 text-slate-700' : index === 2 ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-500'}`}>{index + 1}</div>
+          <div className="h-10 w-10 overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
+            {item.image ? <img src={item.image} alt={item.name} className="h-full w-full object-cover" /> : <div className="flex h-full w-full items-center justify-center text-slate-300"><Glyph name="product" className="h-4 w-4" /></div>}
           </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center justify-between mb-1.5">
-              <p className="text-xs font-semibold text-slate-700 truncate pr-2">{p.name}</p>
-              <span className="text-xs font-bold text-slate-800 flex-shrink-0">{p.quantity} đã bán</span>
+          <div className="min-w-0 flex-1">
+            <div className="mb-1.5 flex items-center justify-between gap-3">
+              <p className="truncate text-sm font-semibold text-slate-700">{item.name}</p>
+              <span className="text-xs font-bold text-slate-800">{item.quantity} đã bán</span>
             </div>
-            <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-              <div className="h-full rounded-full transition-all duration-700"
-                style={{
-                  width: `${p.percentage}%`,
-                  background: i < 3 ? 'linear-gradient(90deg,#2563EB,#60A5FA)' : 'linear-gradient(90deg,#6366F1,#A5B4FC)',
-                }}/>
+            <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+              <div className="h-full rounded-full transition-all duration-700" style={{ width: `${item.percentage}%`, background: index < 3 ? 'linear-gradient(90deg,#2563EB,#60A5FA)' : 'linear-gradient(90deg,#64748B,#CBD5E1)' }} />
             </div>
           </div>
-          <div className="text-right flex-shrink-0 w-20 hidden sm:block">
+          <div className="hidden w-24 flex-shrink-0 text-right sm:block">
             <p className="text-[10px] text-slate-400">Doanh thu</p>
-            <p className="text-xs font-bold text-slate-700">{fmtShort(p.revenue)}₫</p>
+            <p className="text-xs font-bold text-slate-700">{fmtShort(item.revenue || 0)}₫</p>
           </div>
         </div>
       ))}
     </div>
   );
 }
-
-// ── Nav items ─────────────────────────────────────────────────────────────────
-const NAV_ITEMS = [
-  { label:'Sản phẩm',   icon:'📦', to:'/admin/products',   color:'#3B82F6', desc:'Quản lý kho' },
-  { label:'Danh mục',   icon:'🗂️', to:'/admin/categories', color:'#8B5CF6', desc:'Phân loại' },
-  { label:'Đơn hàng',   icon:'🛒', to:'/admin/orders',     color:'#06B6D4', desc:'Xử lý đơn' },
-  { label:'Người dùng', icon:'👥', to:'/admin/users',      color:'#10B981', desc:'Tài khoản' },
-  { label:'Đánh giá',   icon:'⭐', to:'/admin/reviews',    color:'#F59E0B', desc:'Phản hồi' },
-  { label:'Voucher',    icon:'🎟️', to:'/admin/vouchers',   color:'#EF4444', desc:'Khuyến mãi' },
-];
-
-// ── Main ───────────────────────────────────────────────────────────────────────
-const AdminDashboard = () => {
+export default function AdminDashboard() {
   const { fetchDashboardStats, dashboardStats, loading } = useAdmin();
-  const [now]       = useState(new Date());
-  const [revPeriod, setRevPeriod]   = useState('month');
-  const [revData,   setRevData]     = useState(null);
-  const [revLoading,setRevLoading]  = useState(false);
-  const [catData,   setCatData]     = useState(null);
-  const [topData,   setTopData]     = useState(null);
-  const [topLimit,  setTopLimit]    = useState(8);
+  const [now] = useState(new Date());
+  const [revPeriod, setRevPeriod] = useState('month');
+  const [revData, setRevData] = useState(null);
+  const [revLoading, setRevLoading] = useState(false);
+  const [catData, setCatData] = useState(null);
+  const [topData, setTopData] = useState(null);
+  const [topLimit, setTopLimit] = useState(8);
 
-  useEffect(() => { fetchDashboardStats(); }, []);
+  useEffect(() => {
+    fetchDashboardStats();
+  }, [fetchDashboardStats]);
 
-  // ✅ FIX: /admin/analytics → /admin/dashboard
   useEffect(() => {
     setRevLoading(true);
     apiClient.get(`/admin/dashboard/revenue?period=${revPeriod}`)
-      .then(r => {
-        const d = r.data.data;
-        // Backend trả về: { current[], totalRevenue, totalProfit, revenueChange, profitChange }
-        // Map sang format mà AreaChart + summary cần
+      .then((response) => {
+        const data = response.data.data;
         setRevData({
-          series: (d.current || []).map(item => ({
-            _id:     item._id,
+          series: (data.current || []).map((item) => ({
+            _id: item._id,
             revenue: item.revenue || 0,
-            profit:  item.profit  || 0,
-            orders:  item.orders  || 0,
+            profit: item.profit || 0,
+            orders: item.orders || 0,
           })),
           summary: {
-            currentRevenue: d.totalRevenue  || 0,
-            currentProfit:  d.totalProfit   || 0,
-            revenueChange:  d.revenueChange,
-            profitChange:   d.profitChange,
+            currentRevenue: data.totalRevenue || 0,
+            currentProfit: data.totalProfit || 0,
+            revenueChange: data.revenueChange,
+            profitChange: data.profitChange,
           },
         });
       })
@@ -336,253 +435,146 @@ const AdminDashboard = () => {
       .finally(() => setRevLoading(false));
   }, [revPeriod]);
 
-  // ✅ FIX: /admin/analytics → /admin/dashboard
   useEffect(() => {
     apiClient.get('/admin/dashboard/categories')
-      .then(r => setCatData(r.data.data))
+      .then((response) => setCatData(response.data.data))
       .catch(console.error);
   }, []);
 
-  // ✅ FIX: /admin/analytics → /admin/dashboard
   useEffect(() => {
     apiClient.get(`/admin/dashboard/top-products?limit=${topLimit}`)
-      .then(r => setTopData(r.data.data))
+      .then((response) => setTopData(response.data.data))
       .catch(console.error);
   }, [topLimit]);
 
-  if (loading) return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-      <div className="flex flex-col items-center gap-4">
-        <div className="relative w-12 h-12">
-          <div className="absolute inset-0 rounded-full border-4 border-blue-100"/>
-          <div className="absolute inset-0 rounded-full border-4 border-blue-600 border-t-transparent animate-spin"/>
-        </div>
-        <p className="text-slate-400 text-sm font-medium">Đang tải dữ liệu...</p>
-      </div>
-    </div>
-  );
+  if (loading) {
+    return (
+      <AdminPage>
+        <AdminPageBody className="space-y-6">
+          <AdminSkeletonBlock className="h-[220px] rounded-[34px]" />
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {Array.from({ length: 4 }).map((_, index) => <AdminSkeletonBlock key={index} className="h-[172px] rounded-[28px]" />)}
+          </div>
+          <div className="grid gap-4 xl:grid-cols-[1.4fr_0.72fr]">
+            <AdminSkeletonBlock className="h-[420px] rounded-[30px]" />
+            <AdminSkeletonBlock className="h-[420px] rounded-[30px]" />
+          </div>
+          <div className="grid gap-4 xl:grid-cols-2">
+            <AdminSkeletonBlock className="h-[320px] rounded-[30px]" />
+            <AdminSkeletonBlock className="h-[320px] rounded-[30px]" />
+          </div>
+        </AdminPageBody>
+      </AdminPage>
+    );
+  }
 
-  const stats        = dashboardStats?.summary      || {};
+  const stats = dashboardStats?.summary || {};
   const recentOrders = dashboardStats?.recentOrders || [];
-  const summary      = revData?.summary             || {};
+  const summary = revData?.summary || {};
   const hour = now.getHours();
-  const greeting = hour < 12 ? '☀️ Chào buổi sáng' : hour < 18 ? '🌤️ Chào buổi chiều' : '🌙 Chào buổi tối';
-  const dateStr = now.toLocaleDateString('vi-VN', { weekday:'long', day:'2-digit', month:'long', year:'numeric' });
+  const greeting = hour < 12 ? 'Chào buổi sáng' : hour < 18 ? 'Chào buổi chiều' : 'Chào buổi tối';
+  const dateString = now.toLocaleDateString('vi-VN', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC]" style={{ fontFamily:"'DM Sans',sans-serif" }}>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');
-        .kpi-card{animation:slideUp .5s ease both}
-        @keyframes slideUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
-        .fade-in{animation:fadeIn .4s ease both}
-        @keyframes fadeIn{from{opacity:0}to{opacity:1}}
-      `}</style>
-
-      {/* Header */}
-      <div className="bg-white border-b border-slate-100 px-6 py-5">
-        <div className="max-w-screen-xl mx-auto flex items-center justify-between gap-4 flex-wrap">
-          <div>
-            <p className="text-xs text-slate-400 font-medium mb-1">{greeting}</p>
-            <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
-            <p className="text-sm text-slate-400 mt-0.5 capitalize">{dateStr}</p>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="hidden sm:flex items-center gap-2 px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-500 font-medium">
-              <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"/>
-              Hệ thống hoạt động
-            </div>
-            <Link to="/admin/orders"
-              className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold transition-all shadow-sm shadow-blue-200">
-              Xem đơn hàng
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/></svg>
-            </Link>
-          </div>
-        </div>
-      </div>
-
-      <div className="p-6 space-y-5 max-w-screen-xl mx-auto">
-
-        {/* KPI */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <KpiCard label="Người dùng"    rawValue={stats.totalUsers    ||0} sub="tài khoản đăng ký"  icon="👤" gradient="linear-gradient(135deg,#1D4ED8,#3B82F6)" delay={0}/>
-          <KpiCard label="Sản phẩm"      rawValue={stats.totalProducts ||0} sub="đang kinh doanh"    icon="📦" gradient="linear-gradient(135deg,#6D28D9,#8B5CF6)" delay={80}/>
-          <KpiCard label="Đơn hàng"      rawValue={stats.totalOrders   ||0} sub="tổng tất cả đơn giao thành công"   icon="🛒" gradient="linear-gradient(135deg,#0E7490,#06B6D4)" delay={160}/>
-          <KpiCard label="Tổng Doanh Thu" rawValue={Math.round((stats.totalRevenue||0)/1000)} sub={stats.totalDeliveredRevenue ? `Đã nhận: ${fmt(stats.totalDeliveredRevenue)}` : fmt(stats.totalRevenue||0)} icon="💰" gradient="linear-gradient(135deg,#047857,#10B981)" delay={240}/>
-        </div>
-
-        {/* Revenue & Profit Chart */}
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 fade-in">
-          <div className="flex flex-wrap items-start justify-between gap-4 mb-5">
+    <AdminPage className="text-slate-900">
+      <AdminPageBody className="space-y-6">
+        <section className="relative overflow-hidden rounded-[34px] border border-slate-200/70 bg-[linear-gradient(135deg,#0f172a_0%,#1e293b_45%,#2563eb_100%)] px-6 py-7 text-white shadow-[0_22px_60px_rgba(15,23,42,0.16)] sm:px-8">
+          <div className="absolute -right-20 top-0 h-56 w-56 rounded-full bg-white/10 blur-3xl" />
+          <div className="absolute bottom-0 left-1/3 h-32 w-32 rounded-full bg-cyan-300/10 blur-3xl" />
+          <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <h2 className="text-base font-bold text-slate-900">Doanh thu & Lợi nhuận</h2>
-              <p className="text-xs text-slate-400 mt-0.5">
-                `Lợi nhuận thực từ giá vốn sản phẩm`
-              </p>
-            </div>
-
-            <div className="flex items-center gap-4 flex-wrap">
-              {!revLoading && revData && (
-                <div className="flex items-center gap-4">
-                  <div className="text-right">
-                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">Tổng doanh thu</p>
-                    <p className="text-sm font-bold text-slate-800">{fmtShort(summary.currentRevenue||0)}₫</p>
-                    <ChangeBadge value={summary.revenueChange}/>
-                  </div>
-                  <div className="w-px h-10 bg-slate-200"/>
-                  <div className="text-right">
-                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">Lợi nhuận</p>
-                    <p className="text-sm font-bold text-emerald-600">{fmtShort(summary.currentProfit||0)}₫</p>
-                    <ChangeBadge value={summary.profitChange}/>
-                  </div>
-                </div>
-              )}
-              <div className="flex bg-slate-100 rounded-xl p-1 gap-1">
-                {[['week','Tuần'],['month','Tháng'],['year','Năm']].map(([v,l]) => (
-                  <button key={v} onClick={() => setRevPeriod(v)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${revPeriod===v?'bg-white text-blue-600 shadow-sm':'text-slate-500 hover:text-slate-700'}`}>
-                    {l}
-                  </button>
-                ))}
+              <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-white/75">
+                <span className="h-2 w-2 rounded-full bg-emerald-400" />
+                Hệ thống đang hoạt động ổn định
               </div>
+              <p className="mt-5 text-sm text-white/70">{greeting}</p>
+              <h1 className="mt-2 text-3xl font-black tracking-[-0.05em] sm:text-4xl">Dashboard điều hành</h1>
+              <p className="mt-3 max-w-2xl text-sm leading-7 text-white/72 sm:text-base">Tổng quan hiệu suất kinh doanh, dòng doanh thu và các chỉ số vận hành quan trọng được trình bày theo cấu trúc rõ ràng hơn để hỗ trợ theo dõi nhanh và ra quyết định.</p>
             </div>
-          </div>
-
-          {revLoading
-            ? <div className="h-56 flex items-center justify-center"><div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"/></div>
-            : <AreaChart series={revData?.series||[]} period={revPeriod}/>
-          }
-        </div>
-
-        {/* Category + Top Products */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 fade-in">
-            <div className="mb-5">
-              <h2 className="text-base font-bold text-slate-900">Cơ cấu danh mục</h2>
-              <p className="text-xs text-slate-400 mt-0.5">Tỉ trọng doanh thu theo nhóm hàng</p>
-            </div>
-            {!catData
-              ? <div className="h-48 flex items-center justify-center"><div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"/></div>
-              : <CategoryDonut data={catData}/>}
-          </div>
-
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 fade-in">
-            <div className="flex items-center justify-between mb-5">
-              <div>
-                <h2 className="text-base font-bold text-slate-900">Sản phẩm bán chạy</h2>
-                <p className="text-xs text-slate-400 mt-0.5">Xếp hạng theo số lượng đã bán</p>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="rounded-2xl border border-white/10 bg-white/8 px-4 py-3 backdrop-blur">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white/55">Hôm nay</p>
+                <p className="mt-1 text-sm font-semibold text-white/90 capitalize">{dateString}</p>
               </div>
-              <select value={topLimit} onChange={e => setTopLimit(Number(e.target.value))}
-                className="text-xs border border-slate-200 rounded-xl px-2.5 py-1.5 text-slate-600 font-semibold bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer">
-                <option value={5}>Top 5</option>
-                <option value={8}>Top 8</option>
-                <option value={10}>Top 10</option>
-              </select>
+              <Link to="/admin/orders" className="inline-flex items-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-900 transition hover:bg-slate-100">
+                <span>Xem đơn hàng</span>
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+              </Link>
             </div>
-            {!topData
-              ? <div className="h-48 flex items-center justify-center"><div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"/></div>
-              : <TopProductsChart data={topData}/>}
           </div>
-        </div>
+        </section>
 
-        {/* Recent Orders */}
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden fade-in">
-          <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-            <div>
-              <h2 className="text-base font-bold text-slate-900">Đơn hàng gần đây</h2>
-              <p className="text-xs text-slate-400 mt-0.5">{recentOrders.length} đơn mới nhất</p>
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <MetricCard title="Người dùng" value={stats.totalUsers || 0} caption="Tài khoản đã đăng ký" icon="users" tone="blue" />
+          <MetricCard title="Sản phẩm" value={stats.totalProducts || 0} caption="Đang kinh doanh" icon="product" tone="violet" />
+          <MetricCard title="Đơn hàng" value={stats.totalOrders || 0} caption="Tổng số đơn đã ghi nhận" icon="order" tone="cyan" />
+          <MetricCard title="Doanh thu" value={Math.round((stats.totalRevenue || 0) / 1000)} caption={stats.totalDeliveredRevenue ? `Đã nhận: ${fmt(stats.totalDeliveredRevenue)}` : fmt(stats.totalRevenue || 0)} icon="revenue" tone="emerald" formatter={(value) => `${value.toLocaleString('vi-VN')}K`} />
+        </section>
+
+        <section className="grid gap-4 xl:grid-cols-[1.4fr_0.72fr]">
+          <SectionCard title="Doanh thu và lợi nhuận" subtitle="Theo dõi biến động theo từng kỳ để nắm nhanh hiệu suất kinh doanh." action={<div className="flex items-center gap-3">{!revLoading && revData && <div className="hidden items-center gap-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 lg:flex"><div><p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Doanh thu</p><p className="mt-1 text-sm font-bold text-slate-800">{fmtShort(summary.currentRevenue || 0)}₫</p><ChangeBadge value={summary.revenueChange} /></div><div className="h-10 w-px bg-slate-200" /><div><p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Lợi nhuận</p><p className="mt-1 text-sm font-bold text-emerald-600">{fmtShort(summary.currentProfit || 0)}₫</p><ChangeBadge value={summary.profitChange} /></div></div>}<div className="flex rounded-2xl border border-slate-200 bg-slate-50 p-1">{[['week', 'Tuần'], ['month', 'Tháng'], ['year', 'Năm']].map(([value, label]) => <button key={value} onClick={() => setRevPeriod(value)} className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${revPeriod === value ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>{label}</button>)}</div></div>}>
+            {revLoading ? <div className="flex h-64 items-center justify-center"><div className="h-8 w-8 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" /></div> : <AreaChart series={revData?.series || []} />}
+          </SectionCard>
+
+          <SectionCard title="Tóm tắt hiệu suất" subtitle="Nhìn nhanh các tín hiệu chính của kỳ đang chọn.">
+            <div className="space-y-3">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">Doanh thu hiện tại</p><p className="mt-2 text-2xl font-black tracking-[-0.04em] text-slate-900">{fmt(summary.currentRevenue || 0)}</p><div className="mt-3"><ChangeBadge value={summary.revenueChange} /></div></div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">Lợi nhuận hiện tại</p><p className="mt-2 text-2xl font-black tracking-[-0.04em] text-emerald-600">{fmt(summary.currentProfit || 0)}</p><div className="mt-3"><ChangeBadge value={summary.profitChange} /></div></div>
+              <div className="rounded-2xl border border-slate-200 bg-[linear-gradient(180deg,#f8fafc_0%,#eef4ff_100%)] p-4"><p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">Gợi ý quan sát</p><p className="mt-2 text-sm leading-7 text-slate-600">Ưu tiên theo dõi các ngày có chênh lệch lớn giữa doanh thu và lợi nhuận để kiểm tra giá vốn, mức giảm giá và hiệu suất chuyển đổi.</p></div>
             </div>
-            <Link to="/admin/orders"
-              className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-700 px-3 py-1.5 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors">
-              Xem tất cả
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7"/></svg>
-            </Link>
-          </div>
+          </SectionCard>
+        </section>
+        <section className="grid gap-4 xl:grid-cols-2">
+          <SectionCard title="Cơ cấu danh mục" subtitle="Tỷ trọng doanh thu theo từng nhóm hàng.">
+            {!catData ? <div className="flex h-56 items-center justify-center"><div className="h-7 w-7 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" /></div> : <CategoryDonut data={catData} />}
+          </SectionCard>
+
+          <SectionCard title="Sản phẩm bán chạy" subtitle="Xếp hạng theo số lượng bán ra và đóng góp doanh thu." action={<select value={topLimit} onChange={(event) => setTopLimit(Number(event.target.value))} className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600 outline-none ring-0"><option value={5}>Top 5</option><option value={8}>Top 8</option><option value={10}>Top 10</option></select>}>
+            {!topData ? <div className="flex h-56 items-center justify-center"><div className="h-7 w-7 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" /></div> : <TopProductsChart data={topData} />}
+          </SectionCard>
+        </section>
+
+        <SectionCard title="Đơn hàng gần đây" subtitle={`${recentOrders.length} đơn mới nhất được cập nhật từ hệ thống.`} action={<Link to="/admin/orders" className="rounded-2xl bg-blue-50 px-3.5 py-2 text-xs font-semibold text-blue-700 transition hover:bg-blue-100">Xem tất cả</Link>}>
           <div className="overflow-x-auto">
-            <table className="w-full">
+            <table className="w-full min-w-[820px]">
               <thead>
-                <tr className="bg-slate-50/80">
-                  {['Mã đơn','Khách hàng','Tổng tiền','Trạng thái','Ngày đặt',''].map(h => (
-                    <th key={h} className="px-5 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wider whitespace-nowrap">{h}</th>
-                  ))}
+                <tr className="border-b border-slate-100">
+                  {['Mã đơn', 'Khách hàng', 'Tổng tiền', 'Trạng thái', 'Ngày đặt', ''].map((heading) => <th key={heading} className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">{heading}</th>)}
                 </tr>
               </thead>
               <tbody>
                 {recentOrders.length === 0 ? (
-                  <tr><td colSpan={6} className="px-5 py-14 text-center">
-                    <div className="flex flex-col items-center gap-3 text-slate-300">
-                      <span className="text-5xl">📋</span>
-                      <span className="text-sm">Chưa có đơn hàng nào</span>
-                    </div>
-                  </td></tr>
-                ) : recentOrders.map(order => {
-                  const cfg = sc(order.status);
+                  <tr><td colSpan={6} className="px-4 py-16 text-center text-sm text-slate-300">Chưa có đơn hàng nào.</td></tr>
+                ) : recentOrders.map((order) => {
+                  const status = statusConfig(order.status);
                   return (
-                    <tr key={order._id} className="border-t border-slate-50 hover:bg-slate-50/70 transition-colors group">
-                      <td className="px-5 py-3.5">
-                        <span className="font-mono text-[11px] font-bold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg">
-                          #{order._id.slice(0,8).toUpperCase()}
-                        </span>
-                      </td>
-                      <td className="px-5 py-3.5">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 text-white font-bold text-xs flex items-center justify-center flex-shrink-0">
-                            {(order.userId?.name||'?')[0].toUpperCase()}
-                          </div>
-                          <div>
-                            <p className="font-semibold text-slate-800 text-sm leading-tight">{order.userId?.name||'—'}</p>
-                            <p className="text-[11px] text-slate-400">{order.userId?.email}</p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-5 py-3.5"><span className="font-bold text-slate-800 text-sm">{fmt(order.total||0)}</span></td>
-                      <td className="px-5 py-3.5">
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold"
-                          style={{ background:cfg.bg, color:cfg.text }}>
-                          <span className="w-1.5 h-1.5 rounded-full" style={{ background:cfg.dot }}/>
-                          {cfg.label}
-                        </span>
-                      </td>
-                      <td className="px-5 py-3.5">
-                        <span className="text-xs text-slate-400">
-                          {new Date(order.createdAt).toLocaleDateString('vi-VN',{day:'2-digit',month:'2-digit',year:'numeric'})}
-                        </span>
-                      </td>
-                      <td className="px-5 py-3.5">
-                        <Link to="/admin/orders"
-                          className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700 whitespace-nowrap">
-                          Chi tiết <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7"/></svg>
-                        </Link>
-                      </td>
+                    <tr key={order._id} className="border-b border-slate-50 transition-colors hover:bg-slate-50/70">
+                      <td className="px-4 py-4"><span className="rounded-xl bg-slate-100 px-2.5 py-1 font-mono text-[11px] font-bold text-slate-500">#{order._id.slice(0, 8).toUpperCase()}</span></td>
+                      <td className="px-4 py-4"><div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-full bg-[linear-gradient(135deg,#3b82f6_0%,#1d4ed8_100%)] text-xs font-bold text-white">{(order.userId?.name || '?')[0].toUpperCase()}</div><div><p className="text-sm font-semibold text-slate-800">{order.userId?.name || '—'}</p><p className="text-[11px] text-slate-400">{order.userId?.email}</p></div></div></td>
+                      <td className="px-4 py-4 text-sm font-bold text-slate-800">{fmt(order.total || 0)}</td>
+                      <td className="px-4 py-4"><span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold" style={{ background: status.bg, color: status.text }}><span className="h-1.5 w-1.5 rounded-full" style={{ background: status.dot }} />{status.label}</span></td>
+                      <td className="px-4 py-4 text-xs text-slate-400">{new Date(order.createdAt).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })}</td>
+                      <td className="px-4 py-4 text-right"><Link to="/admin/orders" className="text-xs font-semibold text-blue-600 transition hover:text-blue-700">Chi tiết</Link></td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
           </div>
-        </div>
+        </SectionCard>
 
-        {/* Quick Nav */}
-        <div>
-          <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Quản lý nhanh</h3>
-          <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
-            {NAV_ITEMS.map(item => (
-              <Link key={item.to} to={item.to}
-                className="group bg-white rounded-2xl p-4 shadow-sm hover:shadow-md border border-slate-100 hover:border-blue-100 flex flex-col items-center gap-2.5 transition-all duration-200 hover:-translate-y-0.5">
-                <div className="w-11 h-11 rounded-2xl flex items-center justify-center text-xl group-hover:scale-110 transition-transform duration-200"
-                  style={{ background: item.color + '15' }}>{item.icon}</div>
-                <div className="text-center">
-                  <p className="text-xs font-bold text-slate-700 group-hover:text-slate-900">{item.label}</p>
-                  <p className="text-[10px] text-slate-400 mt-0.5">{item.desc}</p>
-                </div>
+        <SectionCard title="Quản lý nhanh" subtitle="Đi tới các khu vực vận hành thường dùng.">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+            {QUICK_LINKS.map((item) => (
+              <Link key={item.to} to={item.to} className="group rounded-[26px] border border-slate-200 bg-white p-4 transition-all hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-[0_16px_40px_rgba(15,23,42,0.06)]">
+                <div className={`flex h-12 w-12 items-center justify-center rounded-2xl ${item.tint}`}><Glyph name={item.icon} className="h-5 w-5" /></div>
+                <p className="mt-4 text-sm font-bold text-slate-800">{item.label}</p>
+                <p className="mt-1 text-xs text-slate-400">{item.desc}</p>
               </Link>
             ))}
           </div>
-        </div>
-
-      </div>
-    </div>
+        </SectionCard>
+      </AdminPageBody>
+    </AdminPage>
   );
-};
-
-export default AdminDashboard;
+}

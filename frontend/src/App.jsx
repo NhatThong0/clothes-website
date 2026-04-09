@@ -1,8 +1,7 @@
-import { Suspense, lazy } from 'react';
+﻿import { Suspense, lazy } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from '@context/AuthContext';
 import { CartProvider } from '@context/CartContext';
-import { ProductProvider } from '@context/ProductContext';
 import { AdminProvider } from '@context/AdminContext';
 import { useAuth } from '@features/auth/hooks/useAuth';
 
@@ -37,14 +36,14 @@ const AdminChat = lazy(() => import('@features/chat/pages/AdminChat'));
 const AdminAiChat = lazy(() => import('@features/chat/pages/AdminAiChat'));
 
 function RouteLoader() {
-  return <div className="min-h-screen flex items-center justify-center">Dang tai...</div>;
+  return <div className="flex min-h-screen items-center justify-center">Đang tải...</div>;
 }
 
 function ProtectedAdminRoute({ children }) {
   const { adminUser, loading } = useAuth();
 
   if (loading) {
-    return <div className="min-h-screen flex items-center justify-center">Dang tai...</div>;
+    return <div className="flex min-h-screen items-center justify-center">Đang tải...</div>;
   }
 
   if (!adminUser || adminUser.role !== 'admin') {
@@ -67,16 +66,17 @@ function AppRoutes() {
             <Route path="/checkout" element={<CheckoutPage />} />
           </Route>
 
-          <Route path="auth/login" element={<AuthPage />} />
-          <Route path="auth/register" element={<AuthPage />} />
-          <Route path="admin/login" element={<AdminLoginPage />} />
-          <Route path="payment-result" element={<PaymentResultPage />} />
+          <Route path="/auth" element={<Navigate to="/auth/login" replace />} />
+          <Route path="/auth/login" element={<AuthPage />} />
+          <Route path="/auth/register" element={<AuthPage />} />
+          <Route path="/admin/login" element={<AdminLoginPage />} />
+          <Route path="/payment-result" element={<PaymentResultPage />} />
 
           <Route element={<ProtectedLayout />}>
             <Route element={<MainLayout />}>
-              <Route path="profile" element={<ProfilePage />} />
-              <Route path="orders" element={<OrdersPage />} />
-              <Route path="orders/:id" element={<OrderDetailPage />} />
+              <Route path="/profile" element={<ProfilePage />} />
+              <Route path="/orders" element={<OrdersPage />} />
+              <Route path="/orders/:id" element={<OrderDetailPage />} />
             </Route>
           </Route>
 
@@ -87,14 +87,14 @@ function AppRoutes() {
               </ProtectedAdminRoute>
             }
           >
-            <Route path="admin" element={<AdminDashboard />} />
-            <Route path="admin/products" element={<AdminProductManagement />} />
-            <Route path="admin/categories" element={<AdminCategoryManagement />} />
-            <Route path="admin/orders" element={<AdminOrderManagement />} />
-            <Route path="admin/orders/:id" element={<AdminOrderDetail />} />
-            <Route path="admin/users" element={<AdminUserManagement />} />
-            <Route path="admin/reviews" element={<AdminReviewManagement />} />
-            <Route path="admin/vouchers" element={<AdminVoucherManagement />} />
+            <Route path="/admin" element={<AdminDashboard />} />
+            <Route path="/admin/products" element={<AdminProductManagement />} />
+            <Route path="/admin/categories" element={<AdminCategoryManagement />} />
+            <Route path="/admin/orders" element={<AdminOrderManagement />} />
+            <Route path="/admin/orders/:id" element={<AdminOrderDetail />} />
+            <Route path="/admin/users" element={<AdminUserManagement />} />
+            <Route path="/admin/reviews" element={<AdminReviewManagement />} />
+            <Route path="/admin/vouchers" element={<AdminVoucherManagement />} />
             <Route path="/admin/banners" element={<AdminBannerManagement />} />
             <Route path="/admin/inventory" element={<AdminInventoryManagement />} />
             <Route path="/admin/chat" element={<AdminChat />} />
@@ -114,11 +114,9 @@ function App() {
     <Router>
       <AuthProvider>
         <CartProvider>
-          <ProductProvider>
-            <AdminProvider>
-              <AppRoutes />
-            </AdminProvider>
-          </ProductProvider>
+          <AdminProvider>
+            <AppRoutes />
+          </AdminProvider>
         </CartProvider>
       </AuthProvider>
     </Router>

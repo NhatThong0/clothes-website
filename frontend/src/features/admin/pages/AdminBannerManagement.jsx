@@ -125,10 +125,10 @@ const AdminBannerManagement = () => {
   const f = (k,v) => setForm(p => ({...p,[k]:v}));
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="admin-page min-h-screen bg-slate-50">
 
       {/* Header */}
-      <div className="bg-white border-b border-slate-100 px-6 py-4 sticky top-0 z-20">
+      <div className="bg-white/92 backdrop-blur-xl border-b border-slate-200/70 px-6 py-4 sticky top-0 z-20 shadow-[0_8px_30px_rgba(15,23,42,0.04)]">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold text-slate-900">Quản lý Banner</h1>
@@ -154,7 +154,7 @@ const AdminBannerManagement = () => {
             <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"/>
           </div>
         ) : banners.length === 0 ? (
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm py-16 flex flex-col items-center gap-3 text-slate-400">
+          <div className="bg-white rounded-[28px] border border-slate-200/70 shadow-[0_12px_40px_rgba(15,23,42,0.04)] py-16 flex flex-col items-center gap-3 text-slate-400">
             <span className="text-5xl">🖼️</span>
             <span className="text-sm font-medium">Chưa có banner nào</span>
             <button onClick={openCreate} className="mt-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700">
@@ -231,11 +231,11 @@ const AdminBannerManagement = () => {
 
       {/* Drawer */}
       {drawerOpen && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm p-3 sm:p-6" onClick={closeDrawer}>
+        <div className="admin-overlay fixed inset-0 z-50 p-3 sm:p-6" onClick={closeDrawer}>
           <div className="mx-auto flex h-full w-full max-w-3xl items-center justify-center" onClick={(e) => e.stopPropagation()}>
-          <div className="w-full bg-white shadow-2xl flex max-h-[calc(100vh-1.5rem)] sm:max-h-[calc(100vh-3rem)] flex-col overflow-hidden rounded-2xl sm:rounded-3xl"
+          <div className="admin-modal-shell w-full flex max-h-[calc(100vh-1.5rem)] sm:max-h-[calc(100vh-3rem)] flex-col overflow-hidden"
             style={{animation:'slideIn .25s cubic-bezier(.4,0,.2,1)'}}>
-            <div className="flex items-start justify-between gap-4 px-4 py-4 sm:px-6 border-b border-slate-100 sticky top-0 bg-white">
+            <div className="admin-panel-header sticky top-0 flex items-start justify-between gap-4 px-4 py-4 sm:px-6">
               <h2 className="text-base font-bold text-slate-900">
                 {editing ? '✏️ Chỉnh sửa Banner' : '🖼️ Thêm Banner mới'}
               </h2>
@@ -286,7 +286,7 @@ const AdminBannerManagement = () => {
                 </div>
               </div>
 
-              <div className="sticky bottom-0 bg-white border-t border-slate-100 px-4 py-4 sm:px-6">
+              <div className="admin-panel-footer sticky bottom-0 px-4 py-4 sm:px-6">
                 <div className="mx-auto flex w-full max-w-2xl flex-col-reverse gap-3 sm:flex-row">
                 <button type="button" onClick={closeDrawer}
                   className="flex-1 py-2.5 border border-slate-200 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50">Hủy</button>
@@ -306,8 +306,8 @@ const AdminBannerManagement = () => {
       {/* Delete confirm */}
       {deleteId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setDeleteId(null)}/>
-          <div className="relative bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+          <div className="admin-overlay absolute inset-0" onClick={() => setDeleteId(null)}/>
+          <div className="admin-modal-shell relative p-6 w-full max-w-sm">
             <div className="text-center mb-5">
               <div className="text-5xl mb-3">🗑️</div>
               <h3 className="text-lg font-bold text-slate-900">Xóa banner này?</h3>
@@ -325,7 +325,7 @@ const AdminBannerManagement = () => {
       {preview && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/90" onClick={() => setPreview(null)}>
           <div className="relative max-w-3xl w-full" onClick={e => e.stopPropagation()}>
-            <img src={preview} alt="Preview" className="w-full rounded-2xl shadow-2xl object-contain max-h-[80vh]"/>
+            <img src={preview} alt="Preview" className="admin-preview-stage w-full object-contain max-h-[80vh]"/>
             <button onClick={() => setPreview(null)}
               className="absolute -top-4 -right-4 w-9 h-9 bg-white rounded-full flex items-center justify-center text-slate-600 hover:text-slate-900 shadow-lg font-bold text-lg">✕</button>
           </div>

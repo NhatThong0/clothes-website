@@ -7,6 +7,7 @@ const { pool } = require('../../db/mysql');
 const Order = require('../../model/Order');
 const Voucher = require('../../model/Voucher');
 const { notifyOrderStatus } = require('../notification/notification.controller');
+const { syncUserLoyaltySnapshot, getUserLoyaltyDetails } = require('../loyalty/loyalty.service');
 
 function slugify(value) {
     return String(value || '')
@@ -1280,7 +1281,7 @@ exports.updateOrderStatus = async (req, res, next) => {
  */
 exports.adminGetAllUsers = async (req, res, next) => {
     try {
-        const { page = 1, limit = 10, search, role } = req.query;
+        const { page = 1, limit = 10, search, role, isActive } = req.query;
 
         let filter = {};
         if (search) {
@@ -1292,9 +1293,24 @@ exports.adminGetAllUsers = async (req, res, next) => {
         if (role) {
             filter.role = role;
         }
+        if (isActive === 'true' || isActive === 'false') {
+            filter.isActive = isActive === 'true';
+        }
 
         const skip = (page - 1) * limit;
         const users = await User.find(filter)
+            .select('-password')
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(parseInt(limit));
+
+        await Promise.all(
+            users
+                .filter((user) => !user.loyalty?.syncedAt)
+                .map((user) => syncUserLoyaltySnapshot(user._id.toString()).catch(() => null))
+        );
+
+        const refreshedUsers = await User.find(filter)
             .select('-password')
             .sort({ createdAt: -1 })
             .skip(skip)
@@ -1306,7 +1322,7 @@ exports.adminGetAllUsers = async (req, res, next) => {
         res.status(200).json({
             status: 'success',
             data: {
-                users,
+                users: refreshedUsers,
                 pagination: {
                     current: parseInt(page),
                     pages,
@@ -1417,6 +1433,42 @@ exports.getUserOrderHistory = async (req, res, next) => {
         });
     }
 };
+
+exports.getUserLoyalty = async (req, res, next) => {
+    try {
+        const { userId } = req.params;
+        const user = await User.findById(userId).select('name email loyalty');
+
+        if (!user) {
+            return res.status(404).json({
+                status: 'error',
+                message: 'User not found'
+            });
+        }
+
+        const data = await getUserLoyaltyDetails(userId, { logLimit: req.query.limit || 20 });
+        const snapshot = await syncUserLoyaltySnapshot(userId, data.loyalty).catch(() => user.loyalty || null);
+
+        res.status(200).json({
+            status: 'success',
+            data: {
+                user: {
+                    _id: user._id,
+                    name: user.name,
+                    email: user.email,
+                },
+                snapshot,
+                logs: data.logs,
+            }
+        });
+    } catch (error) {
+        console.error('Get user loyalty error:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'Failed to fetch user loyalty'
+        });
+    }
+};
 /**
  * Create user (admin)
  */
@@ -1440,6 +1492,9 @@ exports.adminCreateUser = async (req, res, next) => {
             phone: phone || '',
             role: role || 'customer',
             isActive: true,
+        });
+        await syncUserLoyaltySnapshot(user._id.toString()).catch((err) => {
+            console.error('[Loyalty] init snapshot failed:', err.message);
         });
 
         const result = user.toObject();

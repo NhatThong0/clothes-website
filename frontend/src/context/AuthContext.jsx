@@ -1,4 +1,5 @@
 import { createContext, useState, useCallback, useEffect, useContext } from 'react';
+import apiClient from '@features/shared/services/apiClient';
 
 export const AuthContext = createContext();
 
@@ -23,6 +24,30 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
+  // Refresh user profile on app boot (includes loyalty tier fields).
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiClient.get('/user/profile');
+        const fresh = res.data?.data;
+        if (!cancelled && fresh && fresh._id) {
+          setUser(fresh);
+          localStorage.setItem('user', JSON.stringify(fresh));
+        }
+      } catch {
+        // ignore
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const login = useCallback((userData, token) => {
     try {
       if (userData.role === 'admin') {
@@ -35,9 +60,21 @@ export function AuthProvider({ children }) {
         setUser(userData);
         localStorage.setItem('user', JSON.stringify(userData));
         localStorage.setItem('token', token);
+
+        // Non-blocking: fetch profile to enrich with loyalty/tier fields.
+        apiClient
+          .get('/user/profile')
+          .then((res) => {
+            const fresh = res.data?.data;
+            if (fresh && fresh._id) {
+              setUser(fresh);
+              localStorage.setItem('user', JSON.stringify(fresh));
+            }
+          })
+          .catch(() => {});
       }
       return true;
-    } catch (err) {
+    } catch {
       return false;
     }
   }, []);
@@ -64,7 +101,7 @@ export function AuthProvider({ children }) {
         localStorage.setItem('user', JSON.stringify(updatedUser));
       }
       return true;
-    } catch (err) {
+    } catch {
       return false;
     }
   }, []);

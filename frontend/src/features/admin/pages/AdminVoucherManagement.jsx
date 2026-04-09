@@ -4,9 +4,7 @@ import apiClient from '@features/shared/services/apiClient';
 // ── Constants ─────────────────────────────────────────────────────────────────
 const TYPES = [
   { value: 'coupon',     label: 'Mã Coupon',         icon: '🎟️', color: 'blue'   },
-  { value: 'discount',   label: 'Giảm giá SP/Đơn',   icon: '💰', color: 'emerald'},
   { value: 'flash_sale', label: 'Flash Sale',         icon: '⚡', color: 'amber'  },
-  { value: 'holiday',    label: 'Dịp lễ',             icon: '🎉', color: 'rose'   },
   { value: 'loyalty',    label: 'Loyalty',            icon: '👑', color: 'violet' },
 ];
 const TYPE_COLOR = {
@@ -21,7 +19,13 @@ const TIER_LABEL    = { all:'Tất cả', bronze:'Đồng', silver:'Bạc', gold
 
 const fmtPrice = v => new Intl.NumberFormat('vi-VN',{style:'currency',currency:'VND'}).format(v);
 const fmtDate  = d => new Date(d).toLocaleDateString('vi-VN',{day:'2-digit',month:'2-digit',year:'numeric'});
-const toInput  = d => d ? new Date(d).toISOString().split('T')[0] : '';
+const fmtDateTime = d => new Date(d).toLocaleString('vi-VN',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+const toDateTimeLocal = (d) => {
+  if (!d) return '';
+  const date = new Date(d);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+};
 
 const inputCls = 'w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white transition';
 
@@ -44,12 +48,13 @@ const emptyForm = {
   applyTo:'all',
   code:'', maxUsageCount:'', maxUsagePerUser:'1',
   flashSaleStock:'', flashSaleHour:{ start:'', end:'' },
+  flashSaleItems:[],
   holidayName:'', autoApply:false,
   loyaltyTier:'all', pointsRequired:'0', pointsReward:'0',
 };
 
 // ── Component ─────────────────────────────────────────────────────────────────
-export default function AdminPromotionManagement() {
+export default function AdminVoucherManagement() {
   const [promos,      setPromos]      = useState([]);
   const [total,       setTotal]       = useState(0);
   const [page,        setPage]        = useState(1);
@@ -61,8 +66,16 @@ export default function AdminPromotionManagement() {
   const [saving,      setSaving]      = useState(false);
   const [deleteId,    setDeleteId]    = useState(null);
   const [loading,     setLoading]     = useState(false);
+  const [products,    setProducts]    = useState([]);
+  const [flashAddProductId, setFlashAddProductId] = useState('');
 
   useEffect(() => { load(); }, [page, typeFilter]);
+
+  useEffect(() => {
+    apiClient.get('/admin/products?limit=200')
+      .then(r => setProducts(r.data?.data?.products || []))
+      .catch(() => setProducts([]));
+  }, []);
 
   const load = async () => {
     setLoading(true);
@@ -80,13 +93,17 @@ export default function AdminPromotionManagement() {
   const openCreate = () => { setEditing(null); setForm(emptyForm); setDrawerOpen(true); };
   const openEdit   = p  => {
     setEditing(p);
+    const flashItems = Array.isArray(p.flashSaleItems) && p.flashSaleItems.length > 0
+      ? p.flashSaleItems.map(it => ({ productId: it.productId, price: (it.price ?? '').toString() }))
+      : (p.productIds || []).map(pid => ({ productId: pid, price: (p.flashSalePrice ?? p.discountValue ?? '').toString() }));
+
     setForm({
       type:              p.type,
       name:              p.name,
       description:       p.description || '',
       isActive:          p.isActive,
-      startDate:         toInput(p.startDate),
-      endDate:           toInput(p.endDate),
+      startDate:         toDateTimeLocal(p.startDate),
+      endDate:           toDateTimeLocal(p.endDate),
       discountType:      p.discountType || 'percentage',
       discountValue:     p.discountValue?.toString() || '',
       maxDiscountAmount: p.maxDiscountAmount?.toString() || '',
@@ -98,6 +115,7 @@ export default function AdminPromotionManagement() {
       maxUsagePerUser:   p.maxUsagePerUser?.toString() || '1',
       flashSaleStock:    p.flashSaleStock?.toString() || '',
       flashSaleHour:     p.flashSaleHour || { start:'', end:'' },
+      flashSaleItems:    flashItems,
       holidayName:       p.holidayName || '',
       autoApply:         p.autoApply || false,
       loyaltyTier:       p.loyaltyTier || 'all',
@@ -126,6 +144,16 @@ export default function AdminPromotionManagement() {
         pointsRequired:    parseInt(form.pointsRequired) || 0,
         pointsReward:      parseInt(form.pointsReward) || 0,
       };
+
+      if (form.type === 'flash_sale') {
+        const items = (form.flashSaleItems || [])
+          .filter(it => it?.productId)
+          .map(it => ({ productId: it.productId, price: parseFloat(it.price) }))
+          .filter(it => Number.isFinite(it.price) && it.price > 0);
+        payload.flashSaleItems = items;
+        payload.productIds = items.map(it => it.productId);
+        payload.flashSalePrice = null;
+      }
       if (editing) await apiClient.put(`/promotions/${editing._id}`, payload);
       else          await apiClient.post('/promotions', payload);
       closeDrawer();
@@ -153,12 +181,23 @@ export default function AdminPromotionManagement() {
   };
 
   const t = TYPES.find(t => t.value === form.type);
+  const productNameById = (id) =>
+    products.find((p) => String(p._id) === String(id))?.name || String(id || '').slice(-6);
+  const productById = (id) => products.find((p) => String(p._id) === String(id)) || null;
+  const getSellingPriceInfo = (id) => {
+    const p = productById(id);
+    if (!p) return null;
+    const basePrice = Number(p.price) || 0;
+    const discount = Number(p.discount) || 0;
+    const sellingPrice = discount > 0 ? Math.round(basePrice * (1 - discount / 100)) : basePrice;
+    return { basePrice, discount, sellingPrice };
+  };
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="admin-page min-h-screen bg-slate-50">
 
       {/* Header */}
-      <div className="bg-white border-b border-slate-100 px-6 py-4 sticky top-0 z-20">
+      <div className="bg-white/92 backdrop-blur-xl border-b border-slate-200/70 px-6 py-4 sticky top-0 z-20 shadow-[0_8px_30px_rgba(15,23,42,0.04)]">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h1 className="text-xl font-bold text-slate-900">Quản lý Khuyến mãi</h1>
@@ -201,6 +240,15 @@ export default function AdminPromotionManagement() {
             {promos.map(p => {
               const typeInfo = TYPES.find(t => t.value === p.type) || TYPES[0];
               const status   = getStatus(p);
+              const flashItems = p.type === 'flash_sale'
+                ? (Array.isArray(p.flashSaleItems) && p.flashSaleItems.length > 0
+                  ? p.flashSaleItems
+                  : (p.productIds || []).map(pid => ({ productId: pid, price: (p.flashSalePrice ?? p.discountValue) }))
+                )
+                : [];
+              const flashMinPrice = flashItems.length > 0
+                ? Math.min(...flashItems.map(it => Number(it.price) || Infinity))
+                : null;
               return (
                 <div key={p._id} className={`bg-white rounded-2xl border shadow-sm hover:shadow-md transition-all group overflow-hidden ${!p.isActive ? 'opacity-60' : 'border-slate-100'}`}>
                   {/* Color top bar */}
@@ -228,9 +276,13 @@ export default function AdminPromotionManagement() {
                     {/* Discount value */}
                     <div className="bg-slate-50 rounded-xl p-3 mb-3">
                       <p className="text-2xl font-black text-slate-900">
-                        {p.discountType === 'freeship' ? '🚚 Miễn ship'
-                          : p.discountType === 'percentage' ? `${p.discountValue}%`
-                          : fmtPrice(p.discountValue)}
+                        {p.type === 'flash_sale'
+                          ? (flashItems.length <= 1
+                            ? fmtPrice(Number(flashItems?.[0]?.price) || 0)
+                            : `Từ ${fmtPrice(flashMinPrice)}`)
+                          : p.discountType === 'freeship' ? '🚚 Miễn ship'
+                            : p.discountType === 'percentage' ? `${p.discountValue}%`
+                              : fmtPrice(p.discountValue)}
                       </p>
                       {p.minOrderAmount > 0 && (
                         <p className="text-xs text-slate-400 mt-0.5">Đơn tối thiểu {fmtPrice(p.minOrderAmount)}</p>
@@ -244,12 +296,34 @@ export default function AdminPromotionManagement() {
 
                     {/* Meta */}
                     <div className="grid grid-cols-2 gap-2 text-xs text-slate-500 mb-3">
-                      <div><span className="text-slate-400">Bắt đầu:</span> <span className="font-medium text-slate-700">{fmtDate(p.startDate)}</span></div>
-                      <div><span className="text-slate-400">Kết thúc:</span> <span className="font-medium text-slate-700">{fmtDate(p.endDate)}</span></div>
+                      <div><span className="text-slate-400">Bắt đầu:</span> <span className="font-medium text-slate-700">{fmtDateTime(p.startDate)}</span></div>
+                      <div><span className="text-slate-400">Kết thúc:</span> <span className="font-medium text-slate-700">{fmtDateTime(p.endDate)}</span></div>
                       {p.type === 'flash_sale' && (
                         <>
-                          <div><span className="text-slate-400">Giờ:</span> <span className="font-medium">{p.flashSaleHour?.start}–{p.flashSaleHour?.end}</span></div>
-                          <div><span className="text-slate-400">Còn lại:</span> <span className="font-bold text-amber-600">{p.flashSaleRemaining ?? '∞'}</span></div>
+                          <div><span className="text-slate-400">Slot:</span> <span className="font-bold text-amber-600">{p.flashSaleRemaining ?? '∞'}</span></div>
+                          <div><span className="text-slate-400">Sản phẩm:</span> <span className="font-medium text-slate-700">{flashItems.length} item</span></div>
+                          <div className="col-span-2 space-y-1">
+                            {flashItems.slice(0, 4).map((it, idx) => (
+                              <div key={idx} className="flex items-center justify-between rounded-lg bg-white px-2 py-1 border border-slate-100">
+                                <div className="min-w-0 pr-2">
+                                  <span className="block truncate text-slate-600">{productNameById(it.productId)}</span>
+                                  {(() => {
+                                    const selling = getSellingPriceInfo(it.productId);
+                                    if (!selling) return null;
+                                    return (
+                                      <span className="block text-[11px] text-slate-400">
+                                        Đang bán: <span className="line-through">{fmtPrice(selling.sellingPrice)}</span>
+                                      </span>
+                                    );
+                                  })()}
+                                </div>
+                                <span className="font-semibold text-slate-800">{fmtPrice(Number(it.price) || 0)}</span>
+                              </div>
+                            ))}
+                            {flashItems.length > 4 && (
+                              <div className="text-[11px] text-slate-400">+{flashItems.length - 4} sản phẩm khác</div>
+                            )}
+                          </div>
                         </>
                       )}
                       {p.maxUsageCount && (
@@ -307,10 +381,10 @@ export default function AdminPromotionManagement() {
 
       {/* ── Drawer ── */}
       {drawerOpen && (
-        <div className="fixed inset-0 z-50 flex">
-          <div className="flex-1 bg-black/40 backdrop-blur-sm" onClick={closeDrawer}/>
-          <div className="w-full max-w-lg bg-white shadow-2xl flex flex-col h-full" style={{animation:'slideIn .25s cubic-bezier(.4,0,.2,1)'}}>
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 sticky top-0 bg-white z-10">
+        <div className="admin-overlay fixed inset-0 z-50 p-3 sm:p-6" onClick={closeDrawer}>
+          <div className="mx-auto flex h-full w-full max-w-4xl items-center justify-center" onClick={(e) => e.stopPropagation()}>
+            <div className="admin-modal-shell w-full flex max-h-[calc(100vh-1.5rem)] sm:max-h-[calc(100vh-3rem)] flex-col overflow-hidden" style={{animation:'popIn .22s cubic-bezier(.2,.8,.2,1)'}}>
+            <div className="admin-panel-header sticky top-0 z-10 flex items-center justify-between px-6 py-4">
               <h2 className="text-base font-bold text-slate-900">
                 {editing ? '✏️ Chỉnh sửa' : '🎁 Tạo khuyến mãi mới'}
               </h2>
@@ -354,10 +428,10 @@ export default function AdminPromotionManagement() {
                   </Field>
                   <div className="grid grid-cols-2 gap-3">
                     <Field label="Ngày bắt đầu" required>
-                      <input type="date" required value={form.startDate} onChange={e=>f('startDate',e.target.value)} className={inputCls}/>
+                      <input type="datetime-local" required value={form.startDate} onChange={e=>f('startDate',e.target.value)} className={inputCls}/>
                     </Field>
                     <Field label="Ngày kết thúc" required>
-                      <input type="date" required value={form.endDate} onChange={e=>f('endDate',e.target.value)} className={inputCls}/>
+                      <input type="datetime-local" required value={form.endDate} onChange={e=>f('endDate',e.target.value)} className={inputCls}/>
                     </Field>
                   </div>
                 </section>
@@ -365,6 +439,7 @@ export default function AdminPromotionManagement() {
                 <hr className="border-slate-100"/>
 
                 {/* Discount config */}
+                {form.type !== 'flash_sale' && (
                 <section className="space-y-3">
                   <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Cấu hình giảm giá</h3>
                   <Field label="Kiểu giảm" required>
@@ -396,6 +471,7 @@ export default function AdminPromotionManagement() {
                     </Field>
                   </div>
                 </section>
+                )}
 
                 <hr className="border-slate-100"/>
 
@@ -426,19 +502,106 @@ export default function AdminPromotionManagement() {
                 {form.type === 'flash_sale' && (
                   <section className="space-y-3">
                     <h3 className="text-[10px] font-bold text-amber-500 uppercase tracking-widest">⚡ Cấu hình Flash Sale</h3>
+                    <Field label="Sản phẩm" required hint="Chọn nhiều sản phẩm và nhập giá flash sale cho từng sản phẩm.">
+                      <div className="flex gap-2">
+                        <select
+                          value={flashAddProductId}
+                          onChange={(e) => setFlashAddProductId(e.target.value)}
+                          className={inputCls}
+                        >
+                          <option value="">-- Chọn sản phẩm --</option>
+                          {products
+                            .filter((p) => !(form.flashSaleItems || []).some((it) => String(it.productId) === String(p._id)))
+                            .map((p) => (
+                              <option key={p._id} value={p._id}>
+                                {p.name}
+                              </option>
+                            ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!flashAddProductId) return;
+                            f('flashSaleItems', [...(form.flashSaleItems || []), { productId: flashAddProductId, price: '' }]);
+                            setFlashAddProductId('');
+                          }}
+                          className="px-3 py-2.5 rounded-xl text-sm font-semibold border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
+                        >
+                          + Thêm
+                        </button>
+                      </div>
+                    </Field>
+
+                    <div className="space-y-2">
+                      {(form.flashSaleItems || []).length === 0 ? (
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-400">
+                          Chưa chọn sản phẩm nào
+                        </div>
+                      ) : (
+                        (form.flashSaleItems || []).map((it, idx) => {
+                          const selling = getSellingPriceInfo(it.productId);
+                          return (
+                            <div key={`${it.productId}-${idx}`} className="rounded-2xl border border-slate-200 bg-white px-3 py-3 space-y-2">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="truncate text-sm font-semibold text-slate-800">{productNameById(it.productId)}</p>
+                                  <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                                    {selling ? (
+                                      <>
+                                        <span>Giá đang bán:</span>
+                                        <span className="font-semibold text-slate-700">{fmtPrice(selling.sellingPrice)}</span>
+                                        {selling.discount > 0 && (
+                                          <span className="text-slate-400 line-through">{fmtPrice(selling.basePrice)}</span>
+                                        )}
+                                        {selling.discount > 0 && (
+                                          <span className="rounded-full bg-emerald-50 px-2 py-0.5 font-semibold text-emerald-700 border border-emerald-200">
+                                            -{selling.discount}%
+                                          </span>
+                                        )}
+                                      </>
+                                    ) : (
+                                      <span className="text-slate-400">{String(it.productId).slice(-8)}</span>
+                                    )}
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const next = (form.flashSaleItems || []).filter((_, i) => i !== idx);
+                                    f('flashSaleItems', next);
+                                  }}
+                                  className="px-3 py-2 rounded-xl text-sm font-semibold border border-slate-200 text-slate-500 hover:border-rose-200 hover:text-rose-600"
+                                >
+                                  Xóa
+                                </button>
+                              </div>
+
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                <div className="space-y-1">
+                                  <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">Giá flash sale (₫)</p>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    placeholder="VD: 199000"
+                                    value={it.price}
+                                    onChange={(e) => {
+                                      const next = [...(form.flashSaleItems || [])];
+                                      next[idx] = { ...next[idx], price: e.target.value };
+                                      f('flashSaleItems', next);
+                                    }}
+                                    className={inputCls}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
                     <Field label="Số slot flash sale" hint="Số lượng người có thể mua với giá flash sale">
                       <input type="number" min={1} value={form.flashSaleStock} onChange={e=>f('flashSaleStock',e.target.value)} placeholder="VD: 50" className={inputCls}/>
                     </Field>
-                    <div className="grid grid-cols-2 gap-3">
-                      <Field label="Giờ bắt đầu (HH:mm)">
-                        <input type="time" value={form.flashSaleHour.start}
-                          onChange={e=>f('flashSaleHour',{...form.flashSaleHour,start:e.target.value})} className={inputCls}/>
-                      </Field>
-                      <Field label="Giờ kết thúc (HH:mm)">
-                        <input type="time" value={form.flashSaleHour.end}
-                          onChange={e=>f('flashSaleHour',{...form.flashSaleHour,end:e.target.value})} className={inputCls}/>
-                      </Field>
-                    </div>
+                    <p className="text-[11px] text-slate-400">Thời gian chạy lấy theo Bắt đầu/Kết thúc ở phần thông tin chung.</p>
                   </section>
                 )}
 
@@ -527,7 +690,7 @@ export default function AdminPromotionManagement() {
                 </div>
               </div>
 
-              <div className="sticky bottom-0 px-6 py-4 bg-white border-t border-slate-100 flex gap-3">
+          <div className="admin-panel-footer sticky bottom-0 flex gap-3 px-6 py-4">
                 <button type="button" onClick={closeDrawer}
                   className="flex-1 py-2.5 border border-slate-200 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50">Hủy</button>
                 <button type="submit" disabled={saving}
@@ -538,14 +701,15 @@ export default function AdminPromotionManagement() {
               </div>
             </form>
           </div>
+          </div>
         </div>
       )}
 
       {/* Delete confirm */}
       {deleteId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={()=>setDeleteId(null)}/>
-          <div className="relative bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+          <div className="admin-overlay absolute inset-0" onClick={()=>setDeleteId(null)}/>
+          <div className="admin-modal-shell relative p-6 w-full max-w-sm">
             <div className="text-center mb-5">
               <div className="text-5xl mb-3">🗑️</div>
               <h3 className="text-lg font-bold text-slate-900">Xóa khuyến mãi?</h3>
@@ -559,7 +723,7 @@ export default function AdminPromotionManagement() {
         </div>
       )}
 
-      <style>{`@keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}`}</style>
+      <style>{`@keyframes popIn{from{transform:translateY(12px) scale(.98);opacity:0}to{transform:translateY(0) scale(1);opacity:1}}`}</style>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@features/auth/hooks/useAuth';
 import apiClient from '@features/shared/services/apiClient';
+import TierImageBadge from '@components/common/TierImageBadge';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const LABELS     = ['Nhà riêng', 'Văn phòng', 'Khác'];
@@ -401,37 +402,31 @@ export default function ProfilePage() {
       <div className="flex gap-5">
 
         {/* ─── Sidebar ─────────────────────────────────────────────────────── */}
-        <div className="w-52 flex-shrink-0">
+        <div className="w-55 flex-shrink-0">
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 sticky top-6">
 
             {/* Avatar */}
-            <div className="flex flex-col items-center mb-5">
-              <div className="relative mb-3">
-                <div className="w-20 h-20 rounded-2xl overflow-hidden border-2 border-slate-200 bg-gradient-to-br from-blue-400 to-blue-600 flex-shrink-0">
-                  {avatarPreview
-                    ? <img src={avatarPreview} alt="avatar" className="w-full h-full object-cover"/>
-                    : <div className="w-full h-full flex items-center justify-center text-white text-3xl font-black">{initials}</div>}
+            <div className="mb-5 rounded-2xl border border-slate-100 bg-slate-50 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="relative">
+                    <div className="w-20 h-20 rounded-2xl overflow-hidden border-2 border-slate-200 bg-gradient-to-br from-blue-400 to-blue-600 flex-shrink-0">
+                      {avatarPreview
+                        ? <img src={avatarPreview} alt="avatar" className="w-full h-full object-cover"/>
+                        : <div className="w-full h-full flex items-center justify-center text-white text-3xl font-black">{initials}</div>}
+                    </div>
+
+                   
+                    <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarChange}/>
+                  </div>
+
+                  <div className="min-w-10">
+                    <p className="font-bold text-slate-800 text-sm leading-tight">{user?.name}</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5 truncate">{user?.email}</p>
+                    
+                  </div>
                 </div>
-
-                {/* Camera button */}
-                <button
-                  onClick={() => avatarInputRef.current?.click()}
-                  disabled={avatarSaving}
-                  className="absolute -bottom-1.5 -right-1.5 w-7 h-7 bg-blue-600 hover:bg-blue-700 text-white rounded-full flex items-center justify-center border-2 border-white shadow-md transition-colors disabled:opacity-60"
-                  title="Thay đổi ảnh đại diện">
-                  {avatarSaving
-                    ? <Spinner size={3} color="border-white"/>
-                    : <span className="text-xs leading-none">📷</span>}
-                </button>
-                <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarChange}/>
               </div>
-
-              <p className="font-bold text-slate-800 text-sm text-center leading-tight">{user?.name}</p>
-              <p className="text-[11px] text-slate-400 mt-0.5 text-center truncate w-full">{user?.email}</p>
-              <p className="text-[10px] text-slate-400 mt-1 hover:text-blue-500 cursor-pointer transition-colors"
-                onClick={() => avatarInputRef.current?.click()}>
-                Đổi ảnh đại diện
-              </p>
             </div>
 
             <div className="border-t border-slate-100 pt-4">
@@ -493,6 +488,102 @@ export default function ProfilePage() {
                 }
               </div>
 
+              {/* Tier / loyalty summary */}
+              {user?.role !== 'admin' && (
+                <div className="mb-6 overflow-hidden rounded-[32px] border border-slate-200 bg-[linear-gradient(135deg,#ffffff_0%,#fcfcfd_42%,#f8fafc_100%)] shadow-[0_18px_48px_rgba(15,23,42,0.06)]">
+
+                  {/* Header row — tier + discount */}
+                  <div className="flex items-center justify-between gap-4 px-6 py-5">
+                    <div className="flex items-center gap-4">
+                      <div className="flex h-20 w-20 items-center justify-center rounded-[30px] border border-slate-200/80 bg-white shadow-[0_14px_32px_rgba(15,23,42,0.08)]">
+                        <TierImageBadge tier={user?.loyalty?.tier} size="xl" showLabel={false} variant="icon" />
+                      </div>
+                      <div>
+                        <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-widest mb-1.5">
+                          Hạng thành viên
+                        </p>
+                        <div className="flex items-center gap-3">
+                          <span className="text-2xl font-semibold text-slate-900">
+                            {user?.loyalty?.tier?.name || 'Chưa có hạng'}
+                          </span>
+                          
+                        </div>
+                        <p className="mt-2 text-sm text-slate-500">
+                          Hạng của bạn được cập nhật tự động theo từng điểm tích lũy.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-widest mb-1.5">
+                        Ưu đãi
+                      </p>
+                      <p className="text-3xl font-semibold text-slate-900 leading-none">
+                        {user?.loyalty?.tier?.discount_percent ?? 0}
+                        <span className="text-lg">%</span>
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Stats row — 2 columns */}
+                  <div className="grid grid-cols-2 border-t border-slate-200 bg-white/80">
+                    <div className="px-6 py-4 border-r border-slate-200">
+                      <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-widest mb-1.5">
+                        Điểm xét hạng
+                      </p>
+                      <p className="text-2xl font-semibold text-slate-900 mb-1">
+                        {(user?.loyalty?.tier_points ?? 0).toLocaleString('vi-VN')}
+                      </p>
+                      <p className="text-xs text-slate-400">Dùng để xét nâng hạng thành viên</p>
+                    </div>
+                    <div className="px-6 py-4">
+                      <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-widest mb-1.5">
+                        Điểm dùng được
+                      </p>
+                      <p className="text-2xl font-semibold text-slate-900 mb-1">
+                        {(user?.loyalty?.spendable_points ?? 0).toLocaleString('vi-VN')}
+                      </p>
+                      <p className="text-xs text-slate-400">Có thể sử dụng khi thanh toán đơn hàng</p>
+                    </div>
+                  </div>
+
+                  {/* Progress bar — chỉ hiện nếu có next tier */}
+                  {user?.loyalty?.next_tier && (
+                    <div className="px-6 py-4 border-t border-slate-200 bg-slate-50">
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-xs text-slate-500">
+                          Tiến độ lên hạng{' '}
+                          <span className="font-semibold text-slate-700">
+                            {user.loyalty.next_tier.name}
+                          </span>
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          {(user.loyalty.tier_points ?? 0).toLocaleString('vi-VN')} /{' '}
+                          {user.loyalty.next_tier.min_points?.toLocaleString('vi-VN')}
+                        </p>
+                      </div>
+                      <div className="h-1 bg-slate-200 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-slate-800 rounded-full transition-all"
+                          style={{
+                            width: `${Math.min(
+                              100,
+                              ((user.loyalty.tier_points ?? 0) / user.loyalty.next_tier.min_points) * 100
+                            )}%`
+                          }}
+                        />
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-1.5">
+                        Cần thêm{' '}
+                        {Math.max(0, user.loyalty.next_tier.min_points - (user.loyalty.tier_points ?? 0))
+                          .toLocaleString('vi-VN')}{' '}
+                        điểm để đạt hạng tiếp theo
+                      </p>
+                    </div>
+                  )}
+
+                </div>
+              )}
+
               {/* Avatar upload row */}
               <div className="flex items-center gap-5 p-4 bg-slate-50 rounded-2xl border border-slate-100 mb-6">
                 <div className="relative flex-shrink-0">
@@ -512,7 +603,7 @@ export default function ProfilePage() {
                   <p className="text-xs text-slate-400 mb-3">Định dạng JPG, PNG, WEBP · Tối đa 5MB</p>
                   <button onClick={() => avatarInputRef.current?.click()} disabled={avatarSaving}
                     className="px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-xl text-sm font-semibold hover:bg-slate-50 transition-colors disabled:opacity-50 flex items-center gap-2">
-                    {avatarSaving ? <><Spinner size={3} color="border-slate-400"/> Đang tải...</> : '📷 Thay đổi ảnh'}
+                    {avatarSaving ? <><Spinner size={3} color="border-slate-400"/> Đang tải...</> : ' Thay đổi ảnh'}
                   </button>
                 </div>
               </div>
@@ -528,7 +619,7 @@ export default function ProfilePage() {
                   <FieldLabel>Email</FieldLabel>
                   <input type="email" value={user?.email || ''} disabled
                     className={`${cls.input} bg-slate-50 text-slate-400 cursor-not-allowed`}/>
-                  <p className="text-xs text-slate-400 mt-1">Email không thể thay đổi</p>
+                  <p className="text-xss text-slate-400 mt-1">Email không thể thay đổi</p>
                 </div>
                 <div>
                   <FieldLabel>Số điện thoại</FieldLabel>

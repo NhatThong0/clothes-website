@@ -177,10 +177,10 @@ const AdminOrderManagement = () => {
   const hasFilters = statusFilter || searchQuery || dateFrom || dateTo;
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="admin-page min-h-screen bg-slate-50">
 
       {/* Header */}
-      <div className="bg-white border-b border-slate-100 px-6 py-4 sticky top-0 z-20 shadow-sm">
+      <div className="bg-white/92 backdrop-blur-xl border-b border-slate-200/70 px-6 py-4 sticky top-0 z-20 shadow-[0_8px_30px_rgba(15,23,42,0.04)]">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div>
             <h1 className="text-xl font-bold text-slate-900">Quản lý Đơn hàng</h1>
@@ -270,7 +270,7 @@ const AdminOrderManagement = () => {
 
       {/* Table */}
       <div className="p-6">
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+        <div className="bg-white rounded-[28px] border border-slate-200/70 shadow-[0_12px_40px_rgba(15,23,42,0.04)] overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>

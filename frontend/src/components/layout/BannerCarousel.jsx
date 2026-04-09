@@ -1,184 +1,172 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+﻿import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 
-/**
- * BannerCarousel — auto-sliding 3D carousel
- * Props:
- *   banners: Array<{ _id, image, title, subtitle, link, isActive }>
- *   autoPlay: boolean (default true)
- *   interval: ms (default 4500)
- */
 export default function BannerCarousel({ banners = [], autoPlay = true, interval = 4500 }) {
-  const [current,   setCurrent]   = useState(0);
-  const [prev,      setPrev]      = useState(null);
-  const [direction, setDirection] = useState(1); // 1=forward, -1=backward
-  const [paused,    setPaused]    = useState(false);
-  const [progress,  setProgress]  = useState(0);
-  const timerRef    = useRef(null);
-  const progRef     = useRef(null);
-  const startRef    = useRef(null);
+  const [current, setCurrent] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const progressRef = useRef(null);
+  const startRef = useRef(null);
 
-  const active = banners.filter(b => b.isActive !== false);
-  const count  = active.length;
+  const active = banners.filter((banner) => banner.isActive !== false);
+  const count = active.length;
 
-  const go = useCallback((idx, dir = 1) => {
-    if (count < 2) return;
-    setPrev(current);
-    setDirection(dir);
-    setCurrent((idx + count) % count);
-    setProgress(0);
-    startRef.current = performance.now();
-  }, [current, count]);
+  const go = useCallback(
+    (index) => {
+      if (count === 0) return;
+      setCurrent((index + count) % count);
+      setProgress(0);
+      startRef.current = performance.now();
+    },
+    [count]
+  );
 
-  const next = useCallback(() => go(current + 1,  1), [go, current]);
-  const prev_ = useCallback(() => go(current - 1, -1), [go, current]);
+  const next = useCallback(() => go(current + 1), [current, go]);
+  const previous = useCallback(() => go(current - 1), [current, go]);
 
-  // Auto-play + progress bar
   useEffect(() => {
-    if (!autoPlay || paused || count < 2) return;
+    if (!autoPlay || paused || count < 2) return undefined;
+
     startRef.current = performance.now();
 
     const tick = (now) => {
       const elapsed = now - (startRef.current || now);
-      const pct = Math.min((elapsed / interval) * 100, 100);
-      setProgress(pct);
-      if (pct >= 100) { next(); return; }
-      progRef.current = requestAnimationFrame(tick);
+      const percentage = Math.min((elapsed / interval) * 100, 100);
+      setProgress(percentage);
+
+      if (percentage >= 100) {
+        next();
+        return;
+      }
+
+      progressRef.current = requestAnimationFrame(tick);
     };
-    progRef.current = requestAnimationFrame(tick);
-    return () => { cancelAnimationFrame(progRef.current); };
-  }, [current, paused, autoPlay, interval, count, next]);
+
+    progressRef.current = requestAnimationFrame(tick);
+
+    return () => {
+      cancelAnimationFrame(progressRef.current);
+    };
+  }, [autoPlay, count, current, interval, next, paused]);
 
   if (!active.length) return null;
-  if (active.length === 1) {
-    const b = active[0];
-    return (
-      <div className="relative w-full overflow-hidden rounded-3xl" style={{aspectRatio:'16/7'}}>
-        <img src={b.image} alt={b.title} className="w-full h-full object-cover"/>
-        {(b.title || b.subtitle) && (
-          <div className="absolute inset-0 bg-gradient-to-r from-black/60 to-transparent flex flex-col justify-center px-12">
-            {b.title    && <h2 className="text-white text-3xl font-black mb-2">{b.title}</h2>}
-            {b.subtitle && <p className="text-white/80 text-lg">{b.subtitle}</p>}
-            {b.link && <Link to={b.link} className="mt-4 w-fit px-6 py-2.5 bg-white text-slate-900 rounded-xl font-bold text-sm hover:bg-blue-50 transition">Xem ngay →</Link>}
-          </div>
-        )}
-      </div>
-    );
-  }
 
   return (
-    <div
-      className="relative w-full select-none"
-      style={{ aspectRatio: '16/7', perspective: '1200px' }}
+    <section
+      className="editorial-card relative overflow-hidden rounded-[36px]"
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
     >
-      {/* Slides */}
-      {active.map((b, i) => {
-        const isCurrent = i === current;
-        const isPrev    = i === prev;
-        const isNext    = i === (current + 1) % count;
-        const isPrevSlide = i === (current - 1 + count) % count;
+      <div className="absolute inset-0 editorial-grid opacity-30" />
 
-        let transform = 'translateX(100%) scale(0.85)';
-        let opacity   = 0;
-        let zIndex    = 0;
-        let transition = 'transform 0.7s cubic-bezier(0.4,0,0.2,1), opacity 0.7s ease';
+      <div className="relative aspect-[16/8] min-h-[420px] w-full sm:min-h-[500px] lg:min-h-[620px]">
+        {active.map((banner, index) => {
+          const isCurrent = index === current;
 
-        if (isCurrent) {
-          transform = 'translateX(0%) scale(1) rotateY(0deg)';
-          opacity   = 1;
-          zIndex    = 3;
-        } else if (isPrev) {
-          transform = `translateX(${direction * -110}%) scale(0.85) rotateY(${direction * 15}deg)`;
-          opacity   = 0;
-          zIndex    = 2;
-        } else if (isNext) {
-          transform = 'translateX(8%) scale(0.88)';
-          opacity   = 0.45;
-          zIndex    = 1;
-        } else if (isPrevSlide) {
-          transform = 'translateX(-8%) scale(0.88)';
-          opacity   = 0.45;
-          zIndex    = 1;
-        }
+          return (
+            <article
+              key={banner._id || index}
+              className={`absolute inset-0 transition-all duration-700 ease-out ${
+                isCurrent
+                  ? 'translate-y-0 opacity-100 scale-100'
+                  : index < current
+                    ? '-translate-y-4 opacity-0 scale-[0.985]'
+                    : 'translate-y-4 opacity-0 scale-[1.015]'
+              }`}
+            >
+              <img
+                src={banner.image}
+                alt={banner.title || 'Banner'}
+                className="h-full w-full object-cover"
+                draggable={false}
+              />
+              <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(10,10,10,0.84)_0%,rgba(10,10,10,0.38)_45%,rgba(10,10,10,0.08)_100%)]" />
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.14),transparent_32%)]" />
 
-        return (
-          <div key={b._id || i}
-            className="absolute inset-0 rounded-3xl overflow-hidden"
-            style={{ transform, opacity, zIndex, transition, transformStyle: 'preserve-3d' }}>
-            {/* Image */}
-            <img src={b.image} alt={b.title || ''}
-              className="w-full h-full object-cover"
-              draggable={false}/>
+              <div className="relative flex h-full flex-col justify-between p-7 text-white sm:p-10 lg:p-14">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="rounded-full border border-white/20 bg-white/10 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.34em] backdrop-blur">
+                    Giao diện cảm hứng từ Figma
+                  </div>
+                  <div className="hidden rounded-full border border-white/15 bg-black/20 px-4 py-2 text-[11px] font-medium uppercase tracking-[0.28em] text-white/70 lg:block">
+                    Bố cục 16:9 nổi bật
+                  </div>
+                </div>
 
-            {/* Gradient overlay */}
-            <div className="absolute inset-0 bg-gradient-to-r from-black/55 via-black/20 to-transparent"/>
+                <div className="max-w-3xl space-y-6">
+                  {banner.title && (
+                    <h1 className="max-w-2xl text-4xl font-extrabold leading-[0.95] tracking-[-0.04em] sm:text-5xl lg:text-7xl">
+                      {banner.title}
+                    </h1>
+                  )}
+                  {banner.subtitle && (
+                    <p className="max-w-xl text-sm leading-7 text-white/78 sm:text-base lg:text-lg">
+                      {banner.subtitle}
+                    </p>
+                  )}
 
-            {/* Content */}
-            {isCurrent && (b.title || b.subtitle) && (
-              <div className="absolute inset-0 flex flex-col justify-center px-10 md:px-16"
-                style={{animation:'bannerFadeUp .6s .2s both'}}>
-                {b.title && (
-                  <h2 className="text-white font-black text-2xl md:text-4xl lg:text-5xl leading-tight drop-shadow-lg max-w-lg">
-                    {b.title}
-                  </h2>
-                )}
-                {b.subtitle && (
-                  <p className="text-white/80 text-sm md:text-lg mt-3 max-w-sm leading-relaxed">
-                    {b.subtitle}
-                  </p>
-                )}
-                {b.link && (
-                  <Link to={b.link}
-                    className="mt-5 w-fit px-6 py-2.5 bg-white text-slate-900 rounded-2xl font-bold text-sm hover:bg-blue-50 shadow-lg transition-all hover:-translate-y-0.5">
-                    Xem ngay →
-                  </Link>
-                )}
+                  <div className="flex flex-wrap items-center gap-3 pt-2">
+                    <Link
+                      to={banner.link || '/products'}
+                      className="rounded-full bg-white px-6 py-3 text-sm font-semibold text-black transition hover:bg-[#ecece8]"
+                    >
+                      Khám phá bộ sưu tập
+                    </Link>
+                    <Link
+                      to="/products"
+                      className="rounded-full border border-white/18 bg-white/8 px-6 py-3 text-sm font-semibold text-white backdrop-blur transition hover:bg-white/14"
+                    >
+                      Xem tất cả sản phẩm
+                    </Link>
+                  </div>
+                </div>
+              </div>
+            </article>
+          );
+        })}
+
+        {count > 1 && (
+          <>
+            <div className="absolute inset-x-0 bottom-0 z-20 flex items-center justify-between gap-4 border-t border-white/12 bg-black/16 px-5 py-4 backdrop-blur sm:px-8">
+              <div className="flex items-center gap-2">
+                {active.map((_, index) => (
+                  <button
+                    key={index}
+                    onClick={() => go(index)}
+                    aria-label={`Đi tới banner ${index + 1}`}
+                    className={`rounded-full transition-all ${
+                      index === current ? 'h-2 w-10 bg-white' : 'h-2 w-2 bg-white/35 hover:bg-white/70'
+                    }`}
+                  />
+                ))}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={previous}
+                  className="flex h-11 w-11 items-center justify-center rounded-full border border-white/18 bg-white/10 text-lg text-white transition hover:bg-white/18"
+                  aria-label="Banner trước"
+                >
+                  ‹
+                </button>
+                <button
+                  onClick={next}
+                  className="flex h-11 w-11 items-center justify-center rounded-full border border-white/18 bg-white text-lg text-black transition hover:bg-[#ecece8]"
+                  aria-label="Banner sau"
+                >
+                  ›
+                </button>
+              </div>
+            </div>
+
+            {autoPlay && !paused && (
+              <div className="absolute inset-x-0 bottom-0 z-30 h-[2px] bg-white/10">
+                <div className="h-full bg-white transition-none" style={{ width: `${progress}%` }} />
               </div>
             )}
-          </div>
-        );
-      })}
-
-      {/* Prev / Next buttons */}
-      <button onClick={prev_}
-        className="absolute left-4 top-1/2 -translate-y-1/2 z-10 w-10 h-10 bg-white/90 hover:bg-white rounded-2xl flex items-center justify-center shadow-lg transition-all hover:scale-105 text-slate-700 font-bold text-lg"
-        aria-label="Previous">
-        ‹
-      </button>
-      <button onClick={next}
-        className="absolute right-4 top-1/2 -translate-y-1/2 z-10 w-10 h-10 bg-white/90 hover:bg-white rounded-2xl flex items-center justify-center shadow-lg transition-all hover:scale-105 text-slate-700 font-bold text-lg"
-        aria-label="Next">
-        ›
-      </button>
-
-      {/* Dot indicators */}
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2">
-        {active.map((_, i) => (
-          <button key={i} onClick={() => go(i, i > current ? 1 : -1)}
-            className={`transition-all rounded-full ${
-              i === current
-                ? 'w-6 h-2 bg-white shadow-sm'
-                : 'w-2 h-2 bg-white/50 hover:bg-white/80'
-            }`}/>
-        ))}
+          </>
+        )}
       </div>
-
-      {/* Progress bar */}
-      {autoPlay && !paused && (
-        <div className="absolute bottom-0 left-0 right-0 z-10 h-0.5 bg-white/20 rounded-full overflow-hidden">
-          <div className="h-full bg-white/70 rounded-full transition-none"
-            style={{ width: `${progress}%` }}/>
-        </div>
-      )}
-
-      <style>{`
-        @keyframes bannerFadeUp {
-          from { opacity: 0; transform: translateY(20px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-      `}</style>
-    </div>
+    </section>
   );
 }

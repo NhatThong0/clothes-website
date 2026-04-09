@@ -11,6 +11,7 @@
     "resolveJsonModule": true,
     "noEmit": true,
     "jsx": "react-native",
+    "ignoreDeprecations": "6.0",
     "baseUrl": ".",
     "paths": {
       "@/*": ["./*"]

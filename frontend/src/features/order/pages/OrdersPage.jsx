@@ -190,8 +190,8 @@ function ReviewModal({ modal, form, setForm, images, setImages, loading, onClose
 }
 
 // ── Order Card ────────────────────────────────────────────────────────────────
-function OrderCard({ order, onCancel, onReorder, onReview, onOpenReturn, onConfirmDelivery, onNavigate }) {
-  const returnable = order.status === 'delivered' && order.userConfirmed &&
+function OrderCard({ order, onCancel, onReorder, onReview, onOpenReturn, onConfirmDelivery, onNavigate, isReviewed = false }) {
+  const returnable = !isReviewed && order.status === 'delivered' && order.userConfirmed &&
     (Date.now() - new Date(order.userConfirmedAt).getTime()) / 86400000 <= RETURN_WINDOW_DAYS;
   const daysLeft = returnable
     ? Math.max(0, RETURN_WINDOW_DAYS - Math.floor((Date.now() - new Date(order.userConfirmedAt)) / 86400000))
@@ -274,10 +274,16 @@ function OrderCard({ order, onCancel, onReorder, onReview, onOpenReturn, onConfi
           <span>📦</span> Xác nhận nhận hàng để mở đánh giá & hoàn trả
         </div>
       )}
-      {order.status === 'delivered' && order.userConfirmed && (
+      {order.status === 'delivered' && order.userConfirmed && !isReviewed && (
         <div className={`mx-4 mb-2.5 flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold ${returnable ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-slate-50 text-slate-400 border border-slate-200'}`}>
           <span>⏱</span>
           {returnable ? `Còn ${daysLeft} ngày để hoàn trả` : 'Đã hết hạn hoàn trả (3 ngày)'}
+        </div>
+      )}
+      {order.status === 'delivered' && order.userConfirmed && isReviewed && (
+        <div className="mx-4 mb-2.5 flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+          <span>✅</span>
+          Bạn đã đánh giá thành công
         </div>
       )}
       {order.status === 'return_requested' && (
@@ -319,13 +325,19 @@ function OrderCard({ order, onCancel, onReorder, onReview, onOpenReturn, onConfi
         {/* delivered + đã confirm */}
         {order.status === 'delivered' && order.userConfirmed && (
           <>
-            <button onClick={e => { e.stopPropagation(); onReview(order); }}
-              className="px-3 py-1.5 text-xs text-amber-600 font-semibold hover:bg-amber-50 border border-amber-200 rounded-lg transition-colors">
-              ⭐ Đánh giá
-            </button>
+            {isReviewed ? (
+              <span className="px-3 py-1.5 text-xs text-emerald-700 font-semibold bg-emerald-50 border border-emerald-200 rounded-lg">
+                ✅ Đã đánh giá thành công
+              </span>
+            ) : (
+              <button onClick={e => { e.stopPropagation(); onReview(order); }}
+                className="px-3 py-1.5 text-xs text-amber-600 font-semibold hover:bg-amber-50 border border-amber-200 rounded-lg transition-colors">
+                ⭐ Đánh giá
+              </button>
+            )}
             <button onClick={e => { e.stopPropagation(); onReorder(order); }}
               className="px-3 py-1.5 text-xs text-slate-600 font-semibold hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors">
-              🔄 Mua lại
+                🔄 Mua lại
             </button>
             {returnable && (
               <button onClick={e => { e.stopPropagation(); onOpenReturn(order.id); }}
@@ -412,6 +424,7 @@ export default function OrdersPage() {
   const [reviewForm, setReviewForm] = useState({ rating: 5, comment: '' });
   const [reviewLoading, setReviewLoading] = useState(false);
   const [reviewImages, setReviewImages] = useState([]);
+  const [reviewedOrderIds, setReviewedOrderIds] = useState([]);
   const searchRef = useRef(null);
   const debounceRef = useRef(null);
 
@@ -420,6 +433,33 @@ export default function OrdersPage() {
   // Reset page khi filter thay đổi
   useEffect(() => { setPage(1); }, [statusFilter, dateFilter, searchQuery]);
 
+  const loadReviewedOrders = async (nextOrders) => {
+    const deliveredOrders = (nextOrders || []).filter((order) => order.status === 'delivered' && order.userConfirmed);
+    const reviewChecks = await Promise.all(
+      deliveredOrders.map(async (order) => {
+        try {
+          const productIds = (order.items || [])
+            .map((item) => item.productId?._id || item.productId)
+            .filter(Boolean);
+
+          const reviews = await Promise.all(
+            productIds.map((productId) =>
+              productAPI.getMyReview(productId)
+                .then((response) => response.data?.data || null)
+                .catch(() => null),
+            ),
+          );
+
+          return reviews.some(Boolean) ? order.id : null;
+        } catch {
+          return null;
+        }
+      }),
+    );
+
+    setReviewedOrderIds(reviewChecks.filter(Boolean));
+  };
+
   const fetchOrders = async () => {
     try {
       setLoading(true);
@@ -427,7 +467,7 @@ export default function OrdersPage() {
       const res = await apiClient.get('/orders', { params: { limit: 200, page: 1 } });
       const raw = res.data?.data || res.data || [];
       const list = Array.isArray(raw) ? raw : Array.isArray(raw.orders) ? raw.orders : [];
-      setOrders(list.map(o => ({
+      const normalizedOrders = list.map(o => ({
         id:             o._id || o.id,
         date:           o.createdAt,
         deliveredAt:    o.deliveredAt || null,
@@ -441,7 +481,9 @@ export default function OrdersPage() {
         returnReason:   o.returnReason || '',
         statusLabel:    STATUS_MAP[o.status]?.label || o.status,
         statusColor:    STATUS_MAP[o.status]?.color || STATUS_MAP.pending.color,
-      })));
+      }));
+      setOrders(normalizedOrders);
+      await loadReviewedOrders(normalizedOrders);
     } catch (err) { console.error('fetchOrders error:', err); }
     finally { setLoading(false); }
   };
@@ -533,6 +575,8 @@ export default function OrdersPage() {
       setReviewLoading(true);
       await productAPI.addReview(reviewModal.productId, { rating: Number(reviewForm.rating), comment: reviewForm.comment.trim(), images: reviewImages });
       alert('Đánh giá thành công!');
+      setReviewedOrderIds((prev) => (prev.includes(reviewModal.orderId) ? prev : [...prev, reviewModal.orderId]));
+      setOrders((prev) => prev.map((order) => order.id === reviewModal.orderId ? { ...order, hasReviewed: true } : order));
       setReviewModal(null); setReviewForm({ rating: 5, comment: '' }); setReviewImages([]);
     } catch (err) { alert(err.response?.data?.message || 'Không thể gửi đánh giá'); }
     finally { setReviewLoading(false); }
@@ -657,6 +701,7 @@ export default function OrdersPage() {
                 onReview={handleReview}
                 onConfirmDelivery={handleConfirmDelivery}
                 onNavigate={(id) => navigate(`/orders/${id}`)}
+                isReviewed={reviewedOrderIds.includes(order.id) || order.hasReviewed}
               />
             ))}
           </div>

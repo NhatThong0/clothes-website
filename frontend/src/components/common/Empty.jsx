@@ -1,4 +1,4 @@
-export default function Empty({ message = 'Không có dữ liệu', action }) {
+﻿export default function Empty({ message = 'Không có dữ liệu', action }) {
   return (
     <div className="max-w-md mx-auto py-12 text-center">
       <div className="text-6xl mb-4">📭</div>

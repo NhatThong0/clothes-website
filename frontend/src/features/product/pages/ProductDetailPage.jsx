@@ -6,6 +6,7 @@ import { useCart } from '@features/cart/hooks/useCart';
 import { formatPrice } from '@utils/helpers';
 import { productAPI } from '@features/shared/services/api';
 import { useAuth } from '@context/AuthContext';
+import apiClient from '@features/shared/services/apiClient';
 
 const sizeChartColumns = [
     { key: 'size', label: 'Size' },
@@ -72,14 +73,23 @@ export default function ProductDetailPage() {
             const data = res.data?.data || res.data;
             if (!data) throw new Error('Không tìm thấy sản phẩm');
 
+            const flashSale = data.flashSale || null;
+            const flashSaleActive = flashSale && !flashSale.isSoldOut;
+            const discountedPrice = flashSaleActive
+              ? flashSale.price
+              : data.discount > 0
+                ? Math.round(data.price * (1 - data.discount / 100))
+                : data.price;
+
             const p = {
                 id:              data._id || data.id,
                 _id:             data._id || data.id,
                 name:            data.name,
                 description:     data.description || '',
                 price:           data.price,
-                discountedPrice: data.discount > 0 ? Math.round(data.price * (1 - data.discount / 100)) : data.price,
+                discountedPrice,
                 discount:        data.discount || 0,
+                flashSale,
                 category:        data.category?.name || data.category || '',
                 categoryName:    data.category?.name || data.category || '',
                 categoryData:    typeof data.category === 'object' ? data.category : null,
@@ -162,6 +172,10 @@ export default function ProductDetailPage() {
 
     const variantStock = selectedVariant?.stock ?? 0;
     const outOfStock   = !selectedVariant || variantStock === 0;
+    const sellingPrice = product
+        ? (product.discount > 0 ? Math.round(product.price * (1 - product.discount / 100)) : product.price)
+        : 0;
+    const flashSaleActive = !!product?.flashSale && !product.flashSale.isSoldOut;
 
     // Khi đổi màu → reset size, auto-select size đầu tiên còn hàng
     const handleColorSelect = (color) => {
@@ -211,6 +225,7 @@ export default function ProductDetailPage() {
                 id: product.id, _id: product._id, name: product.name,
                 price: product.discountedPrice || product.price,
                 image: product.images[0], color: selectedColor, size: selectedSize, quantity,
+                flashSalePromotionId: product.flashSale?.promotionId || null,
             }]));
             navigate('/checkout');
         } catch (err) { showToast(err.message || 'Không thể thêm vào giỏ hàng', 'error'); }
@@ -289,15 +304,25 @@ export default function ProductDetailPage() {
                     )}
                     {product.soldCount > 0 && <p className="text-orange-500 font-semibold text-sm mb-4">🔥 Đã bán {product.soldCount} sản phẩm</p>}
 
-                    <div className="flex items-baseline space-x-3 mb-6">
+                    <div className="flex items-baseline space-x-3 mb-2">
                         <span className="text-4xl font-bold text-primary">{formatPrice(product.discountedPrice)}</span>
-                        {product.discount > 0 && (
+                        {flashSaleActive ? (
+                            <>
+                                <span className="text-xl text-gray-400 line-through">{formatPrice(sellingPrice)}</span>
+                                <span className="text-xs font-bold bg-amber-500 text-white px-2 py-1 rounded-full">⚡ Flash Sale</span>
+                            </>
+                        ) : product.discount > 0 && (
                             <>
                                 <span className="text-xl text-gray-400 line-through">{formatPrice(product.price)}</span>
                                 <span className="text-lg font-bold text-red-500">-{product.discount}%</span>
                             </>
                         )}
                     </div>
+                    {flashSaleActive && sellingPrice !== product.price && (
+                        <p className="text-xs text-gray-400 mb-4">
+                            Giá gốc: <span className="line-through">{formatPrice(product.price)}</span>
+                        </p>
+                    )}
 
                     {product.description && <p className="text-gray-600 mb-6 leading-relaxed">{product.description}</p>}
 
@@ -486,7 +511,7 @@ export default function ProductDetailPage() {
                     {/* Buttons */}
                     <div className="flex gap-4 mb-8">
                         <button onClick={handleAddToCart}
-                            disabled={!selectedColor || !selectedSize || outOfStock}
+                            disabled={!selectedColor || !selectedSize || outOfStock || product.flashSale?.isSoldOut}
                             className={`flex-1 px-6 py-3 rounded-lg font-semibold transition-all ${
                                 !selectedColor || !selectedSize || outOfStock
                                     ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
@@ -497,11 +522,11 @@ export default function ProductDetailPage() {
                         <button onClick={handleBuyNow}
                             disabled={!selectedColor || !selectedSize || outOfStock}
                             className={`flex-1 px-6 py-3 rounded-lg font-semibold transition-all border-2 ${
-                                !selectedColor || !selectedSize || outOfStock
+                                !selectedColor || !selectedSize || outOfStock || product.flashSale?.isSoldOut
                                     ? 'border-gray-200 text-gray-400 cursor-not-allowed'
                                     : 'border-primary text-primary hover:bg-light'
                             }`}>
-                            {outOfStock ? 'Không có sẵn' : 'Mua ngay'}
+                            {outOfStock ? 'Không có sẵn' : product.flashSale?.isSoldOut ? 'Đã hết' : 'Mua ngay'}
                         </button>
                     </div>
 

@@ -1,9 +1,11 @@
 const Product  = require('../../model/Product');
 const Category = require('../../model/Category');
 const Order    = require('../../model/Order');
+const Promotion = require('../../model/Promotion');
 require('../../model/SizeChart');
 const { pool } = require('../../db/mysql');
 const { validateObjectId } = require('../../utils/validators');
+const loyaltyService = require('../loyalty/loyalty.service');
 
 // ── Helper ────────────────────────────────────────────────────────────────────
 const getSoldMap = async (productIds) => {
@@ -33,6 +35,65 @@ const withResolvedSizeChart = (product) => {
         resolvedSizeChart,
         sizeChartSource: product?.sizeChart ? 'product' : resolvedSizeChart ? 'category' : null,
     };
+};
+
+const attachFlashSaleInfo = async (products) => {
+    const now = new Date();
+    const ids = (products || [])
+        .map(p => p?._id || p?.id)
+        .filter(Boolean)
+        .map(id => String(id));
+
+    if (ids.length === 0) return products;
+
+    const promos = await Promotion.find({
+        type: 'flash_sale',
+        isActive: true,
+        startDate: { $lte: now },
+        endDate: { $gte: now },
+        productIds: { $in: ids },
+    })
+        .select('_id name productIds flashSaleRemaining flashSalePrice flashSaleItems startDate endDate')
+        .lean();
+
+    const promoByProduct = new Map();
+    promos.forEach((promo) => {
+        (promo.productIds || []).forEach((pid) => {
+            const key = String(pid);
+            const existing = promoByProduct.get(key);
+            if (!existing) {
+                promoByProduct.set(key, promo);
+                return;
+            }
+            // Prefer promo that ends sooner (more "active" when overlaps)
+            if (new Date(promo.endDate) < new Date(existing.endDate)) promoByProduct.set(key, promo);
+        });
+    });
+
+    return products.map((product) => {
+        const pid = String(product?._id || product?.id);
+        const promo = promoByProduct.get(pid);
+        if (!promo) return product;
+
+        const itemPrice = Array.isArray(promo.flashSaleItems)
+            ? promo.flashSaleItems.find((it) => String(it.productId) === pid)?.price
+            : undefined;
+        const price = itemPrice ?? promo.flashSalePrice;
+        if (price === null || price === undefined) return product;
+
+        return {
+            ...product,
+            flashSale: {
+                promotionId: String(promo._id),
+                name: promo.name,
+                price,
+                remaining: promo.flashSaleRemaining,
+                startDate: promo.startDate,
+                endDate: promo.endDate,
+                isSoldOut: promo.flashSaleRemaining !== null && promo.flashSaleRemaining <= 0,
+            },
+        };
+    });
 };
 
 // ── GET /api/products ─────────────────────────────────────────────────────────
@@ -89,9 +150,11 @@ exports.getAllProducts = async (req, res, next) => {
             soldCount: soldMap[p._id.toString()] || p.soldCount || 0,
         }));
 
+        const withFlashSale = await attachFlashSaleInfo(result);
+
         res.status(200).json({
             status: 'success',
-            data:   result,
+            data:   withFlashSale,
             pagination: {
                 total,
                 page:  parseInt(page),
@@ -124,7 +187,8 @@ exports.getProductById = async (req, res, next) => {
             soldCount: soldMap[product._id.toString()] || product.soldCount || 0,
         });
 
-        res.status(200).json({ status: 'success', data: result });
+        const [withFlashSale] = await attachFlashSaleInfo([result]);
+        res.status(200).json({ status: 'success', data: withFlashSale });
     } catch (error) {
         next(error);
     }
@@ -342,7 +406,8 @@ exports.getFeaturedProducts = async (req, res, next) => {
             soldCount: soldMap[p._id.toString()] || p.soldCount || 0,
         })).sort((a, b) => b.soldCount - a.soldCount);
 
-        res.status(200).json({ status: 'success', data: result });
+        const withFlashSale = await attachFlashSaleInfo(result);
+        res.status(200).json({ status: 'success', data: withFlashSale });
     } catch (error) {
         next(error);
     }
@@ -387,6 +452,16 @@ exports.addReview = async (req, res, next) => {
         product.averageRating = Math.round((totalRating / product.reviews.length) * 10) / 10;
 
         await product.save();
+
+        loyaltyService.emitPointEvent(userId, 'REVIEW', {
+            eventId: `review:${userId}:${id}`,
+            referenceType: 'PRODUCT_REVIEW',
+            referenceId: id,
+            reviewId: product.reviews[product.reviews.length - 1]?._id?.toString() || null,
+            rating: parseInt(rating),
+            units: 1,
+        });
+
         res.status(201).json({ status: 'success', message: 'Review added successfully', data: review });
     } catch (error) {
         next(error);

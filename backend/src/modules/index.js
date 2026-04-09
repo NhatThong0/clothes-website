@@ -15,6 +15,8 @@ const shipping = require('./shipping');
 const banner = require('./banner');
 const promotion = require('./promotion');
 const notification = require('./notification');
+const flashSale = require('./flash-sale');
+const loyalty = require('./loyalty');
 
 const routeRegistry = [
   ['auth', '/api/auth', auth.route],
@@ -26,6 +28,7 @@ const routeRegistry = [
   ['upload', '/api/upload', upload.route],
   ['banner', '/api/banners', banner.route],
   ['promotion', '/api/promotions', promotion.route],
+  ['flashSale', '/api/flash-sale', flashSale.route],
   ['user', '/api/user', user.route],
   ['inventory', '/api/admin/inventory', inventory.route],
   ['chat', '/api/chat', chat.route],
@@ -34,6 +37,7 @@ const routeRegistry = [
   ['voucher', '/api/vouchers', voucher.route],
   ['shipping', '/api/shipping', shipping.route],
   ['notification', '/api/notifications', notification.route],
+  ['loyalty', '/api/loyalty', loyalty.route],
 ];
 
 module.exports = {
@@ -54,5 +58,7 @@ module.exports = {
   banner,
   promotion,
   notification,
+  flashSale,
+  loyalty,
   routeRegistry,
 };

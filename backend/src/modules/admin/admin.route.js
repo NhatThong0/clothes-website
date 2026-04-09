@@ -42,6 +42,7 @@ router.put   ('/users/:userId/toggle-status', adminController.adminToggleUserSta
 router.put   ('/users/:userId',               adminController.adminUpdateUser);
 router.delete('/users/:userId',               adminController.adminDeleteUser);
 router.get   ('/users/:userId/orders',        adminController.getUserOrderHistory);
+router.get   ('/users/:userId/loyalty',       adminController.getUserLoyalty);
 
 // ── REVIEW MANAGEMENT ──────────────────────────────────────────────
 router.get   ('/reviews',                             adminController.adminGetAllReviews);

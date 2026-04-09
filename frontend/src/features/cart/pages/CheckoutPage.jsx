@@ -236,7 +236,7 @@ export default function CheckoutPage() {
     } catch { return cartItems; }
   })();
 
-  const subtotal = checkoutItems.reduce((acc, item) => acc + item.price * item.quantity, 0);
+  const subtotal = checkoutItems.reduce((acc, item) => acc + (item.discountedPrice || item.price) * item.quantity, 0);
 
   const calcDiscount = (voucher, sub) => {
     if (!voucher) return 0;
@@ -363,6 +363,7 @@ export default function CheckoutPage() {
         color:     item.color || '',
         size:      item.size  || '',
         discount:  0,
+        flashSalePromotionId: item.flashSalePromotionId || undefined,
       }));
 
       const shippingAddress = {

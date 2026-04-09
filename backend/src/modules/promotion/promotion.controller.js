@@ -232,9 +232,44 @@ const createPromotion = async (req, res) => {
             return res.status(400).json({ status: 'error', message: 'Loại Coupon bắt buộc phải có mã code.' });
         }
 
-        // Flash sale: init remaining
-        if (body.type === 'flash_sale' && body.flashSaleStock) {
-            body.flashSaleRemaining = Number(body.flashSaleStock);
+        // Flash sale: require slot + items[{productId, price}], init remaining
+        if (body.type === 'flash_sale') {
+            const stock = Number(body.flashSaleStock);
+            if (!Number.isFinite(stock) || stock <= 0) {
+                return res.status(400).json({ status: 'error', message: 'Flash sale requires slot > 0.' });
+            }
+
+            let items = Array.isArray(body.flashSaleItems) ? body.flashSaleItems : [];
+
+            // Backward-compat: if client still sends productIds + flashSalePrice
+            if ((!items || items.length === 0) && Array.isArray(body.productIds) && body.productIds.length > 0) {
+                const price = Number(body.flashSalePrice);
+                if (Number.isFinite(price) && price > 0) {
+                    items = body.productIds.map((productId) => ({ productId, price }));
+                }
+            }
+
+            if (!Array.isArray(items) || items.length === 0) {
+                return res.status(400).json({ status: 'error', message: 'Flash sale requires at least 1 product + price.' });
+            }
+
+            const normalized = [];
+            for (const it of items) {
+                const productId = it?.productId;
+                const price = Number(it?.price);
+                if (!productId) {
+                    return res.status(400).json({ status: 'error', message: 'Flash sale item missing productId.' });
+                }
+                if (!Number.isFinite(price) || price <= 0) {
+                    return res.status(400).json({ status: 'error', message: 'Flash sale item price must be > 0.' });
+                }
+                normalized.push({ productId, price });
+            }
+
+            body.flashSaleItems = normalized;
+            body.productIds = normalized.map((it) => it.productId);
+            body.applyTo = 'specific_products';
+            body.flashSaleRemaining = stock;
         }
 
         const promo = await Promotion.create(body);
@@ -247,7 +282,36 @@ const createPromotion = async (req, res) => {
 
 const updatePromotion = async (req, res) => {
     try {
-        const promo = await Promotion.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+        const existing = await Promotion.findById(req.params.id);
+        if (!existing) return res.status(404).json({ status: 'error', message: 'Not found.' });
+
+        const next = { ...req.body };
+        const start = next.startDate ? new Date(next.startDate) : existing.startDate;
+        const end = next.endDate ? new Date(next.endDate) : existing.endDate;
+
+        if (start >= end) {
+            return res.status(400).json({ status: 'error', message: 'endDate must be after startDate.' });
+        }
+
+        const type = next.type || existing.type;
+        if (type === 'flash_sale') {
+            if (next.flashSaleStock !== undefined && next.flashSaleRemaining === undefined) {
+                const now = new Date();
+                if (now < start) next.flashSaleRemaining = Number(next.flashSaleStock);
+            }
+
+            if (Array.isArray(next.flashSaleItems)) {
+                next.flashSaleItems = next.flashSaleItems
+                    .filter((it) => it?.productId)
+                    .map((it) => ({ productId: it.productId, price: Number(it.price) }));
+                next.productIds = next.flashSaleItems.map((it) => it.productId);
+                next.applyTo = 'specific_products';
+            } else if (next.productIds) {
+                next.applyTo = 'specific_products';
+            }
+        }
+
+        const promo = await Promotion.findByIdAndUpdate(req.params.id, next, { new: true, runValidators: true });
         if (!promo) return res.status(404).json({ status: 'error', message: 'Không tìm thấy khuyến mãi.' });
         res.status(200).json({ status: 'success', data: promo });
     } catch (err) {

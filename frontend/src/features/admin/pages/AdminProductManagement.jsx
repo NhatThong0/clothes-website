@@ -508,10 +508,10 @@ const AdminProductManagement = () => {
     const totalStock = form.variants.reduce((s, v) => s + (v.stock || 0), 0);
 
     return (
-        <div className="min-h-screen bg-slate-50">
+        <div className="admin-page min-h-screen bg-slate-50">
 
             {/* Header */}
-            <div className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between sticky top-0 z-30">
+            <div className="bg-white/92 backdrop-blur-xl border-b border-slate-200/70 px-6 py-4 flex items-center justify-between sticky top-0 z-30 shadow-[0_8px_30px_rgba(15,23,42,0.04)]">
                 <div>
                     <h1 className="text-xl font-bold text-slate-900">Quản lý Sản phẩm</h1>
                     <p className="text-sm text-slate-500 mt-0.5">{products.length} sản phẩm trên trang này</p>
@@ -524,7 +524,7 @@ const AdminProductManagement = () => {
 
             <div className="p-6 space-y-5">
                 {/* Filters */}
-                <div className="bg-white rounded-2xl border border-slate-200 p-4 flex gap-3 flex-wrap items-center shadow-sm">
+                <div className="bg-white rounded-[28px] border border-slate-200/70 p-4 flex gap-3 flex-wrap items-center shadow-[0_12px_40px_rgba(15,23,42,0.04)]">
                     <div className="relative flex-1 min-w-52">
                         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">🔍</span>
                         <input type="text" value={search}
@@ -546,7 +546,7 @@ const AdminProductManagement = () => {
                 </div>
 
                 {/* Table */}
-                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="bg-white rounded-[28px] border border-slate-200/70 shadow-[0_12px_40px_rgba(15,23,42,0.04)] overflow-hidden">
                     <div className="overflow-x-auto">
                         <table className="w-full text-sm">
                             <thead>
@@ -663,10 +663,10 @@ const AdminProductManagement = () => {
 
             {/* ── Drawer ──────────────────────────────────────────────────────── */}
             {drawerOpen && (
-                <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm p-3 sm:p-6" onClick={closeDrawer}>
+                <div className="admin-overlay fixed inset-0 z-50 p-3 sm:p-6" onClick={closeDrawer}>
                     <div className="mx-auto flex h-full w-full max-w-5xl items-center justify-center" onClick={(e) => e.stopPropagation()}>
-                    <div className="w-full bg-white shadow-2xl flex max-h-[calc(100vh-1.5rem)] sm:max-h-[calc(100vh-3rem)] flex-col overflow-hidden rounded-2xl sm:rounded-3xl animate-slide-in">
-                        <div className="flex items-start justify-between gap-4 px-4 py-4 sm:px-6 border-b border-slate-200 bg-white">
+                    <div className="admin-modal-shell w-full flex max-h-[calc(100vh-1.5rem)] sm:max-h-[calc(100vh-3rem)] flex-col overflow-hidden animate-slide-in">
+                        <div className="admin-panel-header flex items-start justify-between gap-4 px-4 py-4 sm:px-6">
                             <div>
                                 <h2 className="text-lg font-bold text-slate-900">{editingProduct ? '✏️ Chỉnh sửa sản phẩm' : '➕ Thêm sản phẩm mới'}</h2>
                                 {editingProduct && <p className="text-sm text-slate-500 mt-0.5 truncate max-w-xs sm:max-w-md">{editingProduct.name}</p>}
@@ -780,7 +780,7 @@ const AdminProductManagement = () => {
                                 </section>
                             </div>
 
-                            <div className="sticky bottom-0 bg-white border-t border-slate-200 px-4 py-4 sm:px-6">
+                                <div className="admin-panel-footer sticky bottom-0 px-4 py-4 sm:px-6">
                                 <div className="mx-auto flex w-full max-w-4xl flex-col-reverse gap-3 sm:flex-row">
                                 <button type="button" onClick={closeDrawer}
                                     className="flex-1 px-4 py-2.5 border border-slate-300 text-slate-700 rounded-xl text-sm font-semibold hover:bg-slate-50">Hủy</button>
@@ -800,8 +800,8 @@ const AdminProductManagement = () => {
             {/* Delete confirm */}
             {deleteId && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                    <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={()=>setDeleteId(null)}/>
-                    <div className="relative bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl text-center">
+                    <div className="admin-overlay absolute inset-0" onClick={()=>setDeleteId(null)}/>
+                    <div className="admin-modal-shell relative p-6 w-full max-w-sm text-center">
                         <div className="text-5xl mb-3">🗑️</div>
                         <h3 className="text-lg font-bold text-slate-900">Xóa sản phẩm?</h3>
                         <p className="text-sm text-slate-500 mt-1 mb-5">Hành động này không thể hoàn tác.</p>

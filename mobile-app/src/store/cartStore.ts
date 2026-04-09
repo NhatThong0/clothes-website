@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { Product, getDiscountedPrice } from '../api/productApi';
 import { cartApi, CartItem as ApiCartItem } from '../api/cartApi';
+import { isAxiosError } from 'axios';
+import { tokenStorage } from '../utils/tokenStorage';
 
 export interface CartItem {
   product:  Product;
@@ -28,6 +30,9 @@ export const useCartStore = create<CartState>((set, get) => ({
 
   syncCart: async (): Promise<void> => {
     try {
+      const token = await tokenStorage.getAccessToken();
+      if (!token) return;
+
       const cart = await cartApi.getCart();
       const items: CartItem[] = cart.items.map((item: ApiCartItem) => ({
         product:  item.productId as unknown as Product,
@@ -37,7 +42,16 @@ export const useCartStore = create<CartState>((set, get) => ({
       }));
       set({ items });
     } catch (e) {
-      console.error('syncCart error:', e);
+      if (isAxiosError(e)) {
+        console.error('syncCart error:', {
+          status: e.response?.status,
+          url: `${e.config?.baseURL ?? ''}${e.config?.url ?? ''}`,
+          message: e.message,
+          data: e.response?.data,
+        });
+      } else {
+        console.error('syncCart error:', e);
+      }
     }
   },
 

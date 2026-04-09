@@ -258,9 +258,9 @@ function ReceiptFormModal({ initial, onClose, onSaved }) {
 
     return (
         <div className="fixed inset-0 z-50 flex items-start justify-center p-4 overflow-y-auto">
-            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose}/>
-            <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-4xl my-8">
-                <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 sticky top-0 bg-white rounded-t-2xl z-10">
+            <div className="admin-overlay absolute inset-0" onClick={onClose}/>
+            <div className="admin-modal-shell relative w-full max-w-4xl my-8">
+                <div className="admin-panel-header sticky top-0 z-10 flex items-center justify-between rounded-t-[28px] px-6 py-4">
                     <h2 className="text-lg font-bold text-slate-900">{isEdit?'Sửa phiếu nhập':'Tạo phiếu nhập kho'}</h2>
                     <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-xl text-slate-400 text-lg">✕</button>
                 </div>
@@ -423,7 +423,7 @@ function ReceiptFormModal({ initial, onClose, onSaved }) {
                     </div>
                 </div>
 
-                <div className="px-6 py-4 border-t border-slate-100 flex gap-3 sticky bottom-0 bg-white rounded-b-2xl">
+                <div className="admin-panel-footer sticky bottom-0 flex gap-3 rounded-b-[28px] px-6 py-4">
                     <button onClick={onClose} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-sm font-semibold hover:bg-slate-50">Hủy</button>
                     <button onClick={handleSave} disabled={saving}
                         className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold disabled:opacity-50 flex items-center justify-center gap-2">
@@ -442,9 +442,9 @@ function ReceiptDetailDrawer({ id, onClose }) {
 
     return (
         <div className="fixed inset-0 z-50 flex">
-            <div className="flex-1 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
-            <div className="w-full max-w-lg bg-white shadow-2xl flex flex-col h-full">
-                <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0">
+            <div className="admin-overlay flex-1" onClick={onClose}/>
+            <div className="admin-drawer-shell w-full max-w-lg flex flex-col h-full">
+                <div className="admin-panel-header flex flex-shrink-0 items-center justify-between px-6 py-4">
                     <h2 className="text-base font-bold text-slate-900">Chi tiết phiếu nhập</h2>
                     <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-xl text-slate-400">✕</button>
                 </div>
@@ -1054,9 +1054,9 @@ const TABS = [
 export default function AdminInventory() {
     const [activeTab, setActiveTab] = useState('receipts');
     return (
-        <div className="min-h-screen bg-[#F8FAFC]" style={{fontFamily:"'DM Sans',sans-serif"}}>
+        <div className="admin-page min-h-screen bg-[#F8FAFC]" style={{fontFamily:"'DM Sans',sans-serif"}}>
             <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');`}</style>
-            <div className="bg-white border-b border-slate-100 px-6 py-4 sticky top-0 z-20">
+            <div className="bg-white/92 backdrop-blur-xl border-b border-slate-200/70 px-6 py-4 sticky top-0 z-20 shadow-[0_8px_30px_rgba(15,23,42,0.04)]">
                 <div className="max-w-screen-xl mx-auto">
                     <div className="flex items-center justify-between mb-4">
                         <div>

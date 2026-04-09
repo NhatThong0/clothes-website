@@ -1,6 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useAdmin } from '@features/admin/hooks/useAdmin';
 import apiClient from '@features/shared/services/apiClient';
+import TierImageBadge from '@components/common/TierImageBadge';
+
+const LOYALTY_ICON = { bronze: '🥉', silver: '🥈', gold: '🥇', platinum: '💠', diamond: '💎' };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const fmt     = d => d ? new Date(d).toLocaleDateString('vi-VN', { day:'2-digit', month:'2-digit', year:'numeric' }) : '—';
@@ -29,6 +32,21 @@ function StatusBadge({ isActive }) {
 }
 
 // ─── User Form Modal (Create / Edit) ─────────────────────────────────────────
+function LoyaltyBadge({ loyalty }) {
+  const tier = loyalty?.tier;
+  if (!tier?.name) {
+    return <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-500 border border-slate-200">ChÆ°a cÃ³ háº¡ng</span>;
+  }
+
+  const iconKey = String(tier.iconKey || tier.icon_key || '').toLowerCase();
+  return (
+    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200">
+      <span>{LOYALTY_ICON[iconKey] || '🏅'}</span>
+      <span>{tier.name}</span>
+    </span>
+  );
+}
+
 function UserFormModal({ initial, onClose, onSaved }) {
   const isEdit = !!initial?._id;
   const [form, setForm] = useState({
@@ -68,9 +86,9 @@ function UserFormModal({ initial, onClose, onSaved }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose}/>
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+      <div className="admin-overlay absolute inset-0" onClick={onClose}/>
+      <div className="admin-modal-shell relative w-full max-w-md">
+        <div className="admin-panel-header flex items-center justify-between px-6 py-4">
           <h2 className="text-lg font-bold text-slate-900">{isEdit ? 'Chỉnh sửa tài khoản' : 'Thêm tài khoản mới'}</h2>
           <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-xl text-slate-400">✕</button>
         </div>
@@ -123,7 +141,7 @@ function UserFormModal({ initial, onClose, onSaved }) {
           </div>
         </div>
 
-        <div className="px-6 py-4 border-t border-slate-100 flex gap-3">
+        <div className="admin-panel-footer flex gap-3 px-6 py-4">
           <button onClick={onClose} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50">Hủy</button>
           <button onClick={handleSubmit} disabled={saving}
             className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold disabled:opacity-50 flex items-center justify-center gap-2">
@@ -138,7 +156,7 @@ function UserFormModal({ initial, onClose, onSaved }) {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 const AdminUserManagement = () => {
-  const { fetchAdminUsers, updateUserRole, fetchUserOrderHistory } = useAdmin();
+  const { fetchAdminUsers, updateUserRole, fetchUserOrderHistory, fetchUserLoyalty } = useAdmin();
 
   const [users,         setUsers]         = useState([]);
   const [page,          setPage]          = useState(1);
@@ -152,6 +170,8 @@ const AdminUserManagement = () => {
   const [detailUser,    setDetailUser]    = useState(null);
   const [orders,        setOrders]        = useState([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
+  const [loyaltyInfo,   setLoyaltyInfo]   = useState(null);
+  const [loyaltyLoading,setLoyaltyLoading]= useState(false);
 
   // modals
   const [formModal,     setFormModal]     = useState(null); // null | {} | user object
@@ -179,12 +199,26 @@ const AdminUserManagement = () => {
   const openDetail = async (user) => {
     setDetailUser(user);
     setOrders([]);
+    setLoyaltyInfo(null);
     setOrdersLoading(true);
+    setLoyaltyLoading(true);
     try {
-      const data = await fetchUserOrderHistory(user._id, { limit: 5 });
-      setOrders(data?.orders || []);
-    } catch { setOrders([]); }
-    finally { setOrdersLoading(false); }
+      const [orderData, loyaltyData] = await Promise.all([
+        fetchUserOrderHistory(user._id, { limit: 5 }),
+        fetchUserLoyalty(user._id, { limit: 10 }),
+      ]);
+      setOrders(orderData?.orders || []);
+      setLoyaltyInfo(loyaltyData || null);
+      if (loyaltyData?.snapshot) {
+        setDetailUser((current) => current ? ({ ...current, loyalty: loyaltyData.snapshot }) : current);
+      }
+    } catch {
+      setOrders([]);
+      setLoyaltyInfo(null);
+    } finally {
+      setOrdersLoading(false);
+      setLoyaltyLoading(false);
+    }
   };
 
   // ── Actions ──────────────────────────────────────────────────────────────
@@ -249,10 +283,10 @@ const AdminUserManagement = () => {
 
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="admin-page min-h-screen bg-slate-50">
 
       {/* ── Page Header ── */}
-      <div className="bg-white border-b border-slate-100 px-6 py-4 sticky top-0 z-20">
+      <div className="bg-white/92 backdrop-blur-xl border-b border-slate-200/70 px-6 py-4 sticky top-0 z-20 shadow-[0_8px_30px_rgba(15,23,42,0.04)]">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div>
             <h1 className="text-xl font-bold text-slate-900">Quản lý Người dùng</h1>
@@ -284,7 +318,7 @@ const AdminUserManagement = () => {
       <div className="p-6 space-y-4">
 
         {/* ── Search ── */}
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+        <div className="bg-white rounded-[28px] border border-slate-200/70 shadow-[0_12px_40px_rgba(15,23,42,0.04)] p-4">
           <div className="relative max-w-md">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">🔍</span>
             <input type="text" value={search}
@@ -296,19 +330,19 @@ const AdminUserManagement = () => {
         </div>
 
         {/* ── Table ── */}
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+        <div className="bg-white rounded-[28px] border border-slate-200/70 shadow-[0_12px_40px_rgba(15,23,42,0.04)] overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-100">
-                  {['Người dùng', 'Điện thoại', 'Vai trò', 'Trạng thái', 'Đăng nhập gần nhất', 'Ngày tạo', ''].map(h => (
+                  {['Người dùng', 'Điện thoại','Loyalty', 'Vai trò', 'Trạng thái', 'Đăng nhập gần nhất', 'Ngày tạo', ].map(h => (
                     <th key={h} className="px-5 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wider whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
                 {users.length === 0 ? (
-                  <tr><td colSpan={7} className="px-5 py-14 text-center">
+                  <tr><td colSpan={8} className="px-5 py-14 text-center">
                     <div className="flex flex-col items-center gap-2 text-slate-300">
                       <span className="text-4xl">👥</span>
                       <span className="text-sm">Không tìm thấy người dùng</span>
@@ -318,6 +352,7 @@ const AdminUserManagement = () => {
                   <tr key={user._id} className={`hover:bg-slate-50 transition-colors group ${!user.isActive ? 'opacity-60' : ''}`}>
                     <td className="px-5 py-3.5"><UserCell user={user}/></td>
                     <td className="px-5 py-3.5 text-slate-500 text-xs">{user.phone || '—'}</td>
+                    <td className="px-5 py-3.5"><LoyaltyBadge loyalty={user.loyalty}/></td>
                     <td className="px-5 py-3.5"><RoleBadge role={user.role}/></td>
                     <td className="px-5 py-3.5"><StatusBadge isActive={user.isActive}/></td>
                     <td className="px-5 py-3.5 text-xs text-slate-400 whitespace-nowrap">{fmtTime(user.lastLoginAt)}</td>
@@ -374,9 +409,9 @@ const AdminUserManagement = () => {
       {/* ── Detail Drawer ── */}
       {detailUser && (
         <div className="fixed inset-0 z-50 flex">
-          <div className="flex-1 bg-black/40 backdrop-blur-sm" onClick={() => setDetailUser(null)}/>
-          <div className="w-full max-w-md bg-white shadow-2xl flex flex-col h-full">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0">
+          <div className="admin-overlay flex-1" onClick={() => setDetailUser(null)}/>
+          <div className="admin-drawer-shell w-full max-w-md flex flex-col h-full">
+            <div className="admin-panel-header flex flex-shrink-0 items-center justify-between px-6 py-4">
               <h2 className="text-base font-bold text-slate-900">Chi tiết người dùng</h2>
               <button onClick={() => setDetailUser(null)} className="p-2 hover:bg-slate-100 rounded-xl text-slate-400">✕</button>
             </div>
@@ -397,6 +432,7 @@ const AdminUserManagement = () => {
                   <div className="flex items-center gap-2 mt-1">
                     <RoleBadge role={detailUser.role}/>
                     <StatusBadge isActive={detailUser.isActive}/>
+                    <LoyaltyBadge loyalty={detailUser.loyalty}/>
                   </div>
                 </div>
               </div>
@@ -414,6 +450,56 @@ const AdminUserManagement = () => {
                     <span className="text-sm font-semibold text-slate-700 text-right">{value}</span>
                   </div>
                 ))}
+              </div>
+
+              <div>
+                <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-3">Loyalty</h3>
+                {loyaltyLoading ? (
+                  <div className="flex justify-center py-6"><Spinner/></div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
+                      <div className="flex items-center justify-between gap-3 mb-3">
+                        <LoyaltyBadge loyalty={loyaltyInfo?.snapshot || detailUser.loyalty} />
+                        <span className="text-xs text-slate-400">
+                          Sync: {loyaltyInfo?.snapshot?.syncedAt ? fmtTime(loyaltyInfo.snapshot.syncedAt) : '—'}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="rounded-xl bg-white px-3 py-3 border border-slate-100">
+                          <p className="text-[11px] text-slate-400 uppercase tracking-wider">Spendable</p>
+                          <p className="mt-1 text-lg font-bold text-slate-900">{loyaltyInfo?.snapshot?.spendablePoints ?? detailUser?.loyalty?.spendablePoints ?? 0}</p>
+                        </div>
+                        <div className="rounded-xl bg-white px-3 py-3 border border-slate-100">
+                          <p className="text-[11px] text-slate-400 uppercase tracking-wider">Tier points</p>
+                          <p className="mt-1 text-lg font-bold text-slate-900">{loyaltyInfo?.snapshot?.tierPoints ?? detailUser?.loyalty?.tierPoints ?? 0}</p>
+                        </div>
+                      </div>
+                    </div>
+                    {(loyaltyInfo?.logs || []).length === 0 ? (
+                      <div className="text-center py-4 text-slate-400 text-sm bg-slate-50 rounded-2xl border border-slate-100">Chưa có biến động loyalty</div>
+                    ) : (
+                      <div className="space-y-2">
+                        {loyaltyInfo.logs.map((log) => (
+                          <div key={log.id} className="bg-slate-50 rounded-xl border border-slate-100 px-3 py-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <div>
+                                <p className="text-sm font-semibold text-slate-800">{log.action_type}</p>
+                                <p className="text-xs text-slate-400 mt-0.5">{fmtTime(log.created_at)}</p>
+                              </div>
+                              <div className="text-right">
+                                <p className={`text-sm font-bold ${log.delta_spendable >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                  {log.delta_spendable >= 0 ? '+' : ''}{log.delta_spendable}
+                                </p>
+                                <p className="text-[11px] text-slate-400">tier {log.delta_tier >= 0 ? '+' : ''}{log.delta_tier}</p>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Orders */}
@@ -482,8 +568,8 @@ const AdminUserManagement = () => {
       {/* ── Confirm Delete Modal ── */}
       {confirmDelete && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setConfirmDelete(null)}/>
-          <div className="relative bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl text-center">
+          <div className="admin-overlay absolute inset-0" onClick={() => setConfirmDelete(null)}/>
+          <div className="admin-modal-shell relative p-6 w-full max-w-sm text-center">
             <div className="text-5xl mb-3">🗑️</div>
             <h3 className="text-lg font-bold text-slate-900">Xóa tài khoản?</h3>
             <p className="text-sm text-slate-500 mt-1 mb-5">
@@ -503,8 +589,8 @@ const AdminUserManagement = () => {
       {/* ── Confirm Toggle Status Modal ── */}
       {confirmToggle && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setConfirmToggle(null)}/>
-          <div className="relative bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl text-center">
+          <div className="admin-overlay absolute inset-0" onClick={() => setConfirmToggle(null)}/>
+          <div className="admin-modal-shell relative p-6 w-full max-w-sm text-center">
             <div className="text-5xl mb-3">{confirmToggle.isActive ? '🔒' : '🔓'}</div>
             <h3 className="text-lg font-bold text-slate-900">{confirmToggle.isActive ? 'Khóa tài khoản?' : 'Mở khóa tài khoản?'}</h3>
             <p className="text-sm text-slate-500 mt-1 mb-5">
@@ -529,8 +615,8 @@ const AdminUserManagement = () => {
       {/* ── Confirm Role Change Modal ── */}
       {confirmRole && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setConfirmRole(null)}/>
-          <div className="relative bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl text-center">
+          <div className="admin-overlay absolute inset-0" onClick={() => setConfirmRole(null)}/>
+          <div className="admin-modal-shell relative p-6 w-full max-w-sm text-center">
             <div className="text-5xl mb-3">{confirmRole.newRole === 'admin' ? '👑' : '👤'}</div>
             <h3 className="text-lg font-bold text-slate-900">Xác nhận thay đổi vai trò</h3>
             <p className="text-sm text-slate-500 mt-1 mb-5">

@@ -1,13 +1,35 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useCart } from '@features/cart/hooks/useCart';
 import Empty from '@components/common/Empty';
 import { formatPrice } from '@utils/helpers';
+import apiClient from '@features/shared/services/apiClient';
 
 export default function CartPage() {
   const navigate = useNavigate();
   const { cartItems, removeFromCart, updateQuantity, clearCart, minQtyAlert } = useCart();
   const [selectedKeys, setSelectedKeys] = useState([]);
+  const [productMap, setProductMap] = useState({});
+
+  useEffect(() => {
+    const ids = [...new Set((cartItems || []).map((i) => i.id).filter(Boolean))];
+    if (ids.length === 0) { setProductMap({}); return; }
+
+    let cancelled = false;
+    Promise.allSettled(ids.map((id) => apiClient.get(`/products/${id}`)))
+      .then((results) => {
+        if (cancelled) return;
+        const next = {};
+        results.forEach((r, idx) => {
+          if (r.status !== 'fulfilled') return;
+          const data = r.value.data?.data || null;
+          if (data) next[ids[idx]] = data;
+        });
+        setProductMap(next);
+      });
+
+    return () => { cancelled = true; };
+  }, [cartItems]);
 
   // ✅ Key duy nhất: id + color + size
   const getItemKey = (item) =>
@@ -17,21 +39,45 @@ export default function CartPage() {
     setSelectedKeys(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
 
   const toggleSelectAll = () => {
-    const allKeys = cartItems.map(getItemKey);
-    setSelectedKeys(selectedKeys.length === cartItems.length ? [] : allKeys);
+    const allKeys = displayItems.map(getItemKey);
+    setSelectedKeys(selectedKeys.length === displayItems.length ? [] : allKeys);
   };
 
-  const selectedItems = cartItems.filter(item => selectedKeys.includes(getItemKey(item)));
-  const selectedTotal = selectedItems.reduce(
-    (acc, item) => acc + (item.discountedPrice || item.price) * item.quantity, 0
-  );
+  const displayItems = useMemo(() => {
+    return (cartItems || []).map((item) => {
+      const product = productMap[item.id];
+      const basePrice = Number(product?.price ?? item.price) || 0;
+      const discountPercent = Number(product?.discount ?? 0) || 0;
+      const sellingPrice = discountPercent > 0 ? Math.round(basePrice * (1 - discountPercent / 100)) : basePrice;
+      const flashSale = product?.flashSale && !product.flashSale.isSoldOut ? product.flashSale : null;
+      const finalPrice = flashSale ? Number(flashSale.price) || sellingPrice : sellingPrice;
+      return {
+        ...item,
+        basePrice,
+        discount: discountPercent,
+        sellingPrice,
+        discountedPrice: finalPrice,
+        flashSalePromotionId: flashSale?.promotionId || null,
+        flashSalePrice: flashSale ? Number(flashSale.price) || null : null,
+      };
+    });
+  }, [cartItems, productMap]);
+
+  const selectedItems = displayItems.filter(item => selectedKeys.includes(getItemKey(item)));
+  const selectedTotal = selectedItems.reduce((acc, item) => acc + (item.discountedPrice || item.price) * item.quantity, 0);
 
   const handleCheckout = () => {
     if (selectedItems.length === 0) {
       alert('Vui lòng chọn ít nhất một sản phẩm');
       return;
     }
-    sessionStorage.setItem('checkoutItems', JSON.stringify(selectedItems));
+    const payload = selectedItems.map((item) => ({
+      ...item,
+      price: item.sellingPrice ?? item.price,
+      discountedPrice: item.discountedPrice ?? item.price,
+      flashSalePromotionId: item.flashSalePromotionId || null,
+    }));
+    sessionStorage.setItem('checkoutItems', JSON.stringify(payload));
     navigate('/checkout');
   };
 
@@ -39,7 +85,7 @@ export default function CartPage() {
     <div>
       <h1 className="text-3xl font-bold text-dark mb-8">Giỏ hàng</h1>
 
-      {cartItems.length === 0 ? (
+      {displayItems.length === 0 ? (
         <Empty
           message="Giỏ hàng của bạn trống"
           action={
@@ -56,22 +102,22 @@ export default function CartPage() {
             <div className="flex items-center gap-3 mb-4 p-4 bg-white rounded-lg shadow-sm-blue">
               <input
                 type="checkbox"
-                checked={selectedKeys.length === cartItems.length && cartItems.length > 0}
+                checked={selectedKeys.length === displayItems.length && displayItems.length > 0}
                 onChange={toggleSelectAll}
                 className="w-5 h-5 accent-primary cursor-pointer"
               />
               <span className="font-semibold text-dark">
-                Chọn tất cả ({cartItems.length} sản phẩm)
+                Chọn tất cả ({displayItems.length} sản phẩm)
               </span>
             </div>
 
             <div className="bg-white rounded-lg shadow-sm-blue overflow-hidden">
-              {cartItems.map((item, index) => {
+              {displayItems.map((item, index) => {
                 const key = getItemKey(item);
                 return (
                   <div
                     key={key}
-                    className={`flex gap-4 p-6 ${index !== cartItems.length - 1 ? 'border-b' : ''} ${selectedKeys.includes(key) ? 'bg-blue-50' : ''}`}
+                    className={`flex gap-4 p-6 ${index !== displayItems.length - 1 ? 'border-b' : ''} ${selectedKeys.includes(key) ? 'bg-blue-50' : ''}`}
                   >
                     {/* Checkbox */}
                     <div className="flex items-center">
@@ -114,9 +160,13 @@ export default function CartPage() {
                       <p className="text-primary font-bold">
                         {formatPrice(item.discountedPrice || item.price)}
                       </p>
-                      {item.discount > 0 && (
-                        <p className="text-xs text-gray-400 line-through">{formatPrice(item.price)}</p>
-                      )}
+                      {item.flashSalePromotionId ? (
+                        <p className="text-xs text-gray-500">
+                          Giá đang bán: <span className="line-through text-gray-400">{formatPrice(item.sellingPrice)}</span>
+                        </p>
+                      ) : item.discount > 0 ? (
+                        <p className="text-xs text-gray-400 line-through">{formatPrice(item.basePrice)}</p>
+                      ) : null}
                     </div>
 
                     {/* Quantity + Total */}

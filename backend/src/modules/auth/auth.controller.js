@@ -4,6 +4,7 @@ const Cart = require('../../model/Cart');
 const { generateToken } = require('../../utils/jwtToken');
 const { validateEmail, validatePassword, validateName } = require('../../utils/validators');
 const { notifyAdminNewUser } = require('../notification/notification.controller');
+const { syncUserLoyaltySnapshot } = require('../loyalty/loyalty.service');
 
 // Register
 exports.register = async (req, res, next) => {
@@ -63,6 +64,9 @@ exports.register = async (req, res, next) => {
         });
 
         await user.save();
+        await syncUserLoyaltySnapshot(user._id.toString()).catch((err) => {
+            console.error('[Loyalty] init snapshot failed:', err.message);
+        });
 
         // ── LƯU SANG MYSQL (Song song) ──────────────────────────────────────────
         try {

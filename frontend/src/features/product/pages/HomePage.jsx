@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import ProductCard from '@features/product/components/ProductCard';
 import Loading from '@components/common/Loading';
@@ -6,273 +6,350 @@ import Empty from '@components/common/Empty';
 import BannerCarousel from '@components/layout/BannerCarousel';
 import { productAPI } from '@features/shared/services/api';
 import apiClient from '@features/shared/services/apiClient';
+import { getSocket } from '@features/chat/hooks/useChat';
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-const normalizeProduct = (p) => ({
-  id:              p._id || p.id,
-  _id:             p._id || p.id,
-  name:            p.name,
-  price:           p.price,
-  discountedPrice: p.discount > 0 ? Math.round(p.price * (1 - p.discount / 100)) : p.price,
-  discount:        p.discount || 0,
-  category:        p.category?.name || p.category || '',
-  image:           p.images?.[0] || 'https://placehold.co/400x500?text=No+Image',
-  rating:          p.averageRating || p.rating || 0,
-  reviews:         p.reviewCount || (Array.isArray(p.reviews) ? p.reviews.length : p.reviews) || 0,
-  stock:           p.stock || 0,
-  soldCount:       p.soldCount || 0, // ✅ thêm soldCount
-});
+const normalizeProduct = (product) => {
+  const flashSale = product.flashSale || null;
+  const flashSaleActive = flashSale && !flashSale.isSoldOut;
+  const discountedPrice = flashSaleActive
+    ? flashSale.price
+    : product.discount > 0
+      ? Math.round(product.price * (1 - product.discount / 100))
+      : product.price;
 
-const CAT_META = {
-  'Nam':      { icon: '👔', gradient: 'from-blue-500 to-blue-700' },
-  'Nữ':       { icon: '👗', gradient: 'from-rose-400 to-pink-600' },
-  'Phụ kiện': { icon: '👜', gradient: 'from-violet-500 to-purple-700' },
-  'Unisex':   { icon: '🧥', gradient: 'from-teal-400 to-cyan-600' },
+  return ({
+    id: product._id || product.id,
+    _id: product._id || product.id,
+    name: product.name,
+    price: product.price,
+    discountedPrice,
+    discount: product.discount || 0,
+    flashSale,
+    category: product.category?.name || product.category || '',
+    image: product.images?.[0] || 'https://placehold.co/400x500?text=No+Image',
+    rating: product.averageRating || product.rating || 0,
+    reviews: product.reviewCount || (Array.isArray(product.reviews) ? product.reviews.length : product.reviews) || 0,
+    stock: product.stock || 0,
+    soldCount: product.soldCount || 0,
+  });
 };
-const DEFAULT_META = { icon: '🛍️', gradient: 'from-slate-400 to-slate-600' };
 
-const PERKS = [
-  { icon: '🚚', title: 'Miễn phí vận chuyển', desc: 'Cho đơn hàng từ 500K' },
-  { icon: '↩️', title: 'Đổi trả 30 ngày',     desc: 'Không cần lý do'      },
-  { icon: '💯', title: 'Chính hãng 100%',      desc: 'Kiểm định chất lượng' },
-  { icon: '🔒', title: 'Thanh toán an toàn',   desc: 'Mã hóa SSL 256-bit'   },
+const FALLBACK_CATEGORIES = [
+  { _id: 'unisex', name: 'Đồ unisex' },
+  { _id: 'outerwear', name: 'Áo khoác' },
+  { _id: 'tops', name: 'Áo mặc hằng ngày' },
+  { _id: 'accessories', name: 'Phụ kiện' },
 ];
 
-const FALLBACK_CATS = [
-  { _id: 'nam', name: 'Nam',       image: null },
-  { _id: 'nu',  name: 'Nữ',       image: null },
-  { _id: 'pk',  name: 'Phụ kiện', image: null },
-  { _id: 'uni', name: 'Unisex',   image: null },
+const FEATURE_STRIPS = [
+  { title: 'Khẳng định khí chất qua từng trang phục.', description: 'Khám phá bộ sưu tập thời trang độc bản, giúp bạn tự tin dẫn đầu mọi xu hướng.' },
+  { title: 'Vẻ đẹp đến từ những điều đơn giản nhất', description: 'Trải nghiệm thời trang tối giản với chất liệu cao cấp và phom dáng chuẩn xác cho mọi dịp.' },
+  { title: 'Đón đầu những thiết kế mới nhất', description: 'Tủ đồ với những sản phẩm trẻ trung, hiện đại và luôn bắt kịp nhịp sống thời thượng.' },
 ];
 
-// ── Component ─────────────────────────────────────────────────────────────────
+const STATS = [
+  { value: '240+', label: 'Sản phẩm mới mỗi tuần' },
+  { value: '48h', label: 'Giao nhanh nội thành' },
+  { value: '4.9', label: 'Đánh giá trung bình' },
+];
+
+const getCategoryDescription = (category) => {
+  const adminDescription = category?.description?.trim();
+  if (adminDescription) return adminDescription;
+  if (category?.productCount) return `${category.productCount} sản phẩm sẵn sàng để khám phá.`;
+  return 'Danh mục đang được cập nhật nội dung mô tả.';
+};
+
 export default function HomePage() {
   const [featuredProducts, setFeaturedProducts] = useState([]);
-  const [categories,       setCategories]       = useState([]);
-  const [banners,          setBanners]          = useState([]);
-  const [loading,          setLoading]          = useState(true);
+  const [categories, setCategories] = useState([]);
+  const [banners, setBanners] = useState([]);
+  const [flashSales, setFlashSales] = useState([]);
+  const [nowTs, setNowTs] = useState(Date.now());
+  const [loading, setLoading] = useState(true);
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  useEffect(() => {
+    const tick = setInterval(() => setNowTs(Date.now()), 1000);
+    return () => clearInterval(tick);
+  }, []);
+
+  const loadFlashSales = async () => {
+    try {
+      const res = await apiClient.get('/flash-sale/active');
+      setFlashSales(res.data?.data?.promotions || []);
+    } catch {
+      setFlashSales([]);
+    }
+  };
+
+  useEffect(() => {
+    loadFlashSales();
+    const poll = setInterval(loadFlashSales, 30000);
+    return () => clearInterval(poll);
+  }, []);
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) return undefined;
+
+    const socket = getSocket(token);
+    if (!socket) return undefined;
+
+    const onUpdate = () => loadFlashSales();
+    const onRemaining = ({ promotionId, remaining }) => {
+      setFlashSales((prev) =>
+        prev.map((p) => (String(p._id) === String(promotionId) ? { ...p, flashSaleRemaining: remaining } : p)),
+      );
+    };
+
+    socket.on('flash-sale:update', onUpdate);
+    socket.on('flash-sale:remaining', onRemaining);
+
+    return () => {
+      socket.off('flash-sale:update', onUpdate);
+      socket.off('flash-sale:remaining', onRemaining);
+    };
+  }, []);
 
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [productsRes, categoriesRes, bannersRes] = await Promise.allSettled([
+      const [productsResult, categoriesResult, bannersResult] = await Promise.allSettled([
         productAPI.getFeatured(),
         productAPI.getCategories(),
         apiClient.get('/banners'),
       ]);
 
-      // ── Products ─────────────────────────────────────────────────────────
-      if (productsRes.status === 'fulfilled') {
-        const data = productsRes.value.data?.data || productsRes.value.data || [];
-        const list = Array.isArray(data) ? data : (data.products || []);
-        setFeaturedProducts(list.slice(0, 6).map(normalizeProduct));
+      if (productsResult.status === 'fulfilled') {
+        const data = productsResult.value.data?.data || productsResult.value.data || [];
+        const list = Array.isArray(data) ? data : data.products || [];
+        setFeaturedProducts(list.slice(0, 8).map(normalizeProduct));
       } else {
-        // Fallback: lấy sản phẩm mới nhất nếu endpoint featured lỗi
         try {
-          const res  = await productAPI.getAllProducts({ limit: 6 });
-          const data = res.data?.data || res.data || [];
-          const list = Array.isArray(data) ? data : (data.products || []);
-          setFeaturedProducts(list.slice(0, 6).map(normalizeProduct));
+          const response = await productAPI.getAllProducts({ limit: 8 });
+          const data = response.data?.data || response.data || [];
+          const list = Array.isArray(data) ? data : data.products || [];
+          setFeaturedProducts(list.slice(0, 8).map(normalizeProduct));
         } catch {
           setFeaturedProducts([]);
         }
       }
 
-      // ── Categories ───────────────────────────────────────────────────────
-      if (categoriesRes.status === 'fulfilled') {
-        const d       = categoriesRes.value.data?.data || categoriesRes.value.data || [];
-        const catList = Array.isArray(d) ? d : [];
-        // Chỉ lấy category có isFeatured = true, fallback tất cả nếu chưa set
-        const featured = catList.filter(c => c.isFeatured);
-        setCategories(featured.length > 0 ? featured : catList);
+      if (categoriesResult.status === 'fulfilled') {
+        const data = categoriesResult.value.data?.data || categoriesResult.value.data || [];
+        const list = Array.isArray(data) ? data : [];
+        const featured = list.filter((category) => category.isFeatured);
+        setCategories((featured.length > 0 ? featured : list).slice(0, 4));
       }
 
-      // ── Banners ──────────────────────────────────────────────────────────
-      if (bannersRes.status === 'fulfilled') {
-        const d = bannersRes.value.data?.data || [];
-        setBanners(Array.isArray(d) ? d.filter(b => b.isActive !== false) : []);
+      if (bannersResult.status === 'fulfilled') {
+        const data = bannersResult.value.data?.data || [];
+        setBanners(Array.isArray(data) ? data.filter((banner) => banner.isActive !== false) : []);
       }
-    } catch (err) {
-      console.error('HomePage fetch error:', err);
+    } catch (error) {
+      console.error('HomePage fetch error:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  const displayCats = categories.length > 0 ? categories : FALLBACK_CATS;
+  const displayCategories = categories.length > 0 ? categories : FALLBACK_CATEGORIES;
+  const activeFlashSale = (flashSales || []).find((p) => p.flashSaleRemaining === null || p.flashSaleRemaining > 0) || flashSales?.[0] || null;
+  const flashItem = activeFlashSale?.items?.[0] || null;
+  const flashProduct = flashItem?.product || activeFlashSale?.products?.[0] || null;
+  const flashPrice = flashItem?.price || activeFlashSale?.flashSalePrice || null;
+  const flashItemCount = activeFlashSale?.items?.length || activeFlashSale?.productIds?.length || 0;
+  const flashEndsAt = activeFlashSale?.endDate ? new Date(activeFlashSale.endDate).getTime() : null;
+  const flashLeftMs = flashEndsAt ? Math.max(0, flashEndsAt - nowTs) : 0;
+  const hh = String(Math.floor(flashLeftMs / 3600000)).padStart(2, '0');
+  const mm = String(Math.floor((flashLeftMs % 3600000) / 60000)).padStart(2, '0');
+  const ss = String(Math.floor((flashLeftMs % 60000) / 1000)).padStart(2, '0');
 
   return (
-    <div className="bg-white min-h-screen">
-
-      {/* ── Banner Carousel ───────────────────────────────────────────────── */}
-      {banners.length > 0 ? (
-        <div className="w-full px-4 md:px-6 pt-4 max-w-7xl mx-auto">
-          <BannerCarousel banners={banners} interval={4500} />
-        </div>
-      ) : (
-        <section className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-blue-950 to-blue-900 text-white">
-          <div className="absolute inset-0 opacity-10 pointer-events-none"
-            style={{ backgroundImage: 'radial-gradient(circle at 25% 50%,#3B82F6 0%,transparent 50%),radial-gradient(circle at 75% 20%,#60A5FA 0%,transparent 40%)' }}/>
-          <div className="relative max-w-6xl mx-auto px-6 py-20 md:py-28 flex flex-col md:flex-row items-center gap-12">
-            <div className="md:w-1/2 text-center md:text-left">
-              <p className="text-blue-300 text-sm font-bold uppercase tracking-[0.25em] mb-4">
-                Bộ sưu tập mới · 2025
-              </p>
-              <h1 className="text-4xl md:text-5xl lg:text-6xl font-black leading-tight tracking-tight mb-6">
-                Phong cách<br/>
-                <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-300 to-cyan-300">
-                  định nghĩa bạn
+    <div className="min-h-screen bg-transparent text-[#111111]">
+      <section className="mx-auto flex max-w-7xl flex-col gap-6 px-4 pb-6 pt-6 sm:px-6 lg:px-8 lg:pt-8">
+        {activeFlashSale && flashProduct && (
+          <Link
+            to={`/products/${flashProduct._id}`}
+            className="editorial-card flex flex-col gap-3 rounded-[28px] border border-amber-200/70 bg-[linear-gradient(90deg,rgba(251,191,36,0.18)_0%,rgba(255,255,255,0.92)_45%,rgba(255,255,255,1)_100%)] px-6 py-5 shadow-sm transition hover:shadow-md"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <span className="rounded-full bg-amber-500 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.24em] text-white">
+                  ⚡ Flash Sale
                 </span>
-              </h1>
-              <p className="text-slate-300 text-lg mb-8 max-w-md leading-relaxed">
-                Khám phá bộ sưu tập thời trang cao cấp. Chất liệu tốt, thiết kế tinh tế, giao hàng nhanh toàn quốc.
-              </p>
-              <div className="flex items-center gap-3 flex-wrap justify-center md:justify-start">
-                <Link to="/products"
-                  className="px-7 py-3.5 bg-blue-500 hover:bg-blue-400 text-white rounded-2xl font-bold text-sm transition-all shadow-lg shadow-blue-500/30 hover:-translate-y-0.5">
-                  Mua sắm ngay
-                </Link>
-                <Link to="/products"
-                  className="px-7 py-3.5 bg-white/10 hover:bg-white/20 text-white rounded-2xl font-semibold text-sm border border-white/20 transition-all backdrop-blur-sm">
-                  Xem lookbook →
-                </Link>
+                <p className="text-sm font-semibold text-black">{activeFlashSale.name || flashProduct.name}</p>
+              </div>
+              <div className="flex items-center gap-3 text-sm font-semibold text-slate-700">
+                <span className="rounded-full border border-black/10 bg-white px-3 py-1">
+                  Còn lại: <span className="font-extrabold text-amber-700">{activeFlashSale.flashSaleRemaining ?? '∞'}</span>
+                </span>
+                {flashItemCount > 1 && (
+                  <span className="rounded-full border border-black/10 bg-white px-3 py-1">
+                    {flashItemCount} sản phẩm
+                  </span>
+                )}
+                <span className="rounded-full border border-black/10 bg-white px-3 py-1 font-mono">
+                  {hh}:{mm}:{ss}
+                </span>
               </div>
             </div>
-            <div className="md:w-1/2 flex justify-center">
-              <div className="relative">
-                <div className="w-72 h-80 md:w-80 md:h-96 rounded-3xl overflow-hidden shadow-2xl border border-white/10">
-                  <img src="https://placehold.co/400x500/1e3a5f/60a5fa?text=New+Collection"
-                    alt="Hero" className="w-full h-full object-cover"/>
+            <div className="flex flex-wrap items-baseline gap-2 text-sm text-slate-600">
+              <span className="font-semibold text-slate-800">{flashProduct.name}</span>
+              {flashPrice && (
+                <span className="font-extrabold text-black">
+                  {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(flashPrice)}
+                </span>
+              )}
+              <span className="text-slate-500">Nhấn để mua ngay</span>
+            </div>
+          </Link>
+        )}
+        {banners.length > 0 ? (
+          <BannerCarousel banners={banners} interval={5000} />
+        ) : (
+          <section className="editorial-card editorial-grid relative overflow-hidden rounded-[36px] bg-white px-6 py-8 sm:px-10 sm:py-12 lg:px-14 lg:py-16">
+            <div className="absolute right-8 top-8 hidden h-40 w-40 rounded-full bg-black/[0.04] blur-3xl lg:block" />
+            <div className="grid items-end gap-10 lg:grid-cols-[1.15fr_0.85fr]">
+              <div className="space-y-7">
+                <div className="w-fit rounded-full border border-black/10 bg-[#f4f4f1] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.34em] text-slate-500">
+                  Giao diện theo hướng Dribbble
                 </div>
-                <div className="absolute -bottom-4 -left-6 bg-white rounded-2xl px-4 py-3 shadow-xl">
-                  <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Ưu đãi hôm nay</p>
-                  <p className="text-blue-600 font-black text-lg leading-none mt-0.5">Giảm đến 40%</p>
+                <div className="space-y-5">
+                  <h1 className="max-w-3xl text-4xl font-extrabold leading-[0.95] tracking-[-0.05em] sm:text-5xl lg:text-7xl">
+                    Thời trang unisex hiện đại với giao diện sạch và gọn gàng.
+                  </h1>
+                  <p className="max-w-xl text-sm leading-7 text-slate-500 sm:text-base lg:text-lg">
+                    Nền trắng, điểm nhấn đen, bề mặt xám nhạt và kiểu chữ sans-serif thanh lịch giúp cửa hàng trông cao cấp và dễ tập trung hơn ngay từ màn hình đầu tiên.
+                  </p>
                 </div>
-                <div className="absolute -top-4 -right-4 bg-blue-500 text-white rounded-2xl px-3 py-2 shadow-xl text-center">
-                  <p className="font-black text-xl leading-none">NEW</p>
-                  <p className="text-[10px] font-semibold opacity-80 mt-0.5">2025</p>
+                <div className="flex flex-wrap items-center gap-3">
+                  <Link to="/products" className="rounded-full bg-black px-6 py-3 text-sm font-semibold text-white transition hover:bg-[#242424]">
+                    Mua sắm ngay
+                  </Link>
+                  <Link to="/products?type=sale" className="rounded-full border border-black/10 bg-white px-6 py-3 text-sm font-semibold text-black transition hover:bg-[#f4f4f1]">
+                    Xem ưu đãi
+                  </Link>
                 </div>
               </div>
-            </div>
-          </div>
-        </section>
-      )}
 
-      {/* ── Perks strip ──────────────────────────────────────────────────── */}
-      <section className="border-y border-slate-100 mt-4">
-        <div className="max-w-6xl mx-auto px-6">
-          <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-y md:divide-y-0 divide-slate-100">
-            {PERKS.map(p => (
-              <div key={p.title} className="flex items-center gap-3 py-5 px-4 md:px-6">
-                <span className="text-2xl flex-shrink-0">{p.icon}</span>
-                <div>
-                  <p className="text-sm font-bold text-slate-800">{p.title}</p>
-                  <p className="text-xs text-slate-400">{p.desc}</p>
-                </div>
+              <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-1">
+                {STATS.map((stat) => (
+                  <div key={stat.label} className="editorial-panel rounded-[28px] px-6 py-5">
+                    <p className="text-3xl font-extrabold tracking-[-0.04em] text-black">{stat.value}</p>
+                    <p className="mt-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">{stat.label}</p>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            </div>
+          </section>
+        )}
+      </section>
+
+      <section className="mx-auto max-w-7xl px-4 pb-6 sm:px-6 lg:px-8">
+        <div className="grid gap-4 md:grid-cols-3">
+          {FEATURE_STRIPS.map((item) => (
+            <article key={item.title} className="editorial-panel rounded-[28px] px-6 py-6">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-400">TỎA SÁNG PHONG CÁCH RIÊNG</p>
+              <h3 className="mt-3 text-xl font-bold tracking-[-0.03em] text-black">{item.title}</h3>
+              <p className="mt-3 text-sm leading-7 text-slate-500">{item.description}</p>
+            </article>
+          ))}
         </div>
       </section>
 
-      <div className="max-w-6xl mx-auto px-6">
-
-        {/* ── Categories ───────────────────────────────────────────────── */}
-        <section className="py-14">
-          <div className="flex items-end justify-between mb-8">
-            <div>
-              <p className="text-xs font-bold text-blue-500 uppercase tracking-widest mb-1">Khám phá</p>
-              <h2 className="text-3xl font-black text-slate-900 tracking-tight">Danh mục nổi bật</h2>
-            </div>
-            <Link to="/products" className="text-sm font-semibold text-blue-600 hover:text-blue-700 transition-colors">
-              Tất cả →
-            </Link>
+      <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <div className="mb-7 flex items-end justify-between gap-4">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.34em] text-slate-400">Danh mục nổi bật</p>
+            <h2 className="mt-2 text-3xl font-extrabold tracking-[-0.04em] text-black sm:text-4xl">Danh mục gọn gàng và dễ khám phá</h2>
           </div>
+          <Link to="/products" className="hidden text-sm font-semibold text-slate-500 transition hover:text-black sm:inline-flex">
+            Xem tất cả
+          </Link>
+        </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4" style={{ gridAutoRows: 'minmax(130px,auto)' }}>
-            {displayCats.map((cat, idx) => {
-              const catId   = cat._id || cat;
-              const catName = cat.name  || cat;
-              const meta    = CAT_META[catName] || DEFAULT_META;
-              const isWide  = idx === 0;
-              return (
-                <Link key={catId} to={`/products?category=${catId}`}
-                  className={`relative overflow-hidden rounded-2xl group cursor-pointer block ${isWide ? 'md:col-span-2 md:row-span-2' : ''}`}
-                  style={{ minHeight: isWide ? '280px' : '130px' }}>
-                  {cat.image ? (
-                    <img src={cat.image} alt={catName}
-                      className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"/>
-                  ) : (
-                    <div className={`absolute inset-0 bg-gradient-to-br ${meta.gradient}`}/>
-                  )}
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent"/>
-                  <div className="absolute inset-0 flex flex-col justify-end p-5">
-                    <p className="text-2xl mb-1">{meta.icon}</p>
-                    <h3 className={`font-black text-white leading-tight ${isWide ? 'text-2xl' : 'text-base'}`}>
-                      {catName}
-                    </h3>
-                    <p className="text-white/70 text-xs mt-1 font-medium group-hover:text-white transition-colors">
-                      {cat.productCount ? `${cat.productCount} sản phẩm` : `Khám phá ${catName}`} →
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {displayCategories.map((category, index) => {
+            const categoryId = category._id || category;
+            const categoryName = category.name || category;
+            const isFeatured = index === 0;
+
+            return (
+              <Link
+                key={categoryId}
+                to={`/products?category=${categoryId}`}
+                className={`group relative overflow-hidden rounded-[32px] border border-black/8 bg-white p-6 transition hover:-translate-y-1 hover:border-black/18 hover:shadow-[0_20px_50px_rgba(15,15,15,0.08)] ${
+                  isFeatured ? 'md:col-span-2' : ''
+                }`}
+              >
+                {category.image ? (
+                  <>
+                    <img
+                      src={category.image}
+                      alt={categoryName}
+                      className="absolute inset-0 h-full w-full object-cover transition duration-700 group-hover:scale-[1.04]"
+                    />
+                    <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(10,10,10,0.08)_0%,rgba(10,10,10,0.58)_100%)]" />
+                  </>
+                ) : (
+                  <div className="absolute inset-y-0 right-0 w-1/2 bg-[radial-gradient(circle_at_top_right,rgba(0,0,0,0.08),transparent_60%)]" />
+                )}
+                <div className="relative flex h-full min-h-[220px] flex-col justify-between">
+                  <div className="flex items-start justify-between gap-3">
+                    <span className={`rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${
+                      category.image
+                        ? 'border-white/20 bg-white/12 text-white'
+                        : 'border-black/10 bg-[#f4f4f1] text-slate-500'
+                    }`}>
+                      {isFeatured ? 'Danh mục chính' : 'Danh mục'}
+                    </span>
+                    <span className={`text-sm font-semibold transition group-hover:translate-x-1 ${
+                      category.image ? 'text-white/80 group-hover:text-white' : 'text-slate-400 group-hover:text-black'
+                    }`}>Xem thêm</span>
+                  </div>
+                  <div>
+                    <h3 className={`max-w-xs text-2xl font-bold tracking-[-0.04em] sm:text-3xl ${category.image ? 'text-white' : 'text-black'}`}>{categoryName}</h3>
+                    <p className={`mt-3 max-w-sm text-sm leading-7 ${category.image ? 'text-white/78' : 'text-slate-500'}`}>
+                      {getCategoryDescription(category)}
                     </p>
                   </div>
-                </Link>
-              );
-            })}
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <div className="mb-7 flex items-end justify-between gap-4">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.34em] text-slate-400">Đang được quan tâm</p>
+            <h2 className="mt-2 text-3xl font-extrabold tracking-[-0.04em] text-black sm:text-4xl">Sản phẩm nổi bật trong lưới mới</h2>
           </div>
-        </section>
+          <Link to="/products" className="hidden text-sm font-semibold text-slate-500 transition hover:text-black sm:inline-flex">
+            Xem danh sách
+          </Link>
+        </div>
 
-        {/* ── Featured products ─────────────────────────────────────────── */}
-        <section className="pb-14">
-          <div className="flex items-end justify-between mb-8">
-            <div>
-              <p className="text-xs font-bold text-blue-500 uppercase tracking-widest mb-1">Được yêu thích</p>
-              <h2 className="text-3xl font-black text-slate-900 tracking-tight">Sản phẩm nổi bật</h2>
-            </div>
-            <Link to="/products" className="text-sm font-semibold text-blue-600 hover:text-blue-700 transition-colors">
-              Xem tất cả →
-            </Link>
+        {loading ? (
+          <Loading />
+        ) : featuredProducts.length === 0 ? (
+          <Empty message="Không có sản phẩm" />
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {featuredProducts.map((product) => (
+              <ProductCard key={product.id} product={product} />
+            ))}
           </div>
+        )}
+      </section>
 
-          {loading ? (
-            <Loading/>
-          ) : featuredProducts.length === 0 ? (
-            <Empty message="Không có sản phẩm"/>
-          ) : (
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
-              {featuredProducts.map(product => (
-                <ProductCard key={product.id} product={product}/>
-              ))}
-            </div>
-          )}
-
-          
-        </section>
-
-        {/* ── Newsletter ────────────────────────────────────────────────── */}
-        {/* <section className="pb-16">
-          <div className="relative overflow-hidden bg-gradient-to-r from-blue-600 to-blue-500 rounded-3xl p-8 md:p-12 flex flex-col md:flex-row items-center justify-between gap-6 text-white">
-            <div className="absolute inset-0 opacity-10 pointer-events-none"
-              style={{ backgroundImage: 'radial-gradient(circle at 80% 50%,white 0%,transparent 60%)' }}/>
-            <div className="relative text-center md:text-left">
-              <p className="text-blue-200 text-xs font-bold uppercase tracking-widest mb-2">Ưu đãi đặc biệt</p>
-              <h3 className="text-2xl md:text-3xl font-black leading-tight">
-                Đăng ký nhận<br/>voucher 10%
-              </h3>
-              <p className="text-blue-100 text-sm mt-2">Cho đơn hàng đầu tiên của bạn</p>
-            </div>
-            <div className="relative flex gap-2 w-full md:w-auto">
-              <input type="email" placeholder="Email của bạn..."
-                className="flex-1 md:w-64 px-4 py-3 rounded-xl text-slate-800 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-white/50"/>
-              <button className="px-5 py-3 bg-white text-blue-600 rounded-xl font-bold text-sm hover:bg-blue-50 transition-colors whitespace-nowrap shadow-sm">
-                Nhận ngay
-              </button>
-            </div>
-          </div>
-        </section> */}
-
-      </div>
+      
     </div>
   );
 }

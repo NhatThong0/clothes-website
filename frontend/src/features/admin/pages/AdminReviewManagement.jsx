@@ -77,10 +77,10 @@ const AdminReviewManagement = () => {
     : '—';
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="admin-page min-h-screen bg-slate-50">
 
       {/* Header */}
-      <div className="bg-white border-b border-slate-100 px-6 py-4 sticky top-0 z-20">
+      <div className="bg-white/92 backdrop-blur-xl border-b border-slate-200/70 px-6 py-4 sticky top-0 z-20 shadow-[0_8px_30px_rgba(15,23,42,0.04)]">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h1 className="text-xl font-bold text-slate-900">Quản lý Đánh giá</h1>
@@ -138,7 +138,7 @@ const AdminReviewManagement = () => {
 
         {/* Review cards */}
         {reviews.length === 0 ? (
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm py-16 flex flex-col items-center gap-3 text-slate-400">
+          <div className="bg-white rounded-[28px] border border-slate-200/70 shadow-[0_12px_40px_rgba(15,23,42,0.04)] py-16 flex flex-col items-center gap-3 text-slate-400">
             <span className="text-5xl">💬</span>
             <span className="text-sm font-medium">Không tìm thấy đánh giá nào</span>
           </div>
@@ -240,9 +240,9 @@ const AdminReviewManagement = () => {
       {/* Detail drawer */}
       {detailReview && (
         <div className="fixed inset-0 z-50 flex">
-          <div className="flex-1 bg-black/40 backdrop-blur-sm" onClick={() => setDetailReview(null)}/>
-          <div className="w-full max-w-md bg-white shadow-2xl flex flex-col h-full" style={{animation:'slideIn .25s cubic-bezier(.4,0,.2,1)'}}>
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 sticky top-0 bg-white">
+          <div className="admin-overlay flex-1" onClick={() => setDetailReview(null)}/>
+          <div className="admin-drawer-shell w-full max-w-md flex flex-col h-full" style={{animation:'slideIn .25s cubic-bezier(.4,0,.2,1)'}}>
+            <div className="admin-panel-header sticky top-0 flex items-center justify-between px-6 py-4">
               <h2 className="text-base font-bold text-slate-900">Chi tiết đánh giá</h2>
               <button onClick={() => setDetailReview(null)} className="p-2 hover:bg-slate-100 rounded-xl text-slate-400 text-xl">✕</button>
             </div>
@@ -316,8 +316,8 @@ const AdminReviewManagement = () => {
       {/* Delete confirm */}
       {deleteTarget && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setDeleteTarget(null)}/>
-          <div className="relative bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+          <div className="admin-overlay absolute inset-0" onClick={() => setDeleteTarget(null)}/>
+          <div className="admin-modal-shell relative p-6 w-full max-w-sm">
             <div className="text-center mb-5">
               <div className="text-5xl mb-3">🗑️</div>
               <h3 className="text-lg font-bold text-slate-900">Xóa đánh giá?</h3>
@@ -341,7 +341,7 @@ const AdminReviewManagement = () => {
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/90"
           onClick={() => setPreviewImg(null)}>
           <div className="relative max-w-2xl w-full" onClick={e => e.stopPropagation()}>
-            <img src={previewImg} alt="Preview" className="w-full rounded-2xl object-contain max-h-[80vh] shadow-2xl"/>
+          <img src={previewImg} alt="Preview" className="admin-preview-stage w-full object-contain max-h-[80vh]"/>
             <button onClick={() => setPreviewImg(null)}
               className="absolute -top-4 -right-4 w-9 h-9 bg-white rounded-full flex items-center justify-center text-slate-600 hover:text-slate-900 shadow-lg font-bold text-lg">
               ✕

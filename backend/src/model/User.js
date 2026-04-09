@@ -48,6 +48,42 @@ const userSchema = new mongoose.Schema({
         type: Date,
         default: null,
     },
+    loyalty: {
+        spendablePoints: {
+            type: Number,
+            default: 0,
+        },
+        tierPoints: {
+            type: Number,
+            default: 0,
+        },
+        currentTierId: {
+            type: String,
+            default: null,
+        },
+        tier: {
+            name: {
+                type: String,
+                default: null,
+            },
+            minPoints: {
+                type: Number,
+                default: 0,
+            },
+            discountPercent: {
+                type: Number,
+                default: 0,
+            },
+            iconKey: {
+                type: String,
+                default: null,
+            },
+        },
+        syncedAt: {
+            type: Date,
+            default: null,
+        },
+    },
     createdAt: {
         type: Date,
         default: Date.now,
