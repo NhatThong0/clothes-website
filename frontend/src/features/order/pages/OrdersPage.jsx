@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useCart } from '@features/cart/hooks/useCart';
 import Loading from '@components/common/Loading';
 import Empty from '@components/common/Empty';
-import { formatPrice, formatDate } from '@utils/helpers';
+import { formatPrice, formatDate, formatOrderCode, normalizeOrderSearch } from '@utils/helpers';
 import { productAPI } from '@features/shared/services/api';
 import apiClient from '@features/shared/services/apiClient';
 
@@ -18,6 +18,18 @@ const STATUS_MAP = {
   return_requested: { label: 'Chờ xác nhận hoàn trả', color: 'bg-orange-100 text-orange-800 border border-orange-200',    dot: '#F97316' },
   returned:         { label: 'Hoàn trả xong',          color: 'bg-slate-100  text-slate-600  border border-slate-200',     dot: '#9CA3AF' },
   cancelled:        { label: 'Đã hủy',                 color: 'bg-rose-100   text-rose-700   border border-rose-200',      dot: '#EF4444' },
+};
+
+const VALID_STATUS_FILTERS = new Set(['all', ...Object.keys(STATUS_MAP)]);
+
+const pullOrdersStatusOverride = () => {
+  try {
+    const nextStatus = sessionStorage.getItem('ordersStatusFilter');
+    sessionStorage.removeItem('ordersStatusFilter');
+    return VALID_STATUS_FILTERS.has(nextStatus) ? nextStatus : null;
+  } catch {
+    return null;
+  }
 };
 
 const DATE_FILTERS = [
@@ -139,7 +151,12 @@ function ReviewModal({ modal, form, setForm, images, setImages, loading, onClose
           <div className="mb-4">
             <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">Chọn sản phẩm</label>
             <select className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              onChange={e => { const item = modal.items[e.target.value]; modal.productId = item?.productId?._id || item?.productId; modal.productName = item?.name; }}>
+              value={modal.selectedIndex || 0}
+              onChange={e => {
+                const selectedIndex = Number(e.target.value);
+                const item = modal.items[selectedIndex];
+                modal.onSelectItem?.(selectedIndex, item);
+              }}>
               {modal.items.map((item, i) => <option key={i} value={i}>{item.name}</option>)}
             </select>
           </div>
@@ -224,7 +241,7 @@ function OrderCard({ order, onCancel, onReorder, onReview, onOpenReturn, onConfi
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-bold text-slate-900 text-sm font-mono">#{order.id.slice(-8).toUpperCase()}</span>
+              <span className="font-bold text-slate-900 text-sm font-mono">{formatOrderCode(order.id)}</span>
               <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold border ${order.statusColor}`}>
                 <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: statusDot }} />
                 {order.statusLabel}
@@ -408,11 +425,24 @@ function Pagination({ page, total, pageSize, onChange }) {
 // ── Main ──────────────────────────────────────────────────────────────────────
 export default function OrdersPage() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { addToCart } = useCart();
+  const getReviewKey = (orderId, productId) => `${orderId}:${productId}`;
+  const getOrderProductIds = (order) => [...new Set((order.items || [])
+    .map((item) => item.productId?._id || item.productId)
+    .filter(Boolean)
+    .map(String))];
+  const initialStatusOverrideRef = useRef(pullOrdersStatusOverride());
+  const statusOverride = initialStatusOverrideRef.current;
+  const statusFromQuery = VALID_STATUS_FILTERS.has(searchParams.get('status'))
+    ? searchParams.get('status')
+    : 'all';
+  const initialStatusFilter = statusOverride || statusFromQuery;
 
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState(initialStatusFilter);
   const [dateFilter, setDateFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchInput, setSearchInput] = useState('');
@@ -424,11 +454,34 @@ export default function OrdersPage() {
   const [reviewForm, setReviewForm] = useState({ rating: 5, comment: '' });
   const [reviewLoading, setReviewLoading] = useState(false);
   const [reviewImages, setReviewImages] = useState([]);
-  const [reviewedOrderIds, setReviewedOrderIds] = useState([]);
+  const [reviewedReviewKeys, setReviewedReviewKeys] = useState([]);
   const searchRef = useRef(null);
   const debounceRef = useRef(null);
 
   useEffect(() => { fetchOrders(); }, []);
+
+  useEffect(() => {
+    if (statusOverride && statusFromQuery !== statusOverride) return;
+
+    setStatusFilter((currentStatus) => (currentStatus === statusFromQuery ? currentStatus : statusFromQuery));
+
+    if (statusOverride && statusFromQuery === statusOverride) {
+      initialStatusOverrideRef.current = null;
+    }
+  }, [statusFromQuery, location.search]);
+
+  useEffect(() => {
+    if (statusFilter === statusFromQuery) return;
+
+    const nextParams = new URLSearchParams(searchParams);
+
+    if (statusFilter === 'all') nextParams.delete('status');
+    else nextParams.set('status', statusFilter);
+
+    if (nextParams.toString() !== searchParams.toString()) {
+      setSearchParams(nextParams, { replace: true });
+    }
+  }, [statusFilter, statusFromQuery, searchParams, setSearchParams]);
 
   // Reset page khi filter thay đổi
   useEffect(() => { setPage(1); }, [statusFilter, dateFilter, searchQuery]);
@@ -438,26 +491,24 @@ export default function OrdersPage() {
     const reviewChecks = await Promise.all(
       deliveredOrders.map(async (order) => {
         try {
-          const productIds = (order.items || [])
-            .map((item) => item.productId?._id || item.productId)
-            .filter(Boolean);
+          const productIds = getOrderProductIds(order);
 
           const reviews = await Promise.all(
             productIds.map((productId) =>
-              productAPI.getMyReview(productId)
-                .then((response) => response.data?.data || null)
+              productAPI.getMyReview(productId, { orderId: order.id })
+                .then((response) => response.data?.data ? getReviewKey(order.id, productId) : null)
                 .catch(() => null),
             ),
           );
 
-          return reviews.some(Boolean) ? order.id : null;
+          return reviews.filter(Boolean);
         } catch {
-          return null;
+          return [];
         }
       }),
     );
 
-    setReviewedOrderIds(reviewChecks.filter(Boolean));
+    setReviewedReviewKeys(reviewChecks.flat());
   };
 
   const fetchOrders = async () => {
@@ -492,7 +543,7 @@ export default function OrdersPage() {
   const handleSearchChange = (val) => {
     setSearchInput(val);
     clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => setSearchQuery(val.trim().toLowerCase()), 350);
+    debounceRef.current = setTimeout(() => setSearchQuery(normalizeOrderSearch(val)), 350);
   };
 
   // Filter logic
@@ -511,11 +562,16 @@ export default function OrdersPage() {
 
     // Tìm kiếm: mã đơn + tên sản phẩm
     if (searchQuery) {
-      result = result.filter(o =>
-        o.id.toLowerCase().includes(searchQuery) ||
-        o.id.slice(-8).toLowerCase().includes(searchQuery) ||
-        o.items.some(item => item.name?.toLowerCase().includes(searchQuery))
-      );
+      result = result.filter(o => {
+        const rawId = String(o.id || '').toLowerCase();
+        const displayCode = formatOrderCode(o.id).toLowerCase().replace(/^#/, '');
+        return (
+          rawId.includes(searchQuery) ||
+          rawId.startsWith(searchQuery) ||
+          displayCode.includes(searchQuery) ||
+          o.items.some(item => item.name?.toLowerCase().includes(searchQuery))
+        );
+      });
     }
 
     return result;
@@ -565,7 +621,33 @@ export default function OrdersPage() {
   };
 
   const handleReview = (order) => {
-    setReviewModal({ orderId: order.id, productId: order.items[0]?.productId?._id || order.items[0]?.productId, productName: order.items[0]?.name, items: order.items });
+    const reviewableItems = (order.items || []).filter((item, index, items) => {
+      const productId = String(item.productId?._id || item.productId || '');
+      if (!productId) return false;
+      const firstMatchIndex = items.findIndex((candidate) => String(candidate.productId?._id || candidate.productId || '') === productId);
+      if (firstMatchIndex !== index) return false;
+      return !reviewedReviewKeys.includes(getReviewKey(order.id, productId));
+    });
+
+    if (reviewableItems.length === 0) {
+      alert('Đơn hàng này đã được đánh giá cho tất cả sản phẩm.');
+      return;
+    }
+
+    const firstItem = reviewableItems[0];
+    setReviewModal({
+      orderId: order.id,
+      selectedIndex: 0,
+      productId: firstItem?.productId?._id || firstItem?.productId,
+      productName: firstItem?.name,
+      items: reviewableItems,
+      onSelectItem: (selectedIndex, item) => setReviewModal((prev) => ({
+        ...prev,
+        selectedIndex,
+        productId: item?.productId?._id || item?.productId,
+        productName: item?.name,
+      })),
+    });
     setReviewForm({ rating: 5, comment: '' }); setReviewImages([]);
   };
 
@@ -573,10 +655,17 @@ export default function OrdersPage() {
     if (!reviewForm.comment.trim()) { alert('Vui lòng nhập nội dung đánh giá'); return; }
     try {
       setReviewLoading(true);
-      await productAPI.addReview(reviewModal.productId, { rating: Number(reviewForm.rating), comment: reviewForm.comment.trim(), images: reviewImages });
+      await productAPI.addReview(reviewModal.productId, {
+        orderId: reviewModal.orderId,
+        rating: Number(reviewForm.rating),
+        comment: reviewForm.comment.trim(),
+        images: reviewImages,
+      });
       alert('Đánh giá thành công!');
-      setReviewedOrderIds((prev) => (prev.includes(reviewModal.orderId) ? prev : [...prev, reviewModal.orderId]));
-      setOrders((prev) => prev.map((order) => order.id === reviewModal.orderId ? { ...order, hasReviewed: true } : order));
+      setReviewedReviewKeys((prev) => {
+        const nextKey = getReviewKey(reviewModal.orderId, reviewModal.productId);
+        return prev.includes(nextKey) ? prev : [...prev, nextKey];
+      });
       setReviewModal(null); setReviewForm({ rating: 5, comment: '' }); setReviewImages([]);
     } catch (err) { alert(err.response?.data?.message || 'Không thể gửi đánh giá'); }
     finally { setReviewLoading(false); }
@@ -693,7 +782,12 @@ export default function OrdersPage() {
       ) : (
         <>
           <div className="space-y-3">
-            {paginatedOrders.map(order => (
+            {paginatedOrders.map(order => {
+              const orderProductIds = getOrderProductIds(order);
+              const orderReviewed = orderProductIds.length > 0
+                && orderProductIds.every((productId) => reviewedReviewKeys.includes(getReviewKey(order.id, productId)));
+
+              return (
               <OrderCard key={order.id} order={order}
                 onCancel={handleCancel}
                 onOpenReturn={handleOpenReturn}
@@ -701,9 +795,10 @@ export default function OrdersPage() {
                 onReview={handleReview}
                 onConfirmDelivery={handleConfirmDelivery}
                 onNavigate={(id) => navigate(`/orders/${id}`)}
-                isReviewed={reviewedOrderIds.includes(order.id) || order.hasReviewed}
+                isReviewed={orderReviewed}
               />
-            ))}
+              );
+            })}
           </div>
 
           {/* Pagination */}

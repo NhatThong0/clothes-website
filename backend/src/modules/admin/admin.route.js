@@ -48,6 +48,7 @@ router.get   ('/users/:userId/loyalty',       adminController.getUserLoyalty);
 router.get   ('/reviews',                             adminController.adminGetAllReviews);
 router.delete('/reviews/:productId/:reviewId',        adminController.deleteReview);
 router.put   ('/reviews/:productId/:reviewId/toggle', adminController.toggleReviewVisibility);
+router.put   ('/reviews/:productId/:reviewId/moderate', adminController.manualModerateReview);
 
 // ── VOUCHER MANAGEMENT ─────────────────────────────────────────────
 router.get   ('/vouchers',            adminController.adminGetAllVouchers);

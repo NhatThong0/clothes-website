@@ -6,6 +6,7 @@ require('../../model/SizeChart');
 const { pool } = require('../../db/mysql');
 const { validateObjectId } = require('../../utils/validators');
 const loyaltyService = require('../loyalty/loyalty.service');
+const { calculateReviewMetrics } = require('./reviewModeration.service');
 
 // ── Helper ────────────────────────────────────────────────────────────────────
 const getSoldMap = async (productIds) => {
@@ -428,28 +429,44 @@ exports.addReview = async (req, res, next) => {
     try {
         const { id } = req.params;
         const userId = req.userId;
-        const { rating, comment, images } = req.body;
+        const { rating, comment, images, orderId } = req.body;
 
-        if (!rating || !comment)
-            return res.status(400).json({ status: 'error', message: 'Rating and comment are required' });
+        if (!rating || !comment || !orderId)
+            return res.status(400).json({ status: 'error', message: 'Rating, comment and orderId are required' });
 
         const product = await Product.findById(id);
         if (!product) return res.status(404).json({ status: 'error', message: 'Product not found' });
 
-        const hasPurchased = await Order.findOne({ userId, status: 'delivered', 'items.productId': id });
+        const hasPurchased = await Order.findOne({ _id: orderId, userId, status: 'delivered', 'items.productId': id });
         if (!hasPurchased)
             return res.status(403).json({ status: 'error', message: 'Bạn cần mua và nhận sản phẩm trước khi đánh giá' });
 
-        const alreadyReviewed = product.reviews?.find(r => r.userId?.toString() === userId);
+        const alreadyReviewed = product.reviews?.find(
+            (r) => r.userId?.toString() === userId && r.orderId?.toString() === String(orderId),
+        );
         if (alreadyReviewed)
             return res.status(400).json({ status: 'error', message: 'Bạn đã đánh giá sản phẩm này rồi' });
 
-        const review = { userId, rating: parseInt(rating), comment, images: images || [], isVisible: true, createdAt: new Date() };
+        const review = {
+            userId,
+            orderId,
+            rating: parseInt(rating),
+            comment,
+            images: images || [],
+            isVisible: false,
+            moderationStatus: 'processing',
+            moderationDecision: 'queued',
+            moderationSource: 'rule',
+            moderationSummary: 'Đang chờ worker kiểm duyệt',
+            moderationQueuedAt: new Date(),
+            createdAt: new Date(),
+        };
         product.reviews = product.reviews || [];
         product.reviews.push(review);
 
-        const totalRating = product.reviews.reduce((acc, r) => acc + r.rating, 0);
-        product.averageRating = Math.round((totalRating / product.reviews.length) * 10) / 10;
+        const metrics = calculateReviewMetrics(product.reviews);
+        product.averageRating = metrics.averageRating;
+        product.rating = metrics.rating;
 
         await product.save();
 
@@ -462,7 +479,11 @@ exports.addReview = async (req, res, next) => {
             units: 1,
         });
 
-        res.status(201).json({ status: 'success', message: 'Review added successfully', data: review });
+        res.status(201).json({
+            status: 'success',
+            message: 'Review đã được gửi và đang chờ kiểm duyệt tự động',
+            data: product.reviews[product.reviews.length - 1],
+        });
     } catch (error) {
         next(error);
     }
@@ -475,7 +496,7 @@ exports.getProductReviews = async (req, res, next) => {
         if (!product) return res.status(404).json({ status: 'error', message: 'Product not found' });
 
         const reviews = (product.reviews || [])
-            .filter(r => r.isVisible)
+            .filter(r => r.moderationStatus === 'approved' && r.isVisible)
             .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
         res.status(200).json({ status: 'success', data: reviews });
@@ -502,11 +523,28 @@ exports.updateReview = async (req, res, next) => {
         if (comment) review.comment = comment;
         if (images)  review.images  = images;
 
-        const totalRating = product.reviews.reduce((acc, r) => acc + r.rating, 0);
-        product.averageRating = Math.round((totalRating / product.reviews.length) * 10) / 10;
+        review.isVisible = false;
+        review.moderationStatus = 'processing';
+        review.moderationDecision = 'queued_after_edit';
+        review.moderationSource = 'rule';
+        review.moderationScore = null;
+        review.moderationReasons = [];
+        review.moderationSummary = 'Review đã được sửa và đang chờ kiểm duyệt lại';
+        review.moderationProcessedAt = null;
+        review.moderationQueuedAt = new Date();
+        review.adminReviewedAt = null;
+        review.adminReviewedBy = null;
+
+        const metrics = calculateReviewMetrics(product.reviews);
+        product.averageRating = metrics.averageRating;
+        product.rating = metrics.rating;
 
         await product.save();
-        res.status(200).json({ status: 'success', message: 'Review updated', data: review });
+        res.status(200).json({
+            status: 'success',
+            message: 'Review đã được cập nhật và đưa lại vào hàng chờ kiểm duyệt',
+            data: review,
+        });
     } catch (error) {
         next(error);
     }
@@ -526,12 +564,9 @@ exports.deleteReview = async (req, res, next) => {
             return res.status(403).json({ status: 'error', message: 'Không có quyền xóa đánh giá này' });
 
         product.reviews.pull(reviewId);
-        if (product.reviews.length > 0) {
-            const totalRating = product.reviews.reduce((acc, r) => acc + r.rating, 0);
-            product.averageRating = Math.round((totalRating / product.reviews.length) * 10) / 10;
-        } else {
-            product.averageRating = 0;
-        }
+        const metrics = calculateReviewMetrics(product.reviews);
+        product.averageRating = metrics.averageRating;
+        product.rating = metrics.rating;
 
         await product.save();
         res.status(200).json({ status: 'success', message: 'Review deleted' });
@@ -544,11 +579,23 @@ exports.getMyReview = async (req, res, next) => {
     try {
         const { id }   = req.params;
         const userId   = req.userId;
+        const { orderId, all } = req.query;
         const product  = await Product.findById(id);
         if (!product) return res.status(404).json({ status: 'error', message: 'Product not found' });
 
-        const review = product.reviews?.find(r => r.userId?.toString() === userId);
-        res.status(200).json({ status: 'success', data: review || null });
+        const matchedReviews = (product.reviews || [])
+            .filter((r) => {
+                if (r.userId?.toString() !== userId) return false;
+                if (!orderId) return true;
+                return r.orderId?.toString() === String(orderId);
+            })
+            .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+        if (String(all) === 'true') {
+            return res.status(200).json({ status: 'success', data: matchedReviews });
+        }
+
+        res.status(200).json({ status: 'success', data: matchedReviews[0] || null });
     } catch (error) {
         next(error);
     }

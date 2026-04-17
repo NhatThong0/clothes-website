@@ -15,6 +15,15 @@ export const formatDate = (date) => {
   }).format(new Date(date));
 };
 
+export const formatOrderCode = (orderId, length = 8) => {
+  if (!orderId) return '';
+  return `#${String(orderId).slice(0, length).toUpperCase()}`;
+};
+
+export const normalizeOrderSearch = (value = '') => {
+  return String(value).trim().toLowerCase().replace(/^#/, '');
+};
+
 // Truncate text
 export const truncateText = (text, length = 50) => {
   return text.length > length ? text.substring(0, length) + '...' : text;

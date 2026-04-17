@@ -43,5 +43,8 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ user: null, isLoggedIn: false });
   },
 
-  setUser: (user) => set({ user }),
+  setUser: (user) => {
+    void tokenStorage.saveUserInfo(user);
+    set({ user });
+  },
 }));

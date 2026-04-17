@@ -35,10 +35,18 @@ export interface Product {
 export interface Review {
   _id: string;
   userId: { _id: string; name: string; avatar?: string };
+  orderId?: string;
   rating: number;
   comment: string;
   images?: string[];
   createdAt: string;
+}
+
+export interface ReviewPayload {
+  orderId: string;
+  rating: number;
+  comment: string;
+  images?: string[];
 }
 
 export interface ProductsQuery {
@@ -88,6 +96,18 @@ export const productApi = {
 
   async getReviews(productId: string): Promise<Review[]> {
     const { data } = await api.get<{ status: string; data: Review[] }>(`/products/${productId}/reviews`);
+    return data.data;
+  },
+
+  async getMyReview(productId: string, orderId?: string): Promise<Review | null> {
+    const { data } = await api.get<{ status: string; data: Review | null }>(`/products/${productId}/reviews/my`, {
+      params: orderId ? { orderId } : undefined,
+    });
+    return data.data;
+  },
+
+  async addReview(productId: string, payload: ReviewPayload): Promise<Review> {
+    const { data } = await api.post<{ status: string; data: Review }>(`/products/${productId}/reviews`, payload);
     return data.data;
   },
 };

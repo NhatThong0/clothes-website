@@ -11,7 +11,8 @@ export const productAPI = {
   getCategories: () => apiClient.get('/products/categories'),
   getReviews: (id) => apiClient.get(`/products/${id}/reviews`),
   addReview: (id, data) => apiClient.post(`/products/${id}/reviews`, data),
-  getMyReview: (id) => apiClient.get(`/products/${id}/reviews/my`),
+  getMyReview: (id, params) => apiClient.get(`/products/${id}/reviews/my`, { params }),
+  getMyReviews: (id, params) => apiClient.get(`/products/${id}/reviews/my`, { params: { ...params, all: true } }),
   updateReview: (id, reviewId, data) => apiClient.put(`/products/${id}/reviews/${reviewId}`, data),
   deleteReview: (id, reviewId) => apiClient.delete(`/products/${id}/reviews/${reviewId}`),
   create: (data) => apiClient.post('/products', data),
@@ -66,6 +67,8 @@ export const userAPI = {
 export const adminAPI = {
   toggleReview: (productId, reviewId) =>
     apiClient.put(`/admin/reviews/${productId}/${reviewId}/toggle`),
+  moderateReview: (productId, reviewId, data) =>
+    apiClient.put(`/admin/reviews/${productId}/${reviewId}/moderate`, data),
   deleteReview: (productId, reviewId) =>
     apiClient.delete(`/admin/reviews/${productId}/${reviewId}`),
 };

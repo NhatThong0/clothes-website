@@ -3,11 +3,13 @@ const Product = require('../../model/Product');
 const Category = require('../../model/Category');
 const SizeChart = require('../../model/SizeChart');
 const XLSX = require('xlsx');
+const mongoose = require('mongoose');
 const { pool } = require('../../db/mysql');
 const Order = require('../../model/Order');
 const Voucher = require('../../model/Voucher');
 const { notifyOrderStatus } = require('../notification/notification.controller');
 const { syncUserLoyaltySnapshot, getUserLoyaltyDetails } = require('../loyalty/loyalty.service');
+const { calculateReviewMetrics } = require('../product/reviewModeration.service');
 
 function slugify(value) {
     return String(value || '')
@@ -1008,6 +1010,7 @@ exports.adminGetAllOrders = async (req, res, next) => {
 
         if (search && search.trim()) {
             const q = search.trim();
+            const normalizedOrderQuery = q.replace(/^#/, '').trim();
             const searchOr = [];
 
             const matchedUsers = await User.find({
@@ -1020,11 +1023,11 @@ exports.adminGetAllOrders = async (req, res, next) => {
             if (matchedUsers.length > 0)
                 searchOr.push({ userId: { $in: matchedUsers.map(u => u._id) } });
 
-            if (/^[0-9a-fA-F]{24}$/.test(q))
-                searchOr.push({ _id: new mongoose.Types.ObjectId(q) });
+            if (/^[0-9a-fA-F]{24}$/.test(normalizedOrderQuery))
+                searchOr.push({ _id: new mongoose.Types.ObjectId(normalizedOrderQuery) });
 
-            if (/^[0-9a-fA-F]{6,23}$/.test(q))
-                searchOr.push({ $expr: { $regexMatch: { input: { $toString: '$_id' }, regex: `^${q}`, options: 'i' } } });
+            if (/^[0-9a-fA-F]{6,23}$/.test(normalizedOrderQuery))
+                searchOr.push({ $expr: { $regexMatch: { input: { $toString: '$_id' }, regex: `^${normalizedOrderQuery}`, options: 'i' } } });
 
             searchOr.push({ 'shippingAddress.fullName': { $regex: q, $options: 'i' } });
             searchOr.push({ 'shippingAddress.phone': { $regex: q, $options: 'i' } });
@@ -1607,8 +1610,18 @@ exports.adminToggleUserStatus = async (req, res, next) => {
  */
 exports.adminGetAllReviews = async (req, res, next) => {
     try {
-        const { page = 1, limit = 10, productId, isVisible, rating } = req.query;
-        const skip = (page - 1) * limit;
+        const {
+            page = 1,
+            limit = 10,
+            productId,
+            isVisible,
+            rating,
+            moderationStatus,
+            needsReview,
+        } = req.query;
+        const pageNum = parseInt(page);
+        const limitNum = parseInt(limit);
+        const skip = (pageNum - 1) * limitNum;
         // Lấy tất cả products có reviews
         const matchProduct = {};
         if (productId) matchProduct._id = mongoose.Types.ObjectId(productId);
@@ -1631,18 +1644,30 @@ exports.adminGetAllReviews = async (req, res, next) => {
         if (rating && parseInt(rating) > 0) {
             reviews = reviews.filter(r => r.rating === parseInt(rating));
         }
+        if (moderationStatus) {
+            reviews = reviews.filter(r => r.moderationStatus === moderationStatus);
+        }
+        if (needsReview === 'true') {
+            reviews = reviews.filter(r => r.moderationStatus === 'pending');
+        }
         reviews.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
         const total = reviews.length;
-        const pages = Math.ceil(total / limit);
-        const paginated = reviews.slice(skip, skip + parseInt(limit));
+        const pages = Math.ceil(total / limitNum);
+        const paginated = reviews.slice(skip, skip + limitNum);
+        const stats = reviews.reduce((acc, review) => {
+            acc.total += 1;
+            acc[review.moderationStatus] = (acc[review.moderationStatus] || 0) + 1;
+            return acc;
+        }, { total: 0, approved: 0, pending: 0, rejected: 0, processing: 0 });
 
         res.status(200).json({
             status: 'success',
             data: {
                 reviews: paginated,
+                stats,
                 pagination: {
-                    current: parseInt(page),
+                    current: pageNum,
                     pages,
                     total
                 }
@@ -1664,11 +1689,7 @@ exports.deleteReview = async (req, res, next) => {
     try {
         const { productId, reviewId } = req.params;
 
-        const product = await Product.findByIdAndUpdate(
-            productId,
-            { $pull: { reviews: { _id: reviewId } } },
-            { new: true }
-        );
+        const product = await Product.findById(productId);
 
         if (!product) {
             return res.status(404).json({
@@ -1676,6 +1697,12 @@ exports.deleteReview = async (req, res, next) => {
                 message: 'Product not found'
             });
         }
+
+        product.reviews.pull(reviewId);
+        const metrics = calculateReviewMetrics(product.reviews || []);
+        product.averageRating = metrics.averageRating;
+        product.rating = metrics.rating;
+        await product.save();
 
         res.status(200).json({
             status: 'success',
@@ -1915,11 +1942,72 @@ exports.toggleReviewVisibility = async (req, res, next) => {
         }
 
         review.isVisible = !review.isVisible;
+        if (review.isVisible && review.moderationStatus !== 'approved') {
+            review.moderationStatus = 'approved';
+            review.moderationDecision = 'manual_show';
+            review.moderationSource = 'manual';
+        }
+        if (!review.isVisible && review.moderationStatus === 'approved') {
+            review.moderationDecision = 'manual_hide';
+            review.moderationSource = 'manual';
+        }
+        const metrics = calculateReviewMetrics(product.reviews || []);
+        product.averageRating = metrics.averageRating;
+        product.rating = metrics.rating;
         await product.save();
 
         res.status(200).json({
             status: 'success',
             message: `Review ${review.isVisible ? 'shown' : 'hidden'} successfully`,
+            data: review,
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+exports.manualModerateReview = async (req, res, next) => {
+    try {
+        const { productId, reviewId } = req.params;
+        const { decision, notes = '' } = req.body;
+
+        if (!['approve', 'reject'].includes(decision)) {
+            return res.status(400).json({ status: 'error', message: 'Decision must be approve or reject' });
+        }
+
+        const product = await Product.findById(productId);
+        if (!product) {
+            return res.status(404).json({ status: 'error', message: 'Product not found' });
+        }
+
+        const review = product.reviews.id(reviewId);
+        if (!review) {
+            return res.status(404).json({ status: 'error', message: 'Review not found' });
+        }
+
+        review.moderationStatus = decision === 'approve' ? 'approved' : 'rejected';
+        review.moderationDecision = decision === 'approve' ? 'manual_approve' : 'manual_reject';
+        review.moderationSource = 'manual';
+        review.isVisible = decision === 'approve';
+        review.adminReviewedAt = new Date();
+        review.adminReviewedBy = req.admin?._id || null;
+        review.moderationProcessedAt = new Date();
+        review.moderationFeedback = review.moderationFeedback || [];
+        review.moderationFeedback.push({
+            label: decision,
+            notes,
+            reviewedBy: req.admin?._id || null,
+            reviewedAt: new Date(),
+        });
+
+        const metrics = calculateReviewMetrics(product.reviews || []);
+        product.averageRating = metrics.averageRating;
+        product.rating = metrics.rating;
+        await product.save();
+
+        res.status(200).json({
+            status: 'success',
+            message: decision === 'approve' ? 'Review approved' : 'Review rejected',
             data: review,
         });
     } catch (error) {

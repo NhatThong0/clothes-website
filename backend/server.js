@@ -9,6 +9,7 @@ const connectDB = require('./src/db/db');
 const { connectMySQL } = require('./src/db/mysql');
 const errorHandler = require('./src/middleware/errorHandler');
 const autoCancelUnpaidOrders = require('./src/jobs/autoCancelOrders');
+const { startReviewModerationWorker } = require('./src/jobs/reviewModerationWorker');
 const { startAutoConfirmCron } = require('./src/cron/autoConfirmOrders');
 const { startFlashSaleCron } = require('./src/cron/flashSale');
 const { registerRoutes } = require('./src/app/registerRoutes');
@@ -30,6 +31,7 @@ connectDB();
 connectMySQL();
 startAutoConfirmCron();
 startFlashSaleCron(io);
+startReviewModerationWorker();
 
 const corsOptions = {
   origin(origin, callback) {

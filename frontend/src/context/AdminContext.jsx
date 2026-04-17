@@ -321,6 +321,21 @@ export const AdminProvider = ({ children }) => {
     }
 }, []);
 
+    const moderateReview = useCallback(async (productId, reviewId, payload) => {
+        try {
+            setLoading(true);
+            setError(null);
+            const response = await apiClient.put(`/admin/reviews/${productId}/${reviewId}/moderate`, payload);
+            return response.data.data;
+        } catch (err) {
+            setError(err.response?.data?.message || 'Failed to moderate review');
+            console.error('Moderate review error:', err);
+            throw err;
+        } finally {
+            setLoading(false);
+        }
+    }, []);
+
     // Vouchers
     const fetchVouchers = useCallback(async (params = {}) => {
         try {
@@ -420,6 +435,7 @@ export const AdminProvider = ({ children }) => {
         fetchReviews,
         deleteReview,
         toggleReviewVisibility,
+        moderateReview,
 
         // Vouchers
         fetchVouchers,

@@ -408,15 +408,17 @@ const AdminUserManagement = () => {
 
       {/* ── Detail Drawer ── */}
       {detailUser && (
-        <div className="fixed inset-0 z-50 flex">
-          <div className="admin-overlay flex-1" onClick={() => setDetailUser(null)}/>
-          <div className="admin-drawer-shell w-full max-w-md flex flex-col h-full">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="admin-overlay absolute inset-0" onClick={() => setDetailUser(null)}/>
+          <div className="admin-modal-shell relative w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden">
             <div className="admin-panel-header flex flex-shrink-0 items-center justify-between px-6 py-4">
               <h2 className="text-base font-bold text-slate-900">Chi tiết người dùng</h2>
               <button onClick={() => setDetailUser(null)} className="p-2 hover:bg-slate-100 rounded-xl text-slate-400">✕</button>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+            <div className="flex-1 overflow-y-auto px-6 py-5">
+              <div className="grid gap-5 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+                <div className="space-y-5">
               {/* Avatar + name */}
               <div className="flex items-center gap-4">
                 <div className="w-16 h-16 rounded-2xl overflow-hidden flex-shrink-0 border-2 border-slate-200">
@@ -502,8 +504,10 @@ const AdminUserManagement = () => {
                 )}
               </div>
 
+                </div>
+
               {/* Orders */}
-              <div>
+              <div className="space-y-5">
                 <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-3">Đơn hàng gần đây</h3>
                 {ordersLoading ? (
                   <div className="flex justify-center py-6"><Spinner/></div>
@@ -550,6 +554,7 @@ const AdminUserManagement = () => {
                   className="w-full py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl text-sm font-semibold border border-rose-200 transition-colors">
                   🗑️ Xóa tài khoản
                 </button>
+              </div>
               </div>
             </div>
           </div>

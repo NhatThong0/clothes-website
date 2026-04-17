@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAdmin } from '@features/admin/hooks/useAdmin';
 import apiClient from '@features/shared/services/apiClient';
+import { formatOrderCode } from '@utils/helpers';
 
 const STATUSES = ['pending','confirmed','shipped','delivered','return_requested','returned','cancelled'];
 
@@ -287,7 +288,7 @@ const AdminOrderDetail = () => {
           </button>
           <span className="text-slate-300">/</span>
           <span className="text-sm font-bold text-slate-800 font-mono">
-            #{order._id.substring(0,8).toUpperCase()}
+            {formatOrderCode(order._id)}
           </span>
           <StatusBadge status={order.status}/>
           <span className="ml-auto text-xs text-slate-400">{fmtD(order.createdAt)}</span>

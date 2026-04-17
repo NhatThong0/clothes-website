@@ -46,7 +46,7 @@ export default function ProductsScreen() {
 
   const columns = getGridColumns(width);
   const cardWidth = Math.floor((width - PAGE_PAD * 2 - GRID_GAP * (columns - 1)) / columns);
-
+  
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
@@ -61,6 +61,10 @@ export default function ProductsScreen() {
   // State tạm trong bottom sheet — chỉ áp dụng khi bấm "Áp dụng"
   const [tempCat, setTempCat] = useState(params.category || '');
   const [tempSort, setTempSort] = useState<Sort>('newest');
+  const [tempMinPrice, setTempMinPrice] = useState('');
+  const [tempMaxPrice, setTempMaxPrice] = useState('');
+  const [minPrice, setMinPrice] = useState('');
+  const [maxPrice, setMaxPrice] = useState('');
 
   const slideAnim = useRef(new Animated.Value(0)).current;
 
@@ -68,8 +72,9 @@ export default function ProductsScreen() {
     let count = 0;
     if (activeCat) count++;
     if (sort !== 'newest') count++;
+    if (minPrice || maxPrice) count++;
     return count;
-  }, [activeCat, sort]);
+  }, [activeCat, sort, minPrice, maxPrice]);
 
   const inputRef = useRef<TextInput>(null);
 
@@ -79,8 +84,10 @@ export default function ProductsScreen() {
       category: activeCat || undefined,
       sort,
       type: (params.type as any) || undefined,
+      minPrice: minPrice ? Number(minPrice) : undefined,
+      maxPrice: maxPrice ? Number(maxPrice) : undefined,
     }),
-    [search, activeCat, sort, params.type],
+    [search, activeCat, sort, params.type, minPrice, maxPrice],
   );
 
   const fetchProducts = useCallback(
@@ -112,16 +119,12 @@ export default function ProductsScreen() {
   }, [fetchProducts]);
 
   const openFilter = () => {
-    // Sync state tạm với state hiện tại khi mở
     setTempCat(activeCat);
     setTempSort(sort);
+    setTempMinPrice(minPrice);
+    setTempMaxPrice(maxPrice);
     setShowFilter(true);
-    Animated.spring(slideAnim, {
-      toValue: 1,
-      useNativeDriver: true,
-      tension: 65,
-      friction: 11,
-    }).start();
+    Animated.spring(slideAnim, { toValue: 1, useNativeDriver: true, tension: 65, friction: 11 }).start();
   };
 
   const closeFilter = () => {
@@ -135,12 +138,16 @@ export default function ProductsScreen() {
   const applyFilter = () => {
     setActiveCat(tempCat);
     setSort(tempSort);
+    setMinPrice(tempMinPrice);
+    setMaxPrice(tempMaxPrice);
     closeFilter();
   };
 
   const clearFilter = () => {
     setTempCat('');
     setTempSort('newest');
+    setTempMinPrice('');
+    setTempMaxPrice('');
   };
 
   const sheetTranslateY = slideAnim.interpolate({
@@ -191,43 +198,6 @@ export default function ProductsScreen() {
             </View>
           )}
         </TouchableOpacity>
-      </View>
-
-      {/* ── Category chips ── */}
-      <View style={s.chipBarWrapper}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          contentContainerStyle={s.chipRow}
-        >
-          <TouchableOpacity
-            style={[s.chip, !activeCat && s.chipActive]}
-            onPress={() => { inputRef.current?.blur(); setActiveCat(''); }}
-            activeOpacity={0.85}
-          >
-            <Text style={[s.chipText, !activeCat && s.chipTextActive]} numberOfLines={1}>
-              Tất cả
-            </Text>
-          </TouchableOpacity>
-
-          {categories.map((cat) => {
-            const active = activeCat === cat._id;
-            return (
-              <TouchableOpacity
-                key={cat._id}
-                style={[s.chip, active && s.chipActive]}
-                onPress={() => { inputRef.current?.blur(); setActiveCat(active ? '' : cat._id); }}
-                activeOpacity={0.85}
-              >
-                <Text style={[s.chipText, active && s.chipTextActive]} numberOfLines={1}>
-                  {cat.name}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
       </View>
 
       {/* ── Product list ── */}
@@ -321,7 +291,64 @@ export default function ProductsScreen() {
               </View>
             </View>
 
-            <View style={s.sheetDivider} />
+            <View style={s.sheetDivider} /> 
+            {/* ── Khoảng giá ── */}
+            <View style={s.sheetSection}>
+              <Text style={s.sheetSectionTitle}>Khoảng giá</Text>
+              <View style={{ flexDirection: 'row', gap: 12 }}>
+                <View style={s.priceInputWrap}>
+                  <Text style={s.priceInputLabel}>Từ</Text>
+                  <TextInput
+                    style={s.priceInput}
+                    value={tempMinPrice}
+                    onChangeText={setTempMinPrice}
+                    placeholder="0"
+                    placeholderTextColor={Colors.light.muted}
+                    keyboardType="numeric"
+                  />
+                  <Text style={s.priceUnit}>₫</Text>
+                </View>
+                <View style={[s.priceInputWrap, { flex: 1 }]}>
+                  <Text style={s.priceInputLabel}>Đến</Text>
+                  <TextInput
+                    style={s.priceInput}
+                    value={tempMaxPrice}
+                    onChangeText={setTempMaxPrice}
+                    placeholder="Không giới hạn"
+                    placeholderTextColor={Colors.light.muted}
+                    keyboardType="numeric"
+                  />
+                  <Text style={s.priceUnit}>₫</Text>
+                </View>
+              </View>
+
+              {/* Quick select pills */}
+              <View style={[s.sheetChipRow, { marginTop: 12 }]}>
+                {[
+                  { label: 'Dưới 200k', min: '', max: '200000' },
+                  { label: '200k – 500k', min: '200000', max: '500000' },
+                  { label: '500k – 1tr', min: '500000', max: '1000000' },
+                  { label: 'Trên 1tr', min: '1000000', max: '' },
+                ].map((range) => {
+                  const active = tempMinPrice === range.min && tempMaxPrice === range.max;
+                  return (
+                    <TouchableOpacity
+                      key={range.label}
+                      style={[s.sheetChip, active && s.sheetChipActive]}
+                      onPress={() => {
+                        setTempMinPrice(range.min);
+                        setTempMaxPrice(range.max);
+                      }}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={[s.sheetChipText, active && s.sheetChipTextActive]}>
+                        {range.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
 
             {/* ── Danh mục ── */}
             <View style={s.sheetSection}>
@@ -453,38 +480,7 @@ const s = StyleSheet.create({
     lineHeight: 12,
   },
 
-  // ── Chips ──
-  chipBarWrapper: {
-    height: 60,
-    backgroundColor: Colors.light.background,
-    borderBottomWidth: 0.5,
-    borderBottomColor: Colors.light.border,
-  },
-  chipRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: PAGE_PAD,
-    paddingVertical: 8,
-    gap: 10,
-  },
-  chip: {
-    paddingHorizontal: 22,
-    paddingVertical: 11,
-    borderRadius: 24,
-    backgroundColor: Colors.light.surface,
-    alignSelf: 'center',
-  },
-  chipActive: {
-    backgroundColor: Colors.light.text,
-  },
-  chipText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: Colors.light.muted,
-  },
-  chipTextActive: {
-    color: Colors.light.background,
-  },
+
 
   // ── Empty ──
   empty:     { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
@@ -610,4 +606,32 @@ const s = StyleSheet.create({
     fontWeight: '700',
     color: Colors.light.background,
   },
+  priceInputWrap: {
+  flex: 1,
+  borderRadius: 14,
+  borderWidth: 0.5,
+  borderColor: Colors.light.border,
+  backgroundColor: Colors.light.surface,
+  paddingHorizontal: 14,
+  paddingVertical: 10,
+},
+priceInputLabel: {
+  fontSize: 11,
+  fontWeight: '600',
+  color: Colors.light.muted,
+  letterSpacing: 0.4,
+  textTransform: 'uppercase',
+  marginBottom: 4,
+},
+priceInput: {
+  fontSize: 14,
+  color: Colors.light.text,
+  padding: 0,
+  minWidth: 0,
+},
+priceUnit: {
+  fontSize: 11,
+  color: Colors.light.muted,
+  marginTop: 2,
+},
 });

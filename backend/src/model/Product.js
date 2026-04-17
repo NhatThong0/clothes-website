@@ -1,12 +1,39 @@
 const mongoose = require('mongoose');
 
+const reviewFeedbackSchema = new mongoose.Schema({
+    label:      { type: String, enum: ['approve', 'reject'], required: true },
+    notes:      { type: String, default: '' },
+    reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    reviewedAt: { type: Date, default: Date.now },
+}, { _id: false });
+
 const reviewSchema = new mongoose.Schema({
-    userId:    { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-    rating:    { type: Number, required: true, min: 1, max: 5 },
-    comment:   { type: String, required: true },
-    images:    [{ type: String }],
-    isVisible: { type: Boolean, default: true },
-    createdAt: { type: Date, default: Date.now },
+    userId:                   { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    orderId:                  { type: mongoose.Schema.Types.ObjectId, ref: 'Order', default: null },
+    rating:                   { type: Number, required: true, min: 1, max: 5 },
+    comment:                  { type: String, required: true },
+    images:                   [{ type: String }],
+    isVisible:                { type: Boolean, default: true },
+    moderationStatus:         { type: String, enum: ['processing', 'approved', 'rejected', 'pending'], default: 'processing' },
+    moderationDecision:       { type: String, default: 'queued' },
+    moderationSource:         { type: String, enum: ['skip', 'rule', 'ai', 'hybrid', 'manual'], default: 'rule' },
+    moderationScore:          { type: Number, default: null, min: 0, max: 1 },
+    moderationReasons:        [{ type: String }],
+    moderationFlags: {
+        spam:         { type: Boolean, default: false },
+        advertising:  { type: Boolean, default: false },
+        toxic:        { type: Boolean, default: false },
+        suspicious:   { type: Boolean, default: false },
+        shortTrusted: { type: Boolean, default: false },
+    },
+    moderationTextNormalized: { type: String, default: '' },
+    moderationSummary:        { type: String, default: '' },
+    moderationQueuedAt:       { type: Date, default: Date.now },
+    moderationProcessedAt:    { type: Date, default: null },
+    adminReviewedAt:          { type: Date, default: null },
+    adminReviewedBy:          { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    moderationFeedback:       [reviewFeedbackSchema],
+    createdAt:                { type: Date, default: Date.now },
 });
 
 const variantSchema = new mongoose.Schema({

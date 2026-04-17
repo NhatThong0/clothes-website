@@ -14,13 +14,18 @@ import {
 } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { io, type Socket } from 'socket.io-client';
 
 import AppHeader from '@/components/AppHeader';
 import { ProductCard } from '@/components/ProductCard';
 import { bannerApi, type Banner } from '@/src/api/bannerApi';
+import flashSaleApi, { type FlashSalePromotion } from '@/src/api/flashSaleApi';
 import { productApi, type Category, type Product } from '@/src/api/productApi';
+import { SOCKET_URL } from '@/src/constants/config';
 import { Colors, Radius } from '@/src/constants/theme';
+import { useAuthStore } from '@/src/store/authStore';
 import { useCartStore } from '@/src/store/cartStore';
+import { tokenStorage } from '@/src/utils/tokenStorage';
 
 const PAGE_PAD = 20;
 const GRID_GAP = 12;
@@ -34,6 +39,7 @@ function getGridColumns(width: number) {
 export default function HomeScreen() {
   const router = useRouter();
   const { width } = useWindowDimensions();
+  const { isLoggedIn } = useAuthStore();
 
   const columns = getGridColumns(width);
   const cardWidth = Math.floor((width - PAGE_PAD * 2 - GRID_GAP * (columns - 1)) / columns);
@@ -44,22 +50,36 @@ export default function HomeScreen() {
   const [featured, setFeatured] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [banners, setBanners] = useState<Banner[]>([]);
+  const [flashSales, setFlashSales] = useState<FlashSalePromotion[]>([]);
+  const [nowTs, setNowTs] = useState(Date.now());
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const [bannerIdx, setBannerIdx] = useState(0);
   const bannerRef = useRef<FlatList<Banner>>(null);
+  const flashSocketRef = useRef<Socket | null>(null);
+
+  const loadFlashSales = useCallback(async () => {
+    try {
+      const promotions = await flashSaleApi.getActive();
+      setFlashSales(promotions);
+    } catch {
+      setFlashSales([]);
+    }
+  }, []);
 
   const load = useCallback(async () => {
     try {
-      const [feat, cats, bans] = await Promise.all([
+      const [feat, cats, bans, flashes] = await Promise.all([
         productApi.getFeatured(8),
         productApi.getCategories(),
         bannerApi.getBanners(),
+        flashSaleApi.getActive(),
       ]);
       setFeatured(feat);
       setCategories(cats);
       setBanners(bans);
+      setFlashSales(flashes);
     } catch (e) {
       console.error(e);
     } finally {
@@ -72,11 +92,76 @@ export default function HomeScreen() {
     load();
   }, [load]);
 
+  useEffect(() => {
+    const tick = setInterval(() => setNowTs(Date.now()), 1000);
+    return () => clearInterval(tick);
+  }, []);
+
+  useEffect(() => {
+    const poll = setInterval(loadFlashSales, 30000);
+    return () => clearInterval(poll);
+  }, [loadFlashSales]);
+
   useFocusEffect(
     useCallback(() => {
       useCartStore.getState().syncCart();
     }, []),
   );
+
+  useEffect(() => {
+    if (!isLoggedIn) {
+      flashSocketRef.current?.disconnect();
+      flashSocketRef.current = null;
+      return;
+    }
+
+    let mounted = true;
+
+    (async () => {
+      const token = await tokenStorage.getAccessToken();
+      if (!mounted || !token) return;
+
+      const socket = io(SOCKET_URL, {
+        auth: { token },
+        transports: ['polling', 'websocket'],
+        reconnection: true,
+        reconnectionDelay: 2000,
+        reconnectionAttempts: 5,
+        closeOnBeforeunload: false,
+      });
+
+      flashSocketRef.current = socket;
+
+      const handleUpdate = () => {
+        void loadFlashSales();
+      };
+
+      const handleRemaining = ({ promotionId, remaining }: { promotionId: string; remaining: number | null }) => {
+        setFlashSales((prev) =>
+          prev.map((item) =>
+            String(item._id) === String(promotionId)
+              ? { ...item, flashSaleRemaining: remaining }
+              : item,
+          ),
+        );
+      };
+
+      socket.on('flash-sale:update', handleUpdate);
+      socket.on('flash-sale:remaining', handleRemaining);
+
+      socket.on('disconnect', (reason) => {
+        if (reason === 'io server disconnect') {
+          socket.connect();
+        }
+      });
+    })();
+
+    return () => {
+      mounted = false;
+      flashSocketRef.current?.disconnect();
+      flashSocketRef.current = null;
+    };
+  }, [isLoggedIn, loadFlashSales]);
 
   useEffect(() => {
     if (banners.length <= 1) return;
@@ -100,6 +185,20 @@ export default function HomeScreen() {
     );
   }
 
+  const activeFlashSale =
+    flashSales.find((item) => item.flashSaleRemaining === null || (item.flashSaleRemaining ?? 0) > 0) ||
+    flashSales[0] ||
+    null;
+  const flashItem = activeFlashSale?.items?.[0] || null;
+  const flashProduct = flashItem?.product || activeFlashSale?.products?.[0] || null;
+  const flashPrice = flashItem?.price || activeFlashSale?.flashSalePrice || null;
+  const flashItemCount = activeFlashSale?.items?.length || activeFlashSale?.productIds?.length || 0;
+  const flashEndsAt = activeFlashSale?.endDate ? new Date(activeFlashSale.endDate).getTime() : null;
+  const flashLeftMs = flashEndsAt ? Math.max(0, flashEndsAt - nowTs) : 0;
+  const hh = String(Math.floor(flashLeftMs / 3600000)).padStart(2, '0');
+  const mm = String(Math.floor((flashLeftMs % 3600000) / 60000)).padStart(2, '0');
+  const ss = String(Math.floor((flashLeftMs % 60000) / 1000)).padStart(2, '0');
+
   return (
     <View style={s.root}>
       <StatusBar barStyle="dark-content" backgroundColor={Colors.light.background} />
@@ -118,7 +217,63 @@ export default function HomeScreen() {
           />
         }
       >
-        
+        {activeFlashSale && flashProduct && (
+          <TouchableOpacity
+            style={s.flashSaleCard}
+            activeOpacity={0.92}
+            onPress={() => router.push({ pathname: '/product/[id]', params: { id: flashProduct._id } })}
+          >
+            <View style={s.flashSaleHeader}>
+              <View style={s.flashSaleTitleRow}>
+                <Text style={s.flashSaleChip}>Flash Sale</Text>
+               
+              </View>
+
+              <View style={s.flashSaleMetaRow}>
+                <View style={s.flashSaleMetaPill}>
+                  <Text style={s.flashSaleMetaText}>
+                    Còn lại: <Text style={s.flashSaleMetaStrong}>{activeFlashSale.flashSaleRemaining ?? '∞'}</Text>
+                  </Text>
+                </View>
+
+                {flashItemCount > 1 && (
+                  <View style={s.flashSaleMetaPill}>
+                    <Text style={s.flashSaleMetaText}>{flashItemCount} sản phẩm</Text>
+                  </View>
+                )}
+
+                <View style={s.flashSaleMetaPill}>
+                  <Text style={[s.flashSaleMetaText, s.flashSaleClock]}>{hh}:{mm}:{ss}</Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={s.flashSaleBody}>
+              {flashProduct.images?.[0] ? (
+                <Image source={{ uri: flashProduct.images[0] }} style={s.flashSaleImage} resizeMode="cover" />
+              ) : (
+                <View style={[s.flashSaleImage, s.flashSaleImageFallback]}>
+                  <Ionicons name="flash-outline" size={20} color="#B45309" />
+                </View>
+              )}
+
+              <View style={{ flex: 1 }}>
+                <Text style={s.flashSaleProductName} numberOfLines={2}>
+                  {flashProduct.name}
+                </Text>
+
+                <View style={s.flashSalePriceRow}>
+                  {flashPrice ? (
+                    <Text style={s.flashSalePrice}>
+                      {flashPrice.toLocaleString('vi-VN')}đ
+                    </Text>
+                  ) : null}
+                  <Text style={s.flashSaleCta}>Nhấn để mua ngay</Text>
+                </View>
+              </View>
+            </View>
+          </TouchableOpacity>
+        )}
 
         {banners.length > 0 ? (
           <View style={s.heroWrap}>
@@ -298,6 +453,105 @@ const s = StyleSheet.create({
   },
 
   heroWrap: { marginHorizontal: PAGE_PAD, marginBottom: 18 },
+  flashSaleCard: {
+    marginHorizontal: PAGE_PAD,
+    marginBottom: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: '#F6D28B',
+    backgroundColor: '#FFF7E6',
+    gap: 12,
+  },
+  flashSaleHeader: {
+    gap: 10,
+  },
+  flashSaleTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  flashSaleChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: '#F59E0B',
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  flashSaleName: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#111111',
+  },
+  flashSaleMetaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  flashSaleMetaPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(17,17,17,0.08)',
+    backgroundColor: '#FFFFFF',
+  },
+  flashSaleMetaText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  flashSaleMetaStrong: {
+    fontWeight: '800',
+    color: '#B45309',
+  },
+  flashSaleClock: {
+    fontFamily: 'monospace',
+    color: '#111111',
+  },
+  flashSaleBody: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  flashSaleImage: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+  },
+  flashSaleImageFallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFF3D6',
+  },
+  flashSaleProductName: {
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '700',
+    color: '#111111',
+  },
+  flashSalePriceRow: {
+    marginTop: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flexWrap: 'wrap',
+  },
+  flashSalePrice: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#111111',
+  },
+  flashSaleCta: {
+    fontSize: 12,
+    color: '#64748B',
+  },
   heroSlide: {
     borderRadius: Radius.xl,
     overflow: 'hidden',

@@ -1,5 +1,23 @@
 import api from './axiosConfig';
 
+export interface LoyaltyTier {
+  _id?: string;
+  name?: string;
+  icon_key?: string;
+  iconKey?: string;
+  icon?: string;
+  discount_percent?: number;
+  min_points?: number;
+}
+
+export interface LoyaltyInfo {
+  tier?: LoyaltyTier | null;
+  next_tier?: LoyaltyTier | null;
+  tier_points?: number;
+  spendable_points?: number;
+  syncedAt?: string;
+}
+
 export interface User {
   _id: string;
   name: string;
@@ -7,6 +25,7 @@ export interface User {
   phone?: string;
   avatar?: string;
   role: 'user' | 'admin';
+  loyalty?: LoyaltyInfo | null;
 }
 
 interface AuthResponse {

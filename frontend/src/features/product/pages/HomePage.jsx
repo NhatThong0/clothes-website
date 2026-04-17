@@ -182,7 +182,6 @@ export default function HomePage() {
                 <span className="rounded-full bg-amber-500 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.24em] text-white">
                   ⚡ Flash Sale
                 </span>
-                <p className="text-sm font-semibold text-black">{activeFlashSale.name || flashProduct.name}</p>
               </div>
               <div className="flex items-center gap-3 text-sm font-semibold text-slate-700">
                 <span className="rounded-full border border-black/10 bg-white px-3 py-1">
@@ -198,6 +197,13 @@ export default function HomePage() {
                 </span>
               </div>
             </div>
+            {/* <div className="flex items-center gap-5">
+              <img
+                src={flashProduct.image}
+                alt={flashProduct.name}
+                className="h-20 w-20 rounded-lg object-cover object-center"
+              />
+              </div> */}
             <div className="flex flex-wrap items-baseline gap-2 text-sm text-slate-600">
               <span className="font-semibold text-slate-800">{flashProduct.name}</span>
               {flashPrice && (

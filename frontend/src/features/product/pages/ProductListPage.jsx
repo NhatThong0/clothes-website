@@ -4,6 +4,7 @@ import ProductCard from '@features/product/components/ProductCard';
 import Loading from '@components/common/Loading';
 import Empty from '@components/common/Empty';
 import { productAPI } from '@features/shared/services/api';
+import { useRef } from 'react'
 
 const normalizeProduct = (product) => {
   const flashSale = product.flashSale || null;
@@ -66,6 +67,7 @@ export default function ProductListPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const limit = 12;
+  const [categoryOpen, setCategoryOpen] = useState(true);
 
   const [filters, setFilters] = useState({
     category: searchParams.get('category') || '',
@@ -74,6 +76,19 @@ export default function ProductListPage() {
     sortBy: searchParams.get('sortBy') || meta.defaultSort,
     search: searchParam,
   });
+
+  const [sortOpen, setSortOpen] = useState(false);
+const sortRef = useRef(null);
+
+useEffect(() => {
+  const handleClickOutside = (e) => {
+    if (sortRef.current && !sortRef.current.contains(e.target)) {
+      setSortOpen(false);
+    }
+  };
+  document.addEventListener('mousedown', handleClickOutside);
+  return () => document.removeEventListener('mousedown', handleClickOutside);
+}, []);
 
   useEffect(() => {
     fetchCategories();
@@ -199,24 +214,37 @@ export default function ProductListPage() {
 
               <div className="mt-6 space-y-6">
                 <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">Danh mục</p>
-                  <div className="mt-4 space-y-2.5">
-                    <label className="flex cursor-pointer items-center justify-between rounded-2xl border border-black/6 bg-[#f7f7f4] px-4 py-3 text-sm text-slate-600">
-                      <span>Tất cả</span>
-                      <input type="radio" name="category" checked={filters.category === ''} onChange={() => updateFilter('category', '')} className="accent-black" />
-                    </label>
-                    {categories.map((category) => {
-                      const categoryId = category._id || category;
-                      const categoryName = category.name || category;
+                  <button
+                    onClick={() => setCategoryOpen((prev) => !prev)}
+                    className="flex w-full items-center justify-between"
+                  >
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">Danh mục</p>
+                    <svg
+                      className={`h-4 w-4 text-slate-400 transition-transform duration-200 ${categoryOpen ? 'rotate-180' : ''}`}
+                      fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
 
-                      return (
-                        <label key={categoryId} className="flex cursor-pointer items-center justify-between rounded-2xl border border-black/6 bg-white px-4 py-3 text-sm text-slate-600 transition hover:bg-[#f7f7f4]">
-                          <span>{categoryName}</span>
-                          <input type="radio" name="category" checked={filters.category === categoryId} onChange={() => updateFilter('category', categoryId)} className="accent-black" />
-                        </label>
-                      );
-                    })}
-                  </div>
+                  {categoryOpen && (
+                    <div className="mt-4 space-y-2.5">
+                      <label className="flex cursor-pointer items-center justify-between rounded-2xl border border-black/6 bg-[#f7f7f4] px-4 py-3 text-sm text-slate-600">
+                        <span>Tất cả</span>
+                        <input type="radio" name="category" checked={filters.category === ''} onChange={() => updateFilter('category', '')} className="accent-black" />
+                      </label>
+                      {categories.map((category) => {
+                        const categoryId = category._id || category;
+                        const categoryName = category.name || category;
+                        return (
+                          <label key={categoryId} className="flex cursor-pointer items-center justify-between rounded-2xl border border-black/6 bg-white px-4 py-3 text-sm text-slate-600 transition hover:bg-[#f7f7f4]">
+                            <span>{categoryName}</span>
+                            <input type="radio" name="category" checked={filters.category === categoryId} onChange={() => updateFilter('category', categoryId)} className="accent-black" />
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 <div>
@@ -250,26 +278,53 @@ export default function ProductListPage() {
           <div className="space-y-5">
             <div className="editorial-card flex flex-col gap-4 rounded-[32px] px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">Lưới sản phẩm</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">Sản phẩm</p>
                 <p className="mt-2 text-sm text-slate-500">
                   {loading ? 'Đang tải sản phẩm...' : `${totalProducts} sản phẩm.`}
                 </p>
               </div>
 
-              <label className="flex items-center gap-3 rounded-full border border-black/8 bg-[#f7f7f4] px-4 py-2.5">
-                <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Sắp xếp</span>
-                <select
-                  value={filters.sortBy}
-                  onChange={(event) => updateFilter('sortBy', event.target.value)}
-                  className="bg-transparent text-sm font-semibold text-black outline-none"
-                >
-                  {SORT_OPTIONS.filter((option) => typeParam === 'sale' || option.value !== 'discount').map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <div className="relative" ref={sortRef}>
+  <button
+    onClick={() => setSortOpen((prev) => !prev)}
+    className={`flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold border transition
+      ${sortOpen
+        ? 'bg-black text-white border-transparent'
+        : 'bg-white text-black border-black/10 hover:bg-[#f7f7f4]'
+      }`}
+  >
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="9" y1="18" x2="15" y2="18"/>
+    </svg>
+    <span>{SORT_OPTIONS.find((o) => o.value === filters.sortBy)?.label || 'Sắp xếp'}</span>
+    <svg
+      width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"
+      className={`transition-transform duration-150 ${sortOpen ? 'rotate-180' : ''}`}
+    >
+      <polyline points="6 9 12 15 18 9"/>
+    </svg>
+  </button>
+
+  {sortOpen && (
+    <div className="absolute right-0 top-[calc(100%+8px)] z-10 min-w-[200px] overflow-hidden rounded-2xl border border-black/10 bg-white">
+      {SORT_OPTIONS.filter((o) => typeParam === 'sale' || o.value !== 'discount').map((option) => (
+        <button
+          key={option.value}
+          onClick={() => { updateFilter('sortBy', option.value); setSortOpen(false); }}
+          className="flex w-full items-center justify-between px-4 py-2.5 text-sm text-black hover:bg-[#f7f7f4]"
+        >
+          <span className={filters.sortBy === option.value ? 'font-semibold' : ''}>{option.label}</span>
+          {filters.sortBy === option.value && (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+          )}
+        </button>
+      ))}
+    </div>
+  )}
+</div>
+              
             </div>
 
             {loading ? (

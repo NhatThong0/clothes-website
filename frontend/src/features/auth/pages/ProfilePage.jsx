@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@features/auth/hooks/useAuth';
 import apiClient from '@features/shared/services/apiClient';
 import TierImageBadge from '@components/common/TierImageBadge';
+import { formatOrderCode } from '@utils/helpers';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const LABELS     = ['Nhà riêng', 'Văn phòng', 'Khác'];
@@ -20,6 +22,12 @@ const EMPTY_ADDR = {
 };
 const cls = {
   input: 'w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white transition',
+};
+const pushOrdersStatusFilter = (status) => {
+  try {
+    if (status === 'all') sessionStorage.removeItem('ordersStatusFilter');
+    else sessionStorage.setItem('ordersStatusFilter', status);
+  } catch {}
 };
 const fmtPrice = v => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(v ?? 0);
 const fmtDate  = d => d ? new Date(d).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—';
@@ -160,7 +168,7 @@ function OrderDetail({ order, onCancel }) {
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-[11px] text-slate-400 font-bold uppercase tracking-wider">Mã đơn hàng</p>
-          <p className="font-black text-slate-800 font-mono mt-0.5">#{order.id.slice(-8).toUpperCase()}</p>
+          <p className="font-black text-slate-800 font-mono mt-0.5">{formatOrderCode(order.id)}</p>
           <p className="text-xs text-slate-400 mt-1">{fmtDate(order.date)}</p>
         </div>
         <StatusBadge status={order.status}/>
@@ -237,6 +245,7 @@ function OrderDetail({ order, onCancel }) {
 
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
 export default function ProfilePage() {
+  const navigate = useNavigate();
   const { user, updateProfile } = useAuth();
   const avatarInputRef = useRef(null);
 
@@ -707,7 +716,7 @@ export default function ProfilePage() {
 
                 {/* Header */}
                 <div className="px-4 py-3.5 border-b border-slate-100 flex-shrink-0">
-                  <h2 className="font-bold text-slate-900">Đơn hàng</h2>
+                  <h2 className="font-bold text-slate-900">Đơn hàng gần đây</h2>
                   <p className="text-[11px] text-slate-400 mt-0.5">{orders.length} đơn hàng</p>
                 </div>
 
@@ -719,9 +728,8 @@ export default function ProfilePage() {
                       if (key !== 'all' && count === 0) return null;
                       return (
                         <button key={key} onClick={() => {
-                          setStatusFilter(key);
-                          const list = key === 'all' ? orders : orders.filter(o => o.status === key);
-                          if (list.length > 0) setSelectedOrder(list[0]);
+                          pushOrdersStatusFilter(key);
+                          navigate(key === 'all' ? '/orders' : `/orders?status=${key}`);
                         }}
                           className={`px-2 py-1 rounded-lg text-[10px] font-semibold whitespace-nowrap transition-all ${
                             statusFilter === key ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
@@ -754,7 +762,7 @@ export default function ProfilePage() {
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
                               <p className="text-xs font-bold text-slate-800 font-mono">
-                                #{order.id.slice(-8).toUpperCase()}
+                                {formatOrderCode(order.id)}
                               </p>
                               <p className="text-[10px] text-slate-400 mt-0.5">{fmtDate(order.date)}</p>
                               <p className="text-xs font-bold text-blue-600 mt-1">{fmtPrice(order.total)}</p>

@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useAdmin } from '@features/admin/hooks/useAdmin';
 import { Link } from 'react-router-dom';
 import apiClient from '@features/shared/services/apiClient';
+import { formatOrderCode, normalizeOrderSearch } from '@utils/helpers';
 
 const STATUSES = ['pending','confirmed','shipped','delivered','return_requested','returned','cancelled'];
 
@@ -153,9 +154,9 @@ const AdminOrderManagement = () => {
 
   useEffect(() => {
     const t = setTimeout(() => {
-      setSearchQuery(searchInput);
+      setSearchQuery(normalizeOrderSearch(searchInput));
       setPage(1);
-      loadOrders({ search: searchInput, page: 1 });
+      loadOrders({ search: normalizeOrderSearch(searchInput), page: 1 });
     }, 400);
     return () => clearTimeout(t);
   }, [searchInput]);
@@ -302,7 +303,7 @@ const AdminOrderManagement = () => {
 
                     <td className="px-5 py-4">
                       <span className="font-mono text-xs font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded-lg">
-                        #{order._id.substring(0,8).toUpperCase()}
+                        {formatOrderCode(order._id)}
                       </span>
                     </td>
 

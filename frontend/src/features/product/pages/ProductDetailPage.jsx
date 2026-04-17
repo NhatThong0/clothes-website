@@ -6,7 +6,6 @@ import { useCart } from '@features/cart/hooks/useCart';
 import { formatPrice } from '@utils/helpers';
 import { productAPI } from '@features/shared/services/api';
 import { useAuth } from '@context/AuthContext';
-import apiClient from '@features/shared/services/apiClient';
 
 const sizeChartColumns = [
     { key: 'size', label: 'Size' },
@@ -55,16 +54,18 @@ export default function ProductDetailPage() {
     const [selectedSize,   setSelectedSize]   = useState('');
     const [reviews,        setReviews]        = useState([]);
     const [reviewsLoading, setReviewsLoading] = useState(false);
-    const [myReview,       setMyReview]       = useState(null);
+    const [myReviews,      setMyReviews]      = useState([]);
     const [editMode,       setEditMode]       = useState(false);
+    const [editTarget,     setEditTarget]     = useState(null);
     const [editForm,       setEditForm]       = useState({ rating: 5, comment: '' });
     const [previewImg,     setPreviewImg]     = useState(null);
     const [starFilter,     setStarFilter]     = useState(0);
     const [toast,          setToast]          = useState(null);
+    const myReview = editTarget || { rating: 0, comment: '', images: [] };
 
     const showToast = (msg, type = 'success') => setToast({ message: msg, type });
 
-    useEffect(() => { fetchProduct(); fetchReviews(); fetchMyReview(); }, [id]);
+    useEffect(() => { fetchProduct(); fetchReviews(); fetchMyReviews(); }, [id]);
 
     const fetchProduct = async () => {
         try {
@@ -126,12 +127,16 @@ export default function ProductDetailPage() {
 
     const fetchReviews = async () => {
         try { setReviewsLoading(true); const res = await productAPI.getReviews(id); setReviews(res.data?.data || []); }
-        catch {} finally { setReviewsLoading(false); }
+        catch { setReviews([]); } finally { setReviewsLoading(false); }
     };
 
-    const fetchMyReview = async () => {
-        try { const res = await productAPI.getMyReview(id); setMyReview(res.data?.data || null); }
-        catch { setMyReview(null); }
+    const fetchMyReviews = async () => {
+        try {
+            const res = await productAPI.getMyReviews(id);
+            setMyReviews(res.data?.data || []);
+        } catch {
+            setMyReviews([]);
+        }
     };
 
     // ── Variant computed values ───────────────────────────────────────────────
@@ -231,16 +236,30 @@ export default function ProductDetailPage() {
         } catch (err) { showToast(err.message || 'Không thể thêm vào giỏ hàng', 'error'); }
     };
 
-    const handleDeleteMyReview = async () => {
+    const handleDeleteMyReview = async (review) => {
         if (!window.confirm('Xóa đánh giá này?')) return;
-        try { await productAPI.deleteReview(id, myReview._id); setMyReview(null); fetchReviews(); }
+        try {
+            await productAPI.deleteReview(id, review._id);
+            setMyReviews((prev) => prev.filter((item) => item._id !== review._id));
+            if (editTarget?._id === review._id) {
+                setEditMode(false);
+                setEditTarget(null);
+            }
+            fetchReviews();
+        }
         catch (err) { showToast(err.response?.data?.message || 'Không thể xóa', 'error'); }
     };
 
     const handleUpdateReview = async () => {
+        if (!editTarget?._id) return;
         try {
-            await productAPI.updateReview(id, myReview._id, editForm);
-            setMyReview({...myReview,...editForm}); setEditMode(false); fetchReviews();
+            await productAPI.updateReview(id, editTarget._id, editForm);
+            setMyReviews((prev) => prev.map((review) => (
+                review._id === editTarget._id ? { ...review, ...editForm } : review
+            )));
+            setEditMode(false);
+            setEditTarget(null);
+            fetchReviews();
         } catch (err) { showToast(err.response?.data?.message || 'Không thể cập nhật', 'error'); }
     };
 
@@ -551,7 +570,7 @@ export default function ProductDetailPage() {
                             {reviews.length > 0 && <span className="ml-3 text-lg font-normal text-gray-500">({reviews.length} đánh giá)</span>}
                         </h2>
 
-                        {myReview && (
+                        {editTarget && myReviews.length > 999999 && (
                             <div className="mb-6 p-4 border-2 border-primary rounded-xl bg-blue-50">
                                 <div className="flex justify-between items-start mb-2">
                                     <p className="font-semibold text-primary">⭐ Đánh giá của bạn</p>
@@ -569,6 +588,57 @@ export default function ProductDetailPage() {
                                         ))}
                                     </div>
                                 )}
+                            </div>
+                        )}
+
+                        {myReviews.length > 0 && (
+                            <div className="mb-6 p-4 border-2 border-primary rounded-xl bg-blue-50">
+                                <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+                                    <p className="font-semibold text-primary">Tat ca danh gia cua ban cho san pham nay</p>
+                                    <span className="text-xs font-semibold text-blue-600 bg-white/80 border border-blue-200 rounded-full px-3 py-1">
+                                        {myReviews.length} danh gia
+                                    </span>
+                                </div>
+                                <div className="space-y-4">
+                                    {myReviews.map((review, index) => (
+                                        <div key={review._id || index} className="rounded-xl border border-blue-100 bg-white/80 p-4">
+                                            <div className="flex justify-between items-start gap-3 mb-2 flex-wrap">
+                                                <div>
+                                                    <p className="font-semibold text-slate-800">
+                                                        Don hang #{String(review.orderId || '').slice(-8).toUpperCase() || 'N/A'}
+                                                    </p>
+                                                    <p className="text-xs text-slate-400">
+                                                        {new Date(review.createdAt).toLocaleDateString('vi-VN')}
+                                                    </p>
+                                                </div>
+                                                <div className="flex gap-2">
+                                                    <button
+                                                        onClick={() => {
+                                                            setEditTarget(review);
+                                                            setEditForm({ rating: review.rating, comment: review.comment });
+                                                            setEditMode(true);
+                                                        }}
+                                                        className="text-sm text-blue-600 hover:underline"
+                                                    >
+                                                        Sua
+                                                    </button>
+                                                    <button onClick={() => handleDeleteMyReview(review)} className="text-sm text-red-500 hover:underline">
+                                                        Xoa
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div className="flex mb-2">{[...Array(5)].map((_, i) => <span key={i} className={`text-lg ${i < review.rating ? 'text-yellow-400' : 'text-gray-300'}`}>★</span>)}</div>
+                                            <p className="text-gray-700">{review.comment}</p>
+                                            {review.images?.length > 0 && (
+                                                <div className="flex gap-2 mt-3 flex-wrap">
+                                                    {review.images.map((img, imageIndex) => (
+                                                        <img key={imageIndex} src={img} alt="" className="w-20 h-20 object-cover rounded-lg border cursor-pointer hover:opacity-80" onClick={() => setPreviewImg(img)}/>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
                         )}
 

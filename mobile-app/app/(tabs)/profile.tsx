@@ -7,6 +7,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '@/src/store/authStore';
 import userApi from '@/src/api/userApi';
+import type { LoyaltyInfo } from '@/src/api/authApi';
 
 const TOKEN = { black: '#1A1A1A', surface: '#F5F5F0', border: '#E8E8E4', muted: '#AAAAAA', accent: '#ff0000' };
 
@@ -19,9 +20,16 @@ const ORDER_TABS = [
 
 export default function ProfileScreen() {
   const router           = useRouter();
-  const { user, logout } = useAuthStore();
+  const { user, logout, setUser } = useAuthStore();
   const [counts, setCounts]         = useState<Record<string, number>>({});
   const [refreshing, setRefreshing] = useState(false);
+
+  const loadProfile = async () => {
+    try {
+      const profile = await userApi.getProfile();
+      setUser(profile);
+    } catch {}
+  };
 
   const loadCounts = async () => {
     try {
@@ -34,7 +42,10 @@ export default function ProfileScreen() {
     } catch {}
   };
 
-  useEffect(() => { loadCounts(); }, []);
+  useEffect(() => {
+    loadProfile();
+    loadCounts();
+  }, []);
 
   const handleLogout = () =>
     Alert.alert('Đăng xuất', 'Bạn có chắc muốn đăng xuất?', [
@@ -52,7 +63,11 @@ export default function ProfileScreen() {
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
-            onRefresh={async () => { setRefreshing(true); await loadCounts(); setRefreshing(false); }}
+            onRefresh={async () => {
+              setRefreshing(true);
+              await Promise.all([loadProfile(), loadCounts()]);
+              setRefreshing(false);
+            }}
             tintColor={TOKEN.black}
           />
         }
@@ -83,6 +98,8 @@ export default function ProfileScreen() {
           </View>
           <Ionicons name="chevron-forward" size={16} color="#CCC" />
         </TouchableOpacity>
+
+        {user?.role !== 'admin' && <LoyaltyCard loyalty={user?.loyalty} />}
 
         {/* Order status */}
         <View style={s.section}>
@@ -142,6 +159,103 @@ export default function ProfileScreen() {
   );
 }
 
+function LoyaltyCard({ loyalty }: { loyalty?: LoyaltyInfo | null }) {
+  const tier = loyalty?.tier;
+  const nextTier = loyalty?.next_tier;
+  const tierPoints = loyalty?.tier_points ?? 0;
+  const spendablePoints = loyalty?.spendable_points ?? 0;
+  const discountPercent = tier?.discount_percent ?? 0;
+  const nextMinPoints = nextTier?.min_points ?? 0;
+  const progress = nextMinPoints > 0 ? Math.min(100, (tierPoints / nextMinPoints) * 100) : 0;
+  const pointsLeft = nextMinPoints > 0 ? Math.max(0, nextMinPoints - tierPoints) : 0;
+  const accent = getTierAccent(tier?.icon_key || tier?.iconKey || tier?.icon || tier?.name);
+
+  return (
+    <View style={s.loyaltyCard}>
+      <View style={s.loyaltyTopRow}>
+        <View style={s.loyaltyMainInfo}>
+          <View style={[s.loyaltyBadge, { backgroundColor: accent.soft, borderColor: accent.border }]}>
+            <Ionicons name={accent.icon as any} size={28} color={accent.strong} />
+          </View>
+
+          <View style={{ flex: 1 }}>
+            <Text style={s.loyaltyEyebrow}>Hạng thành viên</Text>
+            <Text style={s.loyaltyTitle}>{tier?.name || 'Chưa co hang'}</Text>
+            <Text style={s.loyaltySubtitle}>
+              Hạng của bạn sẽ được cập nhật tự động theo điểm tích lũy.
+            </Text>
+          </View>
+        </View>
+
+        <View style={s.loyaltyBenefit}>
+          <Text style={s.loyaltyEyebrow}>Ưu đãi</Text>
+          <Text style={s.loyaltyPercent}>
+            {discountPercent}
+            <Text style={s.loyaltyPercentUnit}>%</Text>
+          </Text>
+        </View>
+      </View>
+
+      <View style={s.loyaltyStatsRow}>
+        <View style={[s.loyaltyStatCol, s.loyaltyStatDivider]}>
+          <Text style={s.loyaltyEyebrow}>Điểm xét hạng</Text>
+          <Text style={s.loyaltyStatValue}>{tierPoints.toLocaleString('vi-VN')}</Text>
+          <Text style={s.loyaltyStatHint}>Dùng để xét nâng hạng thành viên</Text>
+        </View>
+
+        <View style={s.loyaltyStatCol}>
+          <Text style={s.loyaltyEyebrow}>Điểm dùng được</Text>
+          <Text style={s.loyaltyStatValue}>{spendablePoints.toLocaleString('vi-VN')}</Text>
+          <Text style={s.loyaltyStatHint}>Có thể sử dụng khi thanh toán đơn hàng</Text>
+        </View>
+      </View>
+
+      {!!nextTier && nextMinPoints > 0 && (
+        <View style={s.loyaltyProgressWrap}>
+          <View style={s.loyaltyProgressHeader}>
+            <Text style={s.loyaltyProgressText}>
+              Tiến độ lên hạng <Text style={s.loyaltyProgressStrong}>{nextTier.name}</Text>
+            </Text>
+            <Text style={s.loyaltyProgressText}>
+              {tierPoints.toLocaleString('vi-VN')} / {nextMinPoints.toLocaleString('vi-VN')}
+            </Text>
+          </View>
+
+          <View style={s.loyaltyProgressTrack}>
+            <View style={[s.loyaltyProgressBar, { width: `${progress}%`, backgroundColor: accent.strong }]} />
+          </View>
+
+          <Text style={s.loyaltyProgressHint}>
+            Cần thêm {pointsLeft.toLocaleString('vi-VN')} điểm để đạt hạng tiếp theo
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
+function getTierAccent(rawTier?: string) {
+  const tier = String(rawTier || '').toLowerCase();
+
+  if (tier.includes('diamond')) {
+    return { strong: '#5B5CE2', soft: '#EEF0FF', border: '#D8DCFF', icon: 'diamond-outline' };
+  }
+  if (tier.includes('platinum')) {
+    return { strong: '#0F8FA6', soft: '#EAFBFF', border: '#C6EEF7', icon: 'sparkles-outline' };
+  }
+  if (tier.includes('gold')) {
+    return { strong: '#B7791F', soft: '#FFF7DB', border: '#F6E3A3', icon: 'medal-outline' };
+  }
+  if (tier.includes('silver')) {
+    return { strong: '#64748B', soft: '#F1F5F9', border: '#DDE5EE', icon: 'ribbon-outline' };
+  }
+  if (tier.includes('bronze')) {
+    return { strong: '#B45309', soft: '#FFF1E6', border: '#F6D2B4', icon: 'flame-outline' };
+  }
+
+  return { strong: TOKEN.black, soft: '#F4F4EF', border: TOKEN.border, icon: 'star-outline' };
+}
+
 function MenuItem({ icon, label, onPress, last }: {
   icon: string; label: string; onPress: () => void; last?: boolean;
 }) {
@@ -187,6 +301,78 @@ const s = StyleSheet.create({
   avatarText:  { fontSize: 18, fontWeight: '800', color: '#fff' },
   userName:    { fontSize: 16, fontWeight: '800', color: TOKEN.black },
   userEmail:   { fontSize: 12, color: TOKEN.muted, marginTop: 2 },
+
+  loyaltyCard: {
+    marginHorizontal: 20,
+    marginBottom: 24,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: '#E6E8EE',
+    backgroundColor: '#FCFCFA',
+    overflow: 'hidden',
+  },
+  loyaltyTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 18,
+  },
+  loyaltyMainInfo: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 14 },
+  loyaltyBadge: {
+    width: 64,
+    height: 64,
+    borderRadius: 22,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loyaltyEyebrow: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#9CA3AF',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 4,
+  },
+  loyaltyTitle: { fontSize: 22, fontWeight: '800', color: TOKEN.black },
+  loyaltySubtitle: { marginTop: 6, fontSize: 12, lineHeight: 18, color: '#6B7280' },
+  loyaltyBenefit: { minWidth: 74, alignItems: 'flex-end' },
+  loyaltyPercent: { fontSize: 30, fontWeight: '800', color: TOKEN.black, lineHeight: 34 },
+  loyaltyPercentUnit: { fontSize: 18, fontWeight: '700' },
+  loyaltyStatsRow: {
+    flexDirection: 'row',
+    borderTopWidth: 1,
+    borderTopColor: '#E6E8EE',
+    backgroundColor: '#FFFFFF',
+  },
+  loyaltyStatCol: { flex: 1, paddingHorizontal: 18, paddingVertical: 16 },
+  loyaltyStatDivider: { borderRightWidth: 1, borderRightColor: '#E6E8EE' },
+  loyaltyStatValue: { fontSize: 24, fontWeight: '800', color: TOKEN.black, marginBottom: 4 },
+  loyaltyStatHint: { fontSize: 11, lineHeight: 16, color: '#9CA3AF' },
+  loyaltyProgressWrap: {
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#E6E8EE',
+    backgroundColor: '#F8FAFC',
+  },
+  loyaltyProgressHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 10,
+  },
+  loyaltyProgressText: { flex: 1, fontSize: 12, color: '#6B7280' },
+  loyaltyProgressStrong: { fontWeight: '700', color: '#374151' },
+  loyaltyProgressTrack: {
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: '#E5E7EB',
+    overflow: 'hidden',
+  },
+  loyaltyProgressBar: { height: '100%', borderRadius: 999 },
+  loyaltyProgressHint: { marginTop: 8, fontSize: 11, color: '#9CA3AF' },
 
   section:       { paddingHorizontal: 20, marginBottom: 24 },
   sectionRow:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },

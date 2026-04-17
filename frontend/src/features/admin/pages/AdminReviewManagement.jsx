@@ -30,7 +30,7 @@ function VisibilityBadge({ visible }) {
 const RATING_COLORS = { 5:'text-emerald-600', 4:'text-blue-600', 3:'text-amber-500', 2:'text-orange-500', 1:'text-rose-500' };
 
 const AdminReviewManagement = () => {
-  const { fetchReviews, deleteReview, toggleReviewVisibility } = useAdmin();
+  const { fetchReviews, deleteReview, toggleReviewVisibility, moderateReview } = useAdmin();
 
   const [reviews,      setReviews]      = useState([]);
   const [page,         setPage]         = useState(1);
@@ -38,7 +38,7 @@ const AdminReviewManagement = () => {
   const [totalReviews, setTotalReviews] = useState(0);
   const [previewImg,   setPreviewImg]   = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null); // { productId, reviewId, comment }
-  const [filter,       setFilter]       = useState('all'); // all | visible | hidden
+  const [filter,       setFilter]       = useState('all'); // all | queue | approved | rejected | hidden
   const [ratingFilter, setRatingFilter] = useState(0);
   const [detailReview, setDetailReview] = useState(null);
 
@@ -48,6 +48,9 @@ const AdminReviewManagement = () => {
     const params = { page, limit: 10 };
     if (filter === 'visible') params.isVisible = true;
     if (filter === 'hidden')  params.isVisible = false;
+    if (filter === 'queue') params.needsReview = true;
+    if (filter === 'approved') params.moderationStatus = 'approved';
+    if (filter === 'rejected') params.moderationStatus = 'rejected';
     if (ratingFilter > 0)     params.rating = ratingFilter;
     const data = await fetchReviews(params);
     if (data) {
@@ -67,6 +70,11 @@ const AdminReviewManagement = () => {
     try { await deleteReview(deleteTarget.productId, deleteTarget.reviewId); loadReviews(); }
     catch { /* handled */ }
     finally { setDeleteTarget(null); }
+  };
+
+  const handleManualModeration = async (review, decision) => {
+    try { await moderateReview(review.productId, review._id, { decision }); loadReviews(); }
+    catch { /* handled */ }
   };
 
   // Stats
@@ -183,6 +191,18 @@ const AdminReviewManagement = () => {
                             className="px-2.5 py-1.5 bg-slate-100 hover:bg-blue-50 hover:text-blue-600 text-slate-600 text-xs font-semibold rounded-lg transition-colors">
                             Xem
                           </button>
+                          {review.moderationStatus === 'pending' && (
+                            <>
+                              <button onClick={() => handleManualModeration(review, 'approve')}
+                                className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-semibold rounded-lg transition-colors">
+                                Duyệt
+                              </button>
+                              <button onClick={() => handleManualModeration(review, 'reject')}
+                                className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold rounded-lg transition-colors">
+                                Từ chối
+                              </button>
+                            </>
+                          )}
                           <button onClick={() => handleToggle(review.productId, review._id)}
                             className={`px-2.5 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
                               review.isVisible
@@ -239,9 +259,9 @@ const AdminReviewManagement = () => {
 
       {/* Detail drawer */}
       {detailReview && (
-        <div className="fixed inset-0 z-50 flex">
-          <div className="admin-overlay flex-1" onClick={() => setDetailReview(null)}/>
-          <div className="admin-drawer-shell w-full max-w-md flex flex-col h-full" style={{animation:'slideIn .25s cubic-bezier(.4,0,.2,1)'}}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="admin-overlay absolute inset-0" onClick={() => setDetailReview(null)}/>
+          <div className="admin-modal-shell relative w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
             <div className="admin-panel-header sticky top-0 flex items-center justify-between px-6 py-4">
               <h2 className="text-base font-bold text-slate-900">Chi tiết đánh giá</h2>
               <button onClick={() => setDetailReview(null)} className="p-2 hover:bg-slate-100 rounded-xl text-slate-400 text-xl">✕</button>
@@ -291,6 +311,20 @@ const AdminReviewManagement = () => {
               )}
 
               <div className="flex gap-3 pt-2 border-t border-slate-100">
+                {detailReview.moderationStatus === 'pending' && (
+                  <>
+                    <button
+                      onClick={() => { handleManualModeration(detailReview, 'approve'); setDetailReview(null); }}
+                      className="flex-1 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl text-sm font-semibold border border-emerald-200 transition-colors">
+                      Duyệt review
+                    </button>
+                    <button
+                      onClick={() => { handleManualModeration(detailReview, 'reject'); setDetailReview(null); }}
+                      className="flex-1 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl text-sm font-semibold border border-rose-200 transition-colors">
+                      Từ chối review
+                    </button>
+                  </>
+                )}
                 <button onClick={() => { handleToggle(detailReview.productId, detailReview._id); setDetailReview(null); }}
                   className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
                     detailReview.isVisible
@@ -350,7 +384,6 @@ const AdminReviewManagement = () => {
         </div>
       )}
 
-      <style>{`@keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}`}</style>
     </div>
   );
 };

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   ActivityIndicator, Alert, Image, TextInput, Modal,
@@ -11,8 +11,23 @@ import userApi from '@/src/api/userApi';
 import { orderApi, Order } from '@/src/api/orderApi';
 import { paymentApi } from '@/src/api/paymentApi';
 import { cartApi } from '@/src/api/cartApi';
-import { formatPrice } from '@/src/api/productApi';
 import api from '@/src/api/axiosConfig';
+import { formatPrice, productApi } from '@/src/api/productApi';
+const getProductId = (item: Order['items'][number]) =>
+  String((item as any).productId?._id || (item as any).productId || '');
+
+const getReviewKey = (orderId: string, productId: string) => `${orderId}:${productId}`;
+
+const getReviewableItems = (order: Order, reviewedKeys: string[]) => {
+  const seen = new Set<string>();
+
+  return (order.items || []).filter((item) => {
+    const productId = getProductId(item);
+    if (!productId || seen.has(productId)) return false;
+    seen.add(productId);
+    return !reviewedKeys.includes(getReviewKey(order._id, productId));
+  });
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 const STATUS_STEPS = ['pending', 'confirmed', 'shipped', 'delivered'];
@@ -40,24 +55,38 @@ const RETURN_REASONS = [
 // Review Modal
 // ─────────────────────────────────────────────────────────────────────────────
 function ReviewModal({
-  visible, order, onClose, onDone,
-}: { visible: boolean; order: Order; onClose: () => void; onDone: () => void }) {
+  visible, order, reviewedKeys, onClose, onDone,
+}: { visible: boolean; order: Order; reviewedKeys: string[]; onClose: () => void; onDone: (reviewKey: string) => void }) {
   const [selectedItem, setSelectedItem] = useState(0);
   const [rating,       setRating]       = useState(5);
   const [comment,      setComment]      = useState('');
   const [submitting,   setSubmitting]   = useState(false);
+  const reviewableItems = useMemo(() => getReviewableItems(order, reviewedKeys), [order, reviewedKeys]);
 
-  const item = order.items[selectedItem];
+  useEffect(() => {
+    if (!visible) return;
+    setSelectedItem(0);
+    setRating(5);
+    setComment('');
+  }, [visible, order._id, reviewedKeys]);
+
+  const item = reviewableItems[selectedItem];
 
   const handleSubmit = async () => {
+    if (!item) { Alert.alert('Không thể đánh giá', 'Không còn sản phẩm nào cần đánh giá trong đơn này.'); return; }
     if (!comment.trim()) { Alert.alert('Thiếu nội dung', 'Vui lòng nhập nhận xét'); return; }
     try {
       setSubmitting(true);
-      const productId = (item as any).productId?._id || (item as any).productId;
-      await api.post(`/products/${productId}/reviews`, { rating, comment: comment.trim() });
+      const productId = getProductId(item);
+      await productApi.addReview(productId, {
+        orderId: order._id,
+        rating,
+        comment: comment.trim(),
+        images: [],
+      });
       Alert.alert('Thành công', 'Cảm ơn bạn đã đánh giá!');
       setComment(''); setRating(5);
-      onDone(); onClose();
+      onDone(getReviewKey(order._id, productId)); onClose();
     } catch (err: any) {
       Alert.alert('Lỗi', err?.response?.data?.message || 'Không thể gửi đánh giá');
     } finally { setSubmitting(false); }
@@ -74,11 +103,11 @@ function ReviewModal({
             </TouchableOpacity>
           </View>
           <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
-            {order.items.length > 1 && (
+            {reviewableItems.length > 1 && (
               <View>
                 <Text style={rm.label}>Chọn sản phẩm</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }}>
-                  {order.items.map((it, i) => (
+                  {reviewableItems.map((it, i) => (
                     <TouchableOpacity key={i}
                       style={[rm.chip, selectedItem === i && rm.chipActive]}
                       onPress={() => setSelectedItem(i)}>
@@ -89,10 +118,18 @@ function ReviewModal({
                 </ScrollView>
               </View>
             )}
-            <View style={rm.productRow}>
-              <View style={rm.productDot} />
-              <Text style={rm.productName} numberOfLines={2}>{item.name}</Text>
-            </View>
+            {item ? (
+              <View style={rm.productRow}>
+                <View style={rm.productDot} />
+                <Text style={rm.productName} numberOfLines={2}>{item.name}</Text>
+              </View>
+            ) : (
+              <View style={rm.emptyBox}>
+                <Ionicons name="checkmark-circle" size={28} color="#10B981" />
+                <Text style={rm.emptyTitle}>Đơn này đã được đánh giá đủ</Text>
+                <Text style={rm.emptyText}>Bạn đã đánh giá tất cả sản phẩm trong đơn hàng này rồi.</Text>
+              </View>
+            )}
             <View>
               <Text style={rm.label}>Số sao</Text>
               <View style={rm.stars}>
@@ -122,7 +159,7 @@ function ReviewModal({
               <Text style={rm.cancelText}>Hủy</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[rm.submitBtn, submitting && { opacity: 0.6 }]}
-              onPress={handleSubmit} disabled={submitting}>
+              onPress={handleSubmit} disabled={submitting || !item}>
               {submitting
                 ? <ActivityIndicator color="#fff" size="small" />
                 : <Text style={rm.submitText}>Gửi đánh giá</Text>}
@@ -272,16 +309,38 @@ export default function OrderDetailScreen() {
   const [retryLoading, setRetryLoading] = useState(false);
   const [showReview,   setShowReview]   = useState(false);
   const [showReturn,   setShowReturn]   = useState(false);
+  const [reviewedKeys, setReviewedKeys] = useState<string[]>([]);
 
-  const fetchOrder = () => {
+  const loadReviewedKeys = useCallback(async (nextOrder: Order) => {
+    const productIds = [...new Set((nextOrder.items || []).map(getProductId).filter(Boolean))];
+    const reviews = await Promise.all(
+      productIds.map(async (productId) => {
+        try {
+          const review = await productApi.getMyReview(productId, nextOrder._id);
+          return review ? getReviewKey(nextOrder._id, productId) : null;
+        } catch {
+          return null;
+        }
+      }),
+    );
+
+    setReviewedKeys(reviews.filter((reviewKey): reviewKey is string => Boolean(reviewKey)));
+  }, []);
+
+  const fetchOrder = useCallback(async () => {
     if (!id) return;
-    userApi.getOrderById(id)
-      .then(setOrder)
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  };
+    try {
+      const nextOrder = await userApi.getOrderById(id);
+      setOrder(nextOrder);
+      await loadReviewedKeys(nextOrder);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
+  }, [id, loadReviewedKeys]);
 
-  useEffect(() => { fetchOrder(); }, [id]);
+  useEffect(() => { fetchOrder(); }, [fetchOrder]);
 
   const handleCancel = () => {
     Alert.alert('Hủy đơn hàng', 'Bạn có chắc muốn hủy đơn hàng này?', [
@@ -376,6 +435,9 @@ export default function OrderDetailScreen() {
   const isPaid        = order.paymentStatus === 'completed';
   const deliveredAt   = order.deliveredAt;
   const userConfirmed = !!order.userConfirmedAt;
+  const reviewableItems = getReviewableItems(order, reviewedKeys);
+  const canReview = order.status === 'delivered' && userConfirmed && reviewableItems.length > 0;
+  const hasReviewedAll = order.status === 'delivered' && userConfirmed && reviewableItems.length === 0;
   
   const canReturn     = order.status === 'delivered' && deliveredAt && userConfirmed
     && (Date.now() - new Date(deliveredAt).getTime()) / 86400000 <= RETURN_WINDOW_DAYS;
@@ -505,6 +567,13 @@ export default function OrderDetailScreen() {
           </View>
         )}
 
+        {hasReviewedAll && (
+          <View style={s.reviewBanner}>
+            <Ionicons name="checkmark-circle" size={16} color="#10B981" />
+            <Text style={s.reviewBannerText}>Bạn đã đánh giá tất cả sản phẩm trong đơn này</Text>
+          </View>
+        )}
+
         {/* Shipping */}
         <Section title="Địa chỉ giao hàng" icon="location-outline">
           <Text style={s.infoText}>{order.shippingAddress.fullName}</Text>
@@ -571,7 +640,7 @@ export default function OrderDetailScreen() {
               color="#374151" bg="#F9FAFB" border="#E5E7EB"
               onPress={handleReorder} loading={reordering} />
           )}
-          {order.status === 'delivered' && userConfirmed && (
+          {canReview && (
             <ActionBtn icon="star-outline" label="Viết đánh giá"
               color="#D97706" bg="#FFFBEB" border="#FDE68A"
               onPress={() => setShowReview(true)} />
@@ -602,7 +671,12 @@ export default function OrderDetailScreen() {
       {/* Modals */}
       {showReview && (
         <ReviewModal visible={showReview} order={order}
-          onClose={() => setShowReview(false)} onDone={fetchOrder} />
+          reviewedKeys={reviewedKeys}
+          onClose={() => setShowReview(false)}
+          onDone={(reviewKey) => {
+            setReviewedKeys((prev) => (prev.includes(reviewKey) ? prev : [...prev, reviewKey]));
+            fetchOrder();
+          }} />
       )}
       {showReturn && (
         <ReturnModal visible={showReturn} orderId={order._id}
@@ -704,6 +778,8 @@ const s = StyleSheet.create({
 
   returnBanner:    { borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 8 },
   returnBannerText:{ fontSize: 12, fontWeight: '600' },
+  reviewBanner:    { borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#ECFDF5' },
+  reviewBannerText:{ fontSize: 12, fontWeight: '600', color: '#065F46' },
 
   sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 },
   sectionTitle:  { fontSize: 14, fontWeight: '700', color: '#111827' },
@@ -742,6 +818,9 @@ const rm = StyleSheet.create({
   chipActive:  { backgroundColor: '#111827', borderColor: '#111827' },
   chipText:    { fontSize: 12, color: '#9CA3AF', maxWidth: 120 },
   chipTextActive: { color: '#fff', fontWeight: '600' },
+  emptyBox:    { backgroundColor: '#F0FDF4', borderRadius: 14, padding: 16, alignItems: 'center', gap: 6 },
+  emptyTitle:  { fontSize: 14, fontWeight: '700', color: '#065F46', textAlign: 'center' },
+  emptyText:   { fontSize: 12, color: '#047857', textAlign: 'center', lineHeight: 18 },
   productRow:  { flexDirection: 'row', alignItems: 'center', gap: 8 },
   productDot:  { width: 6, height: 6, borderRadius: 3, backgroundColor: '#FF6B35' },
   productName: { fontSize: 14, fontWeight: '600', color: '#111827', flex: 1 },

@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import Loading from '@components/common/Loading';
-import { formatPrice, formatDate } from '@utils/helpers';
+import { formatPrice, formatDate, formatOrderCode } from '@utils/helpers';
 import { orderAPI, productAPI } from '@features/shared/services/api';
 import apiClient from '@features/shared/services/apiClient';
 
@@ -46,7 +46,16 @@ function PaymentCountdown({ createdAt, onExpired }) {
 }
 
 function ReturnCountdown({ confirmedAt }) {
-    const remaining = new Date(new Date(confirmedAt).getTime() + RETURN_WINDOW_DAYS*86400000) - Date.now();
+    const [remaining, setRemaining] = useState(() =>
+        new Date(new Date(confirmedAt).getTime() + RETURN_WINDOW_DAYS*86400000) - new Date().getTime()
+    );
+    useEffect(() => {
+        const endTime = new Date(new Date(confirmedAt).getTime() + RETURN_WINDOW_DAYS * 86400000).getTime();
+        const timer = setInterval(() => {
+            setRemaining(endTime - new Date().getTime());
+        }, 60000);
+        return () => clearInterval(timer);
+    }, [confirmedAt]);
     if (remaining <= 0) return <span className="text-slate-400 text-xs italic">Đã hết hạn hoàn trả</span>;
     const d=Math.floor(remaining/86400000), h=Math.floor((remaining%86400000)/3600000);
     return <span className="text-orange-600 font-semibold text-sm">Còn {d>0?`${d} ngày ${h} giờ`:`${h} giờ`} để hoàn trả (3 ngày)</span>;
@@ -280,6 +289,11 @@ function ReviewModal({ modal, form, setForm, images, setImages, loading, onClose
 
 export default function OrderDetailPage() {
     const { id } = useParams();
+    const getReviewKey = (orderId, productId) => `${orderId}:${productId}`;
+    const getOrderProductIds = (nextOrder) => [...new Set((nextOrder?.items || [])
+        .map((item) => item.productId?._id || item.productId)
+        .filter(Boolean)
+        .map(String))];
     const [order,              setOrder]              = useState(null);
     const [loading,            setLoading]            = useState(true);
     const [error,              setError]              = useState(null);
@@ -292,7 +306,7 @@ export default function OrderDetailPage() {
     const [reviewForm,         setReviewForm]         = useState({ rating: 5, comment: '' });
     const [reviewImages,       setReviewImages]       = useState([]);
     const [reviewLoading,      setReviewLoading]      = useState(false);
-    const [hasReviewed,        setHasReviewed]        = useState(false);
+    const [reviewedReviewKeys, setReviewedReviewKeys] = useState([]);
 
     useEffect(() => { fetchOrder(); }, [id]);
     const fetchOrder = async () => {
@@ -301,21 +315,19 @@ export default function OrderDetailPage() {
             const nextOrder = res.data?.data||res.data;
             setOrder(nextOrder);
 
-            const productIds = (nextOrder?.items || [])
-                .map((item) => item.productId?._id || item.productId)
-                .filter(Boolean);
+            const productIds = getOrderProductIds(nextOrder);
 
             if (productIds.length === 0) {
-                setHasReviewed(false);
+                setReviewedReviewKeys([]);
             } else {
                 const reviews = await Promise.all(
                     productIds.map((productId) =>
-                        productAPI.getMyReview(productId)
-                            .then((response) => response.data?.data || null)
+                        productAPI.getMyReview(productId, { orderId: nextOrder._id })
+                            .then((response) => response.data?.data ? getReviewKey(nextOrder._id, productId) : null)
                             .catch(() => null),
                     ),
                 );
-                setHasReviewed(reviews.some(Boolean));
+                setReviewedReviewKeys(reviews.filter(Boolean));
             }
         }
         catch(err) { setError(err.response?.data?.message||'Không tìm thấy đơn hàng'); }
@@ -364,7 +376,13 @@ export default function OrderDetailPage() {
     };
 
     const openReviewModal = () => {
-        const items = order?.items || [];
+        const items = (order?.items || []).filter((item, index, source) => {
+            const productId = String(item.productId?._id || item.productId || '');
+            if (!productId) return false;
+            const firstMatchIndex = source.findIndex((candidate) => String(candidate.productId?._id || candidate.productId || '') === productId);
+            if (firstMatchIndex !== index) return false;
+            return !reviewedReviewKeys.includes(getReviewKey(order._id, productId));
+        });
         const firstItem = items[0];
         if (!firstItem) return;
 
@@ -405,12 +423,16 @@ export default function OrderDetailPage() {
         try {
             setReviewLoading(true);
             await productAPI.addReview(reviewModal.productId, {
+                orderId: reviewModal.orderId,
                 rating: Number(reviewForm.rating),
                 comment: reviewForm.comment.trim(),
                 images: reviewImages,
             });
             alert('Danh gia thanh cong!');
-            setHasReviewed(true);
+            setReviewedReviewKeys((prev) => {
+                const nextKey = getReviewKey(reviewModal.orderId, reviewModal.productId);
+                return prev.includes(nextKey) ? prev : [...prev, nextKey];
+            });
             setReviewModal(null);
             setReviewForm({ rating: 5, comment: '' });
             setReviewImages([]);
@@ -430,6 +452,8 @@ export default function OrderDetailPage() {
     const isDelivered   = order.status==='delivered';
     const userConfirmed = !!order.userConfirmedAt;
     const isReturn      = ['return_requested','return_approved','return_rejected','returned'].includes(order.status);
+    const orderProductIds = getOrderProductIds(order);
+    const hasReviewed = orderProductIds.length > 0 && orderProductIds.every((productId) => reviewedReviewKeys.includes(getReviewKey(order._id, productId)));
 
     // ✅ Hoàn trả chỉ tính từ ngày user xác nhận nhận hàng
     const canReturn = !hasReviewed && isDelivered && userConfirmed &&
@@ -446,7 +470,7 @@ export default function OrderDetailPage() {
 
             {/* Header */}
             <div className="flex items-center justify-between mb-6">
-                <div><h1 className="text-2xl font-bold text-slate-900">Chi tiết đơn hàng</h1><p className="text-sm text-slate-400 font-mono mt-0.5">#{order._id.slice(0,8).toUpperCase()}</p></div>
+                <div><h1 className="text-2xl font-bold text-slate-900">Chi tiết đơn hàng</h1><p className="text-sm text-slate-400 font-mono mt-0.5">{formatOrderCode(order._id)}</p></div>
                 <Link to="/orders" className="flex items-center gap-1.5 text-sm font-semibold text-slate-500 hover:text-slate-900">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7"/></svg>Quay lại
                 </Link>
@@ -670,3 +694,4 @@ export default function OrderDetailPage() {
         </div>
     );
 }
+
