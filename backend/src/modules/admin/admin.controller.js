@@ -10,6 +10,11 @@ const Voucher = require('../../model/Voucher');
 const { notifyOrderStatus } = require('../notification/notification.controller');
 const { syncUserLoyaltySnapshot, getUserLoyaltyDetails } = require('../loyalty/loyalty.service');
 const { calculateReviewMetrics } = require('../product/reviewModeration.service');
+const {
+    generateMarketingContent,
+    getMarketingRecipients,
+    sendBulkMarketingEmail,
+} = require('./marketing.service');
 
 function slugify(value) {
     return String(value || '')
@@ -1339,6 +1344,90 @@ exports.adminGetAllUsers = async (req, res, next) => {
             status: 'error',
             message: 'Failed to fetch users'
         });
+    }
+};
+
+exports.getMarketingRecipientStats = async (req, res) => {
+    try {
+        const recipients = await getMarketingRecipients({
+            search: req.query.search,
+            limit: req.query.limit,
+        });
+
+        res.status(200).json({
+            status: 'success',
+            data: {
+                total: recipients.length,
+                recipients,
+            },
+        });
+    } catch (error) {
+        console.error('Marketing recipient stats error:', error);
+        res.status(500).json({ status: 'error', message: 'Không thể lấy danh sách email khách hàng' });
+    }
+};
+
+exports.generateMarketingEmail = async (req, res) => {
+    try {
+        const content = await generateMarketingContent(req.body || {});
+
+        res.status(200).json({
+            status: 'success',
+            message: content.aiUsed ? 'Đã tạo nội dung bằng AI' : 'Đã tạo nội dung mẫu',
+            data: content,
+        });
+    } catch (error) {
+        console.error('Generate marketing email error:', error);
+        res.status(500).json({ status: 'error', message: 'Không thể tạo nội dung email bằng AI' });
+    }
+};
+
+exports.sendMarketingEmail = async (req, res) => {
+    try {
+        const {
+            subject,
+            preheader,
+            html,
+            text,
+            search,
+            testEmail,
+            maxRecipients,
+        } = req.body || {};
+
+        if (!subject || !html) {
+            return res.status(400).json({
+                status: 'error',
+                message: 'Vui lòng cung cấp tiêu đề và nội dung email',
+            });
+        }
+
+        const recipients = testEmail
+            ? [{ email: testEmail, name: 'Admin' }]
+            : await getMarketingRecipients({ search, limit: maxRecipients });
+
+        if (!recipients.length) {
+            return res.status(400).json({
+                status: 'error',
+                message: 'Không tìm thấy email người dùng phù hợp để gửi',
+            });
+        }
+
+        const result = await sendBulkMarketingEmail({
+            recipients,
+            subject,
+            preheader,
+            html,
+            text,
+        });
+
+        res.status(200).json({
+            status: 'success',
+            message: testEmail ? 'Đã gửi email thử nghiệm' : 'Đã xử lý gửi email marketing',
+            data: result,
+        });
+    } catch (error) {
+        console.error('Send marketing email error:', error);
+        res.status(500).json({ status: 'error', message: 'Không thể gửi email marketing' });
     }
 };
 

@@ -22,6 +22,7 @@ const NAV_SECTIONS = [
       { label: 'Voucher', icon: 'voucher', path: '/admin/vouchers' },
       { label: 'Banner', icon: 'banner', path: '/admin/banners' },
       { label: 'Kho hàng', icon: 'inventory', path: '/admin/inventory' },
+      { label: 'Email Marketing', icon: 'marketing', path: '/admin/marketing-email' },
     ],
   },
   {
@@ -89,6 +90,12 @@ function NavIcon({ name, active }) {
       return (
         <svg className={`h-[18px] w-[18px] ${iconClassName}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M4.75 7.25l7.25-3.5 7.25 3.5v9.5L12 20.25l-7.25-3.5zm0 0L12 10.5l7.25-3.25M12 10.5v9.75" />
+        </svg>
+      );
+    case 'marketing':
+      return (
+        <svg className={`h-[18px] w-[18px] ${iconClassName}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M4.75 7.25h14.5v9.5H4.75zM5.25 7.75L12 12.5l6.75-4.75M7.5 17.75l-1.25 2.5m10.25-2.5l1.25 2.5" />
         </svg>
       );
     case 'chat':

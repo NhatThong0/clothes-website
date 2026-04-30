@@ -4,6 +4,28 @@ import { useAuth } from '@features/auth/hooks/useAuth';
 import apiClient from '@features/shared/services/apiClient';
 import { validateEmail, validatePassword } from '@utils/helpers';
 
+const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+const facebookAppId = import.meta.env.VITE_FACEBOOK_APP_ID;
+
+function loadScript(src, id) {
+  return new Promise((resolve, reject) => {
+    const existing = document.getElementById(id);
+    if (existing) {
+      resolve();
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = src;
+    script.id = id;
+    script.async = true;
+    script.defer = true;
+    script.onload = resolve;
+    script.onerror = reject;
+    document.body.appendChild(script);
+  });
+}
+
 function AuthFeature({ title, description }) {
   return (
     <div className="editorial-panel rounded-[24px] px-5 py-4">
@@ -29,11 +51,15 @@ export default function AuthPage() {
     password: '',
     confirmPassword: '',
     fullName: '',
+    otp: '',
   });
+  const [otpStep, setOtpStep] = useState(false);
+  const [socialLoading, setSocialLoading] = useState('');
 
   useEffect(() => {
     setError('');
-    setFormData({ email: '', password: '', confirmPassword: '', fullName: '' });
+    setOtpStep(false);
+    setFormData({ email: '', password: '', confirmPassword: '', fullName: '', otp: '' });
   }, [isLogin]);
 
   if (!authLoading && user) {
@@ -48,12 +74,183 @@ export default function AuthPage() {
 
   const switchPath = isLogin ? '/auth/register' : '/auth/login';
 
+  const completeAuth = (userData, token) => {
+    if (userData.role === 'admin') {
+      setError('Tài khoản này cần đăng nhập tại đường dẫn admin riêng.');
+      return;
+    }
+
+    login(userData, token);
+    navigate(from, { replace: true });
+  };
+
+  const submitSocialToken = async (provider, { accessToken, idToken }) => {
+    const response = await apiClient.post('/auth/social-login', {
+      provider,
+      accessToken,
+      idToken,
+    });
+
+    if (response.data.status === 'success') {
+      completeAuth(response.data.data.user, response.data.data.token);
+    } else {
+      setError(response.data.message || 'Đăng nhập mạng xã hội thất bại.');
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    if (!googleClientId) {
+      setError('Thiếu VITE_GOOGLE_CLIENT_ID trong frontend/.env.');
+      return;
+    }
+
+    setError('');
+    setSocialLoading('google');
+
+    try {
+      await loadScript('https://accounts.google.com/gsi/client', 'google-gsi-client');
+      // Prefer ID token (credential) so backend can verify locally.
+      if (window.google?.accounts?.id) {
+        window.google.accounts.id.initialize({
+          client_id: googleClientId,
+          callback: async (credentialResponse) => {
+            try {
+              if (!credentialResponse?.credential) {
+                setError('Không lấy được idToken Google.');
+                return;
+              }
+              await submitSocialToken('google', { idToken: credentialResponse.credential });
+            } catch (err) {
+              setError(err.response?.data?.message || err.message || 'Đăng nhập Google thất bại.');
+            } finally {
+              setSocialLoading('');
+            }
+          },
+        });
+
+        window.google.accounts.id.prompt((notification) => {
+          // If One Tap is not displayed (blocked), fall back to OAuth access token.
+          const notDisplayed = notification?.isNotDisplayed?.() || notification?.isSkippedMoment?.();
+          if (!notDisplayed) return;
+
+          const tokenClient = window.google.accounts.oauth2.initTokenClient({
+            client_id: googleClientId,
+            scope: 'openid email profile',
+            callback: async (tokenResponse) => {
+              try {
+                if (!tokenResponse?.access_token) {
+                  setError('Không lấy được token Google.');
+                  return;
+                }
+                await submitSocialToken('google', { accessToken: tokenResponse.access_token });
+              } catch (err) {
+                setError(err.response?.data?.message || err.message || 'Đăng nhập Google thất bại.');
+              } finally {
+                setSocialLoading('');
+              }
+            },
+            error_callback: () => {
+              setError('Bạn đã hủy đăng nhập Google.');
+              setSocialLoading('');
+            },
+          });
+          tokenClient.requestAccessToken();
+        });
+      } else {
+        const tokenClient = window.google.accounts.oauth2.initTokenClient({
+          client_id: googleClientId,
+          scope: 'openid email profile',
+          callback: async (tokenResponse) => {
+            try {
+              if (!tokenResponse?.access_token) {
+                setError('Không lấy được token Google.');
+                return;
+              }
+              await submitSocialToken('google', { accessToken: tokenResponse.access_token });
+            } catch (err) {
+              setError(err.response?.data?.message || err.message || 'Đăng nhập Google thất bại.');
+            } finally {
+              setSocialLoading('');
+            }
+          },
+          error_callback: () => {
+            setError('Bạn đã hủy đăng nhập Google.');
+            setSocialLoading('');
+          },
+        });
+        tokenClient.requestAccessToken();
+      }
+    } catch (err) {
+      setSocialLoading('');
+      setError(err.message || 'Không tải được Google Login.');
+    }
+  };
+
+  const handleFacebookLogin = async () => {
+    if (!facebookAppId) {
+      setError('Thiếu VITE_FACEBOOK_APP_ID trong frontend/.env.');
+      return;
+    }
+
+    setError('');
+    setSocialLoading('facebook');
+
+    try {
+      await loadScript('https://connect.facebook.net/en_US/sdk.js', 'facebook-jssdk');
+      window.FB.init({
+        appId: facebookAppId,
+        cookie: true,
+        xfbml: false,
+        version: 'v19.0',
+      });
+
+      window.FB.login(
+        async (response) => {
+          try {
+            if (!response.authResponse?.accessToken) {
+              setError('Bạn đã hủy đăng nhập Facebook.');
+              return;
+            }
+            await submitSocialToken('facebook', { accessToken: response.authResponse.accessToken });
+          } catch (err) {
+            setError(err.response?.data?.message || err.message || 'Đăng nhập Facebook thất bại.');
+          } finally {
+            setSocialLoading('');
+          }
+        },
+        { scope: 'email,public_profile' },
+      );
+    } catch (err) {
+      setSocialLoading('');
+      setError(err.message || 'Không tải được Facebook Login.');
+    }
+  };
+
   const handleSubmit = async (event) => {
     event.preventDefault();
     setLoading(true);
     setError('');
 
     try {
+      if (otpStep) {
+        if (!formData.otp.trim()) {
+          setError('Vui lòng nhập mã OTP.');
+          return;
+        }
+
+        const response = await apiClient.post('/auth/register/verify-otp', {
+          email: formData.email,
+          otp: formData.otp,
+        });
+
+        if (response.data.status === 'success') {
+          completeAuth(response.data.data.user, response.data.data.token);
+        } else {
+          setError(response.data.message || 'Xác nhận OTP thất bại.');
+        }
+        return;
+      }
+
       if (!validateEmail(formData.email)) {
         setError('Vui lòng nhập email hợp lệ.');
         return;
@@ -79,8 +276,7 @@ export default function AuthPage() {
             return;
           }
 
-          login(userData, token);
-          navigate(from, { replace: true });
+          completeAuth(userData, token);
         } else {
           setError(response.data.message || 'Đăng nhập thất bại.');
         }
@@ -108,16 +304,38 @@ export default function AuthPage() {
         });
 
         if (response.data.status === 'success') {
-          const userData = response.data.data.user;
-          const token = response.data.data.token;
-          login(userData, token);
-          navigate(from, { replace: true });
+          setOtpStep(true);
+          setError('Mã OTP đã được gửi tới email của bạn. Vui lòng kiểm tra hộp thư.');
         } else {
           setError(response.data.message || 'Đăng ký thất bại.');
         }
       }
     } catch (err) {
       setError(err.response?.data?.message || err.message || 'Đã xảy ra lỗi.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResendOtp = async () => {
+    setLoading(true);
+    setError('');
+
+    try {
+      const response = await apiClient.post('/auth/register', {
+        name: formData.fullName,
+        email: formData.email,
+        password: formData.password,
+        confirmPassword: formData.confirmPassword,
+      });
+
+      if (response.data.status === 'success') {
+        setError('Mã OTP mới đã được gửi tới email của bạn.');
+      } else {
+        setError(response.data.message || 'Không gửi lại được OTP.');
+      }
+    } catch (err) {
+      setError(err.response?.data?.message || err.message || 'Không gửi lại được OTP.');
     } finally {
       setLoading(false);
     }
@@ -135,11 +353,13 @@ export default function AuthPage() {
               </div>
               <div className="space-y-4">
                 <h1 className="max-w-2xl text-4xl font-extrabold leading-[0.95] tracking-[-0.05em] text-black sm:text-5xl lg:text-6xl">
-                  {isLogin ? 'Chào mừng bạn !' : 'Tạo tài khoản mới'}
+                  {isLogin ? 'Chào mừng bạn !' : otpStep ? 'Xác nhận email' : 'Tạo tài khoản mới'}
                 </h1>
                 <p className="max-w-xl text-sm leading-7 text-slate-500 sm:text-base lg:text-lg">
                   {isLogin
                     ? 'Đăng nhập vào tài khoản của bạn để truy cập lịch sử đơn hàng, quản lý thông tin và trải nghiệm mua sắm được cá nhân hóa.'
+                    : otpStep
+                      ? 'Nhập mã OTP đã gửi đến email để hoàn tất đăng ký tài khoản của bạn.'
                     : 'Tạo tài khoản mới để lưu thông tin, theo dõi đơn hàng và tận hưởng trải nghiệm mua sắm được cải thiện.'}
                 </p>
               </div>
@@ -161,7 +381,7 @@ export default function AuthPage() {
                   {isLogin ? 'Đăng nhập' : 'Đăng ký'}
                 </p>
                 <h2 className="mt-2 text-3xl font-extrabold tracking-[-0.04em] text-black">
-                  {isLogin ? 'Truy cập tài khoản của bạn' : 'Tạo tài khoản mới'}
+                  {isLogin ? 'Truy cập tài khoản của bạn' : otpStep ? 'Nhập mã OTP' : 'Tạo tài khoản mới'}
                 </h2>
               </div>
               <Link to="/" className="text-sm font-semibold text-slate-500 transition hover:text-black">
@@ -176,7 +396,7 @@ export default function AuthPage() {
             )}
 
             <form onSubmit={handleSubmit} className="space-y-4">
-              {!isLogin && (
+              {!isLogin && !otpStep && (
                 <label className="block rounded-[24px] border border-black/8 bg-[#f7f7f4] px-5 py-4">
                   <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Họ và tên</span>
                   <input
@@ -204,7 +424,8 @@ export default function AuthPage() {
                 />
               </label>
 
-              <label className="block rounded-[24px] border border-black/8 bg-[#f7f7f4] px-5 py-4">
+              {!otpStep && (
+                <label className="block rounded-[24px] border border-black/8 bg-[#f7f7f4] px-5 py-4">
                 <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Mật khẩu</span>
                 <input
                   type="password"
@@ -215,9 +436,10 @@ export default function AuthPage() {
                   disabled={loading}
                   className="mt-2 w-full bg-transparent text-sm text-black outline-none placeholder:text-slate-400"
                 />
-              </label>
+                </label>
+              )}
 
-              {!isLogin && (
+              {!isLogin && !otpStep && (
                 <label className="block rounded-[24px] border border-black/8 bg-[#f7f7f4] px-5 py-4">
                   <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Xác nhận mật khẩu</span>
                   <input
@@ -232,14 +454,70 @@ export default function AuthPage() {
                 </label>
               )}
 
+              {otpStep && (
+                <label className="block rounded-[24px] border border-black/8 bg-[#f7f7f4] px-5 py-4">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Mã OTP</span>
+                  <input
+                    type="text"
+                    name="otp"
+                    placeholder="Nhập 6 số"
+                    value={formData.otp}
+                    onChange={handleInputChange}
+                    disabled={loading}
+                    inputMode="numeric"
+                    maxLength={6}
+                    className="mt-2 w-full bg-transparent text-sm text-black outline-none placeholder:text-slate-400"
+                  />
+                </label>
+              )}
+
               <button
                 type="submit"
                 disabled={loading}
                 className="w-full rounded-full bg-black px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-[#242424] disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {loading ? 'Đang xử lý...' : isLogin ? 'Đăng nhập' : 'Tạo tài khoản'}
+                {loading ? 'Đang xử lý...' : isLogin ? 'Đăng nhập' : otpStep ? 'Xác nhận email' : 'Gửi mã OTP'}
               </button>
+
+              {otpStep && (
+                <button
+                  type="button"
+                  onClick={handleResendOtp}
+                  disabled={loading}
+                  className="w-full rounded-full border border-black/10 px-5 py-3.5 text-sm font-semibold text-black transition hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Gửi lại mã OTP
+                </button>
+              )}
             </form>
+
+            {isLogin && (
+              <div className="mt-6 space-y-3">
+                <div className="flex items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                  <span className="h-px flex-1 bg-black/8" />
+                  Hoặc đăng nhập bằng
+                  <span className="h-px flex-1 bg-black/8" />
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={handleGoogleLogin}
+                    disabled={loading || Boolean(socialLoading)}
+                    className="rounded-full border border-black/10 bg-white px-4 py-3 text-sm font-semibold text-black transition hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {socialLoading === 'google' ? 'Đang mở Google...' : 'Google'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleFacebookLogin}
+                    disabled={loading || Boolean(socialLoading)}
+                    className="rounded-full border border-black/10 bg-[#1877f2] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#166fe5] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {socialLoading === 'facebook' ? 'Đang mở Facebook...' : 'Facebook'}
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div className="mt-6 border-t border-black/6 pt-6 text-sm text-slate-500 text-center">
               {isLogin ? 'Chưa có tài khoản?' : 'Đã có tài khoản?'}{' '}

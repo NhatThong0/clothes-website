@@ -13,6 +13,9 @@ router.get('/dashboard/stats',        adminController.getDashboardStats);
 router.get('/dashboard/revenue',      adminController.getDashboardRevenue);
 router.get('/dashboard/categories',   adminController.getDashboardCategories);
 router.get('/dashboard/top-products', adminController.getDashboardTopProducts);
+router.get ('/marketing/recipients', adminController.getMarketingRecipientStats);
+router.post('/marketing/generate',   adminController.generateMarketingEmail);
+router.post('/marketing/send',       adminController.sendMarketingEmail);
 
 // ── PRODUCT MANAGEMENT ─────────────────────────────────────────────
 router.get   ('/products',                   adminController.adminGetAllProducts);

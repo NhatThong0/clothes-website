@@ -16,7 +16,9 @@ const userSchema = new mongoose.Schema({
     },
     password: {
         type: String,
-        required: [true, 'Please provide a password'],
+        required: function() {
+            return this.authProvider === 'local';
+        },
         minlength: 6,
         select: false,
     },
@@ -42,6 +44,34 @@ const userSchema = new mongoose.Schema({
     isActive: {
         type: Boolean,
         default: true,
+    },
+    emailVerified: {
+        type: Boolean,
+        default: true,
+    },
+    authProvider: {
+        type: String,
+        enum: ['local', 'google', 'facebook'],
+        default: 'local',
+    },
+    socialId: {
+        type: String,
+        default: null,
+    },
+    emailOtp: {
+        code: {
+            type: String,
+            select: false,
+        },
+        expiresAt: {
+            type: Date,
+            select: false,
+        },
+        attempts: {
+            type: Number,
+            default: 0,
+            select: false,
+        },
     },
     // ✅ Thêm field tracking thời gian đăng nhập gần nhất
     lastLoginAt: {
@@ -95,7 +125,11 @@ const userSchema = new mongoose.Schema({
 });
 
 userSchema.pre('save', async function() {
+    if (this.isNew && this.authProvider !== 'local') {
+        this.emailVerified = true;
+    }
     if (!this.isModified('password')) return;
+    if (!this.password) return;
     const salt = await bcrypt.genSalt(10);
     this.password = await bcrypt.hash(this.password, salt);
 });

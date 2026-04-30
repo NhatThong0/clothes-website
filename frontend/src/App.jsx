@@ -32,6 +32,7 @@ const AdminReviewManagement = lazy(() => import('@features/admin/pages/AdminRevi
 const AdminVoucherManagement = lazy(() => import('@features/admin/pages/AdminVoucherManagement'));
 const AdminBannerManagement = lazy(() => import('@features/admin/pages/AdminBannerManagement'));
 const AdminInventoryManagement = lazy(() => import('@features/admin/pages/AdminInventoryManagement'));
+const AdminMarketingEmail = lazy(() => import('@features/admin/pages/AdminMarketingEmail'));
 const AdminChat = lazy(() => import('@features/chat/pages/AdminChat'));
 const AdminAiChat = lazy(() => import('@features/chat/pages/AdminAiChat'));
 
@@ -97,6 +98,7 @@ function AppRoutes() {
             <Route path="/admin/vouchers" element={<AdminVoucherManagement />} />
             <Route path="/admin/banners" element={<AdminBannerManagement />} />
             <Route path="/admin/inventory" element={<AdminInventoryManagement />} />
+            <Route path="/admin/marketing-email" element={<AdminMarketingEmail />} />
             <Route path="/admin/chat" element={<AdminChat />} />
             <Route path="/admin/ai-chat" element={<AdminAiChat />} />
           </Route>
