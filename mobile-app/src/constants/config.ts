@@ -17,7 +17,7 @@ const ENV_API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
 const ENV_SOCKET_URL = process.env.EXPO_PUBLIC_SOCKET_URL;
 
 const expoHost = getDevHostFromExpo();
-const fallbackDevHost = Platform.OS === 'android' ? '192.168.1.41' : 'localhost';
+const fallbackDevHost = Platform.OS === 'android' ? '192.168.1.227' : 'localhost';
 const devHost = expoHost ?? fallbackDevHost;
 
 export const API_BASE_URL =

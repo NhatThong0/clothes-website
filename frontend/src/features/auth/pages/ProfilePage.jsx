@@ -443,8 +443,8 @@ export default function ProfilePage() {
                 {[
                   { id: 'profile',   icon: '👤', label: 'Thông tin'   },
                   { id: 'addresses', icon: '📍', label: 'Địa chỉ'     },
-                  { id: 'orders',    icon: '📦', label: 'Đơn hàng',
-                    badge: orders.length > 0 ? orders.length : null },
+                  // { id: 'orders',    icon: '📦', label: 'Đơn hàng',
+                  //   badge: orders.length > 0 ? orders.length : null },
                   { id: 'security',  icon: '🔐', label: 'Bảo mật'    },
                 ].map(item => (
                   <button key={item.id} onClick={() => setTab(item.id)}

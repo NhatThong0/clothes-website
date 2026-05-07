@@ -115,7 +115,7 @@ Tra ve JSON hop le, khong markdown:
     const response = await axios.post(`${baseUrl}/chat/completions`, {
         model,
         temperature: 0.7,
-        max_tokens: 1600,
+        max_tokens: 900,
         messages: [
             {
                 role: 'system',
@@ -123,7 +123,7 @@ Tra ve JSON hop le, khong markdown:
             },
             { role: 'user', content: prompt },
         ],
-    }, { headers, timeout: 20000 });
+    }, { headers, timeout: 120000 });
 
     const raw = response.data?.choices?.[0]?.message?.content || '';
     const parsed = parseJsonResponse(raw);

@@ -324,7 +324,7 @@ function OrderCard({ order, onCancel, onReorder, onReview, onOpenReturn, onConfi
 
       {/* Actions */}
       <div className="px-4 py-2.5 bg-slate-50 border-t border-slate-100 flex flex-wrap items-center gap-2">
-        {order.status === 'pending' && (
+        {['pending', 'confirmed'].includes(order.status) && (
           <button onClick={e => { e.stopPropagation(); onCancel(order.id); }}
             className="px-3 py-1.5 text-xs text-rose-500 font-semibold hover:bg-rose-50 border border-rose-200 rounded-lg transition-colors">
             ✕ Hủy đơn

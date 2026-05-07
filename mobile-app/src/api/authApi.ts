@@ -61,4 +61,20 @@ export const authApi = {
     const { data } = await api.get<{ status: string; data: User }>('/auth/me');
     return data.data;
   },
+
+  async googleLogin(idToken: string): Promise<{ token: string; user: User }> {
+    const { data } = await api.post<AuthResponse>('/auth/social-login', {
+      provider: 'google',
+      idToken,
+    });
+    return data.data;
+  },
+
+  async googleLoginWithAccessToken(accessToken: string): Promise<{ token: string; user: User }> {
+    const { data } = await api.post<AuthResponse>('/auth/social-login', {
+      provider: 'google',
+      accessToken,
+    });
+    return data.data;
+  },
 };

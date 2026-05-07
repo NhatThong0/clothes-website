@@ -1,4 +1,7 @@
 {
+  "scheme": "shopapp",
+  "owner": "nhatthong1909",
+  "slug": "mobile-app",
   "plugins": [
     "expo-web-browser"
   ]
