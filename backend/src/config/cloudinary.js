@@ -41,8 +41,19 @@ const returnStorage = new CloudinaryStorage({
     },
 });
 
+// ── AR Try-On person images ───────────────────────────────────────────────────
+const arTryOnStorage = new CloudinaryStorage({
+    cloudinary,
+    params: {
+        folder: 'fashion-hub/ar-tryon',
+        allowed_formats: ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'],
+        transformation: [{ width: 768, quality: 'auto' }],
+    },
+});
+
 const upload        = multer({ storage: productStorage, limits: { fileSize: 5 * 1024 * 1024 } });
 const uploadAvatar  = multer({ storage: avatarStorage,  limits: { fileSize: 5 * 1024 * 1024 } });
 const uploadReturn  = multer({ storage: returnStorage,  limits: { fileSize: 10 * 1024 * 1024 } });
+const uploadArTryOn = multer({ storage: arTryOnStorage, limits: { fileSize: 10 * 1024 * 1024 } });
 
-module.exports = { cloudinary, upload, uploadAvatar, uploadReturn };
+module.exports = { cloudinary, upload, uploadAvatar, uploadReturn, uploadArTryOn };

@@ -6,6 +6,7 @@ import { useCart } from '@features/cart/hooks/useCart';
 import { formatPrice } from '@utils/helpers';
 import { productAPI } from '@features/shared/services/api';
 import { useAuth } from '@context/AuthContext';
+import ARTryOnModal from '../components/ARTryOnModal';
 
 const sizeChartColumns = [
     { key: 'size', label: 'Size' },
@@ -61,6 +62,7 @@ export default function ProductDetailPage() {
     const [previewImg,     setPreviewImg]     = useState(null);
     const [starFilter,     setStarFilter]     = useState(0);
     const [toast,          setToast]          = useState(null);
+    const [showARTryOn,    setShowARTryOn]    = useState(false);
     const myReview = editTarget || { rating: 0, comment: '', images: [] };
 
     const showToast = (msg, type = 'success') => setToast({ message: msg, type });
@@ -276,6 +278,9 @@ export default function ProductDetailPage() {
     return (
         <div className="bg-white rounded-lg shadow-sm-blue p-6 md:p-10">
             {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)}/>}
+            {showARTryOn && product && (
+                <ARTryOnModal product={product} onClose={() => setShowARTryOn(false)} />
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
 
@@ -526,6 +531,13 @@ export default function ProductDetailPage() {
                             {variantStock <= 10 && <span className="text-xs text-orange-500 font-medium">Chỉ còn {variantStock} sp</span>}
                         </div>
                     )}
+
+                    {/* AR Try-On button */}
+                    <button onClick={() => setShowARTryOn(true)}
+                        className="w-full flex items-center justify-center gap-2 py-3 mb-3 rounded-xl border-2 border-purple-200 text-purple-600 font-semibold text-sm hover:bg-purple-50 hover:border-purple-400 transition-all">
+                        <span className="text-base">✨</span>
+                        Thử đồ ảo với AI
+                    </button>
 
                     {/* Buttons */}
                     <div className="flex gap-4 mb-8">

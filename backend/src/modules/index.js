@@ -17,6 +17,7 @@ const promotion = require('./promotion');
 const notification = require('./notification');
 const flashSale = require('./flash-sale');
 const loyalty = require('./loyalty');
+const arTryon = require('./ar-tryon');
 
 const routeRegistry = [
   ['auth', '/api/auth', auth.route],
@@ -38,6 +39,7 @@ const routeRegistry = [
   ['shipping', '/api/shipping', shipping.route],
   ['notification', '/api/notifications', notification.route],
   ['loyalty', '/api/loyalty', loyalty.route],
+  ['arTryon', '/api/ar-tryon', arTryon.route],
 ];
 
 module.exports = {
@@ -60,5 +62,6 @@ module.exports = {
   notification,
   flashSale,
   loyalty,
+  arTryon,
   routeRegistry,
 };

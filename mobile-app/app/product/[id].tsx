@@ -11,6 +11,7 @@ import { cartApi } from '@/src/api/cartApi';
 import { useCartStore } from '@/src/store/cartStore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from '@/src/api/axiosConfig';
+import ARTryOnSheet from '@/src/components/ARTryOnSheet';
 
 const { width } = Dimensions.get('window');
 const TOKEN = { black: '#1A1A1A', surface: '#F5F5F0', muted: '#AAAAAA', accent: '#e65c5c', border: '#E8E8E4' };
@@ -128,6 +129,7 @@ export default function ProductDetailScreen() {
   const [added,           setAdded]           = useState(false);
   const [selectedColor,   setSelectedColor]   = useState<string | undefined>();
   const [selectedSize,    setSelectedSize]    = useState<string | undefined>();
+  const [showARTryOn,     setShowARTryOn]     = useState(false);
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => { useCartStore.getState().syncCart(); }, []);
@@ -365,6 +367,11 @@ export default function ProductDetailScreen() {
         <View style={{ height: 32 }} />
       </ScrollView>
 
+      {/* ── AR Try-On button ─────────────────────────────────── */}
+      <TouchableOpacity style={s.arBtn} onPress={() => setShowARTryOn(true)} activeOpacity={0.85}>
+        <Text style={s.arBtnText}>✨  Thử đồ ảo với AI</Text>
+      </TouchableOpacity>
+
       {/* ── Bottom bar ───────────────────────────────────────── */}
       <View style={s.bar}>
         <View style={s.qty}>
@@ -390,6 +397,15 @@ export default function ProductDetailScreen() {
           </TouchableOpacity>
         </Animated.View>
       </View>
+
+      {showARTryOn && (
+        <ARTryOnSheet
+          productId={product._id}
+          productName={product.name}
+          garmentImageUrl={product.images?.[0] || ''}
+          onClose={() => setShowARTryOn(false)}
+        />
+      )}
     </View>
   );
 }
@@ -456,6 +472,9 @@ const s = StyleSheet.create({
   emptyReviewSub:  { fontSize: 13, color: TOKEN.muted, textAlign: 'center' },
   showMoreBtn:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 14, backgroundColor: TOKEN.surface, borderRadius: 12, marginTop: 8 },
   showMoreText:    { fontSize: 13, fontWeight: '700', color: TOKEN.black },
+
+  arBtn:       { marginHorizontal: 20, marginBottom: 10, paddingVertical: 14, borderRadius: 14, borderWidth: 1.5, borderColor: '#C084FC', backgroundColor: '#FAF5FF', alignItems: 'center' },
+  arBtnText:   { fontSize: 14, fontWeight: '800', color: '#7C3AED' },
 
   bar:            { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 20, paddingVertical: 16, paddingBottom: 36, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: TOKEN.surface },
   qty:            { flexDirection: 'row', alignItems: 'center', backgroundColor: TOKEN.surface, borderRadius: 12, padding: 4 },

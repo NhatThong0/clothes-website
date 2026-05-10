@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  Animated,
   ActivityIndicator,
   FlatList,
   Image,
@@ -58,6 +59,8 @@ export default function HomeScreen() {
   const [bannerIdx, setBannerIdx] = useState(0);
   const bannerRef = useRef<FlatList<Banner>>(null);
   const flashSocketRef = useRef<Socket | null>(null);
+  const dotWidths = useRef<Animated.Value[]>([]);
+  const isUserScrollingRef = useRef(false);
 
   const loadFlashSales = useCallback(async () => {
     try {
@@ -163,10 +166,23 @@ export default function HomeScreen() {
     };
   }, [isLoggedIn, loadFlashSales]);
 
+  // Initialize one Animated.Value per banner (6px = inactive, 28px = active)
+  useEffect(() => {
+    dotWidths.current = banners.map((_, i) => new Animated.Value(i === 0 ? 28 : 6));
+  }, [banners.length]);
+
+  // Animate active dot to pill, inactive back to circle
+  useEffect(() => {
+    dotWidths.current.forEach((v, i) => {
+      Animated.spring(v, { toValue: i === bannerIdx ? 28 : 6, useNativeDriver: false, speed: 18, bounciness: 4 }).start();
+    });
+  }, [bannerIdx]);
+
   useEffect(() => {
     if (banners.length <= 1) return;
 
     const interval = setInterval(() => {
+      if (isUserScrollingRef.current) return;
       setBannerIdx((prev) => {
         const next = (prev + 1) % banners.length;
         bannerRef.current?.scrollToIndex({ index: next, animated: true });
@@ -285,7 +301,11 @@ export default function HomeScreen() {
               pagingEnabled
               showsHorizontalScrollIndicator={false}
               scrollEventThrottle={16}
+              decelerationRate="fast"
+              onScrollBeginDrag={() => { isUserScrollingRef.current = true; }}
+              onScrollEndDrag={() => { isUserScrollingRef.current = false; }}
               onMomentumScrollEnd={(e) => {
+                isUserScrollingRef.current = false;
                 const idx = Math.round(e.nativeEvent.contentOffset.x / heroWidth);
                 setBannerIdx(Math.max(0, Math.min(idx, banners.length - 1)));
               }}
@@ -334,8 +354,15 @@ export default function HomeScreen() {
                       setBannerIdx(i);
                     }}
                     activeOpacity={0.8}
-                    style={[s.heroDot, i === bannerIdx && s.heroDotActive]}
-                  />
+                  >
+                    <Animated.View
+                      style={[
+                        s.heroDot,
+                        { width: dotWidths.current[i] ?? 6 },
+                        i === bannerIdx && s.heroDotActive,
+                      ]}
+                    />
+                  </TouchableOpacity>
                 ))}
               </View>
             )}
@@ -600,13 +627,11 @@ const s = StyleSheet.create({
     marginTop: 10,
   },
   heroDot: {
-    width: 6,
     height: 6,
-    borderRadius: 3,
+    borderRadius: 999,
     backgroundColor: Colors.light.border,
   },
   heroDotActive: {
-    width: 18,
     backgroundColor: Colors.light.text,
   },
 

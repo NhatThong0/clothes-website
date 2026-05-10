@@ -6,7 +6,7 @@ require('../../model/SizeChart');
 const { pool } = require('../../db/mysql');
 const { validateObjectId } = require('../../utils/validators');
 const loyaltyService = require('../loyalty/loyalty.service');
-const { calculateReviewMetrics } = require('./reviewModeration.service');
+const { calculateReviewMetrics, moderateReviewText, buildModerationUpdate } = require('./reviewModeration.service');
 
 // ── Helper ────────────────────────────────────────────────────────────────────
 const getSoldMap = async (productIds) => {
@@ -470,11 +470,13 @@ exports.addReview = async (req, res, next) => {
 
         await product.save();
 
+        const savedReviewId = product.reviews[product.reviews.length - 1]._id;
+
         loyaltyService.emitPointEvent(userId, 'REVIEW', {
             eventId: `review:${userId}:${id}`,
             referenceType: 'PRODUCT_REVIEW',
             referenceId: id,
-            reviewId: product.reviews[product.reviews.length - 1]?._id?.toString() || null,
+            reviewId: savedReviewId?.toString() || null,
             rating: parseInt(rating),
             units: 1,
         });
@@ -483,6 +485,28 @@ exports.addReview = async (req, res, next) => {
             status: 'success',
             message: 'Review đã được gửi và đang chờ kiểm duyệt tự động',
             data: product.reviews[product.reviews.length - 1],
+        });
+
+        // Fire-and-forget AI moderation (không block response)
+        setImmediate(async () => {
+            try {
+                const result = await moderateReviewText({ comment, userId });
+                const update = buildModerationUpdate(result);
+
+                const freshProduct = await Product.findById(id);
+                const rev = freshProduct?.reviews?.id(savedReviewId);
+                if (!rev) return;
+
+                Object.assign(rev, update);
+                const freshMetrics = calculateReviewMetrics(freshProduct.reviews);
+                freshProduct.averageRating = freshMetrics.averageRating;
+                freshProduct.rating = freshMetrics.rating;
+                await freshProduct.save();
+
+                console.log(`[reviewModeration] ${savedReviewId} → ${update.moderationStatus} (${update.moderationSource}, score=${update.moderationScore?.toFixed(2)})`);
+            } catch (e) {
+                console.error('[reviewModeration] background moderation failed:', e.message);
+            }
         });
     } catch (error) {
         next(error);

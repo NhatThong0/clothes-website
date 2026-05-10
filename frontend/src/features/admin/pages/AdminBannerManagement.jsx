@@ -280,8 +280,18 @@ const AdminBannerManagement = () => {
                     <p className="text-xs text-slate-400 mt-0.5">Bật để hiện trên trang chủ</p>
                   </div>
                   <button type="button" onClick={() => f('isActive',!form.isActive)}
-                    className={`w-12 h-6 rounded-full transition-colors relative ${form.isActive ? 'bg-blue-600' : 'bg-slate-300'}`}>
-                    <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow-sm transition-transform ${form.isActive ? 'translate-x-6' : 'translate-x-0.5'}`}/>
+                    className={`
+                      relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent 
+                      transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2
+                      ${form.isActive ? 'bg-blue-600' : 'bg-slate-300'}
+                    `}>
+                    <span
+                      className={`
+                        pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 
+                        transition duration-200 ease-in-out
+                        ${form.isActive ? 'translate-x-5' : 'translate-x-0'}
+                      `}
+                    />
                   </button>
                 </div>
               </div>

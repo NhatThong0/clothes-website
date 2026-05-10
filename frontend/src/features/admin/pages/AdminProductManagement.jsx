@@ -393,6 +393,7 @@ const AdminProductManagement = () => {
     const [saving,         setSaving]         = useState(false);
     const [deleteId,       setDeleteId]       = useState(null);
     const [sortBySold,     setSortBySold]     = useState(false);
+    const [expandedId,     setExpandedId]     = useState(null);
 
     const [colorPool, setColorPool] = useState(() => loadPool(SK_COLORS, DEFAULT_COLORS));
     const [sizePool,  setSizePool]  = useState(() => loadPool(SK_SIZES,  DEFAULT_SIZES));
@@ -551,28 +552,38 @@ const AdminProductManagement = () => {
                         <table className="w-full text-sm">
                             <thead>
                                 <tr className="bg-slate-50 border-b border-slate-200">
-                                    {['Sản phẩm', 'Danh mục', 'Giá', 'Tồn kho', 'Variants', '🔥 Đã bán', 'Trạng thái', ''].map(h => (
+                                    {['Sản phẩm', 'Danh mục', 'Giá', 'Tồn kho', '🔥 Đã bán', 'Trạng thái', ''].map(h => (
                                         <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                                     ))}
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
                                 {loading && products.length === 0 ? (
-                                    <tr><td colSpan={8} className="px-4 py-12 text-center"><div className="flex flex-col items-center gap-2"><div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"/><span className="text-sm text-slate-400">Đang tải...</span></div></td></tr>
+                                    <tr><td colSpan={7} className="px-4 py-12 text-center"><div className="flex flex-col items-center gap-2"><div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"/><span className="text-sm text-slate-400">Đang tải...</span></div></td></tr>
                                 ) : displayProducts.length === 0 ? (
-                                    <tr><td colSpan={8} className="px-4 py-12 text-center"><div className="flex flex-col items-center gap-2"><span className="text-4xl">📦</span><span className="text-slate-400">Không tìm thấy sản phẩm nào</span></div></td></tr>
+                                    <tr><td colSpan={7} className="px-4 py-12 text-center"><div className="flex flex-col items-center gap-2"><span className="text-4xl">📦</span><span className="text-slate-400">Không tìm thấy sản phẩm nào</span></div></td></tr>
                                 ) : displayProducts.map((p, idx) => {
-                                    const activeColors = [...new Set((p.variants||[]).map(v=>v.color))];
-                                    const activeSizes  = [...new Set((p.variants||[]).map(v=>v.size))];
+                                    const isOpen = expandedId === p._id;
+                                    const colors = [...new Set((p.variants||[]).map(v=>v.color))];
+                                    const sizes  = [...new Set((p.variants||[]).map(v=>v.size))];
                                     return (
-                                        <tr key={p._id} className="hover:bg-slate-50 transition-colors group">
+                                        <React.Fragment key={p._id}>
+                                        <tr
+                                            className={`transition-colors group cursor-pointer ${isOpen ? 'bg-blue-50/60' : 'hover:bg-slate-50'}`}
+                                            onClick={() => setExpandedId(isOpen ? null : p._id)}
+                                        >
                                             <td className="px-4 py-3">
                                                 <div className="flex items-center gap-3">
                                                     <div className="w-12 h-12 rounded-xl overflow-hidden bg-slate-100 flex-shrink-0 border border-slate-200">
                                                         {p.images?.[0] ? <img src={p.images[0]} alt="" className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center text-slate-400 text-xl">📷</div>}
                                                     </div>
                                                     <div className="min-w-0">
-                                                        <p className="font-semibold text-slate-800 line-clamp-1">{p.name}</p>
+                                                        <div className="flex items-center gap-1.5">
+                                                            <p className="font-semibold text-slate-800 line-clamp-1">{p.name}</p>
+                                                            {colors.length > 0 && (
+                                                                <span className={`text-[10px] transition-transform duration-200 text-slate-400 ${isOpen ? 'rotate-180' : ''}`}>▾</span>
+                                                            )}
+                                                        </div>
                                                         <p className="text-xs text-slate-400 mt-0.5 line-clamp-1">{p.description}</p>
                                                     </div>
                                                 </div>
@@ -586,35 +597,6 @@ const AdminProductManagement = () => {
                                                 <span className={`font-bold text-sm ${p.stock > 10 ? 'text-slate-800' : p.stock > 0 ? 'text-amber-600' : 'text-rose-600'}`}>{p.stock}</span>
                                                 {p.stock === 0 && <span className="ml-1 text-xs text-rose-500">Hết</span>}
                                             </td>
-                                            {/* Variants summary */}
-                                            <td className="px-4 py-3 max-w-[180px]">
-                                                {activeColors.length > 0 ? (
-                                                    <div className="space-y-1">
-                                                        <div className="flex flex-wrap gap-1">
-                                                            {activeColors.slice(0,3).map(c => {
-                                                                const cStock = (p.variants||[]).filter(v=>v.color===c).reduce((s,v)=>s+v.stock,0);
-                                                                return (
-                                                                    <span key={c} className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${cStock===0?'bg-rose-50 text-rose-400':'bg-blue-50 text-blue-600'}`}>
-                                                                        {c}:{cStock}
-                                                                    </span>
-                                                                );
-                                                            })}
-                                                            {activeColors.length > 3 && <span className="text-[10px] text-slate-400">+{activeColors.length-3}</span>}
-                                                        </div>
-                                                        <div className="flex flex-wrap gap-1">
-                                                            {activeSizes.slice(0,4).map(s => {
-                                                                const sStock = (p.variants||[]).filter(v=>v.size===s).reduce((s,v)=>s+v.stock,0);
-                                                                return (
-                                                                    <span key={s} className={`px-1.5 py-0.5 rounded border text-[10px] font-medium ${sStock===0?'border-rose-200 text-rose-400':'border-slate-200 text-slate-500'}`}>
-                                                                        {s}:{sStock}
-                                                                    </span>
-                                                                );
-                                                            })}
-                                                            {activeSizes.length > 4 && <span className="text-[10px] text-slate-400">+{activeSizes.length-4}</span>}
-                                                        </div>
-                                                    </div>
-                                                ) : <span className="text-xs text-slate-300">—</span>}
-                                            </td>
                                             <td className="px-4 py-3">
                                                 {(p.soldCount||0) > 0 ? (
                                                     <div className="flex items-center gap-1.5">
@@ -627,7 +609,7 @@ const AdminProductManagement = () => {
                                                 ) : <span className="text-slate-300 text-xs">—</span>}
                                             </td>
                                             <td className="px-4 py-3"><Badge active={p.isActive}/></td>
-                                            <td className="px-4 py-3">
+                                            <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                                                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                                     <button onClick={() => openEdit(p)} className="p-2 hover:bg-blue-50 text-blue-600 rounded-lg" title="Sửa">✏️</button>
                                                     <button onClick={async () => { await toggleProductStatus(p._id); loadProducts(); }}
@@ -637,6 +619,61 @@ const AdminProductManagement = () => {
                                                 </div>
                                             </td>
                                         </tr>
+                                        {isOpen && colors.length > 0 && (
+                                            <tr>
+                                                <td colSpan={7} className="px-6 pb-5 pt-0 bg-blue-50/40 border-b border-blue-100">
+                                                    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm mt-3">
+                                                        <table className="text-xs border-collapse w-auto">
+                                                            <thead>
+                                                                <tr className="bg-slate-50 border-b border-slate-200">
+                                                                    <th className="px-4 py-2.5 text-left font-bold text-slate-400 whitespace-nowrap">Màu \ Size</th>
+                                                                    {sizes.map(s => {
+                                                                        const total = (p.variants||[]).filter(v=>v.size===s).reduce((a,v)=>a+v.stock,0);
+                                                                        return (
+                                                                            <th key={s} className="px-4 py-2.5 text-center font-bold text-slate-700 min-w-[64px]">
+                                                                                <div>{s}</div>
+                                                                                <div className={`text-[10px] font-semibold mt-0.5 ${total===0?'text-rose-400':'text-slate-400'}`}>{total}</div>
+                                                                            </th>
+                                                                        );
+                                                                    })}
+                                                                    <th className="px-4 py-2.5 text-center font-bold text-slate-500">Tổng</th>
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody>
+                                                                {colors.map((color, ci) => {
+                                                                    const rowTotal = (p.variants||[]).filter(v=>v.color===color).reduce((a,v)=>a+v.stock,0);
+                                                                    return (
+                                                                        <tr key={color} className={`border-t border-slate-100 ${ci%2===0?'bg-white':'bg-slate-50/50'}`}>
+                                                                            <td className="px-4 py-2.5 font-semibold text-slate-700 whitespace-nowrap">
+                                                                                {color}
+                                                                                <div className={`text-[10px] font-medium mt-0.5 ${rowTotal===0?'text-rose-400':'text-slate-400'}`}>{rowTotal} sp</div>
+                                                                            </td>
+                                                                            {sizes.map(size => {
+                                                                                const vv = (p.variants||[]).find(v=>v.color===color&&v.size===size);
+                                                                                const stock = vv?.stock ?? null;
+                                                                                return (
+                                                                                    <td key={size} className="px-4 py-2.5 text-center">
+                                                                                        {stock !== null ? (
+                                                                                            <span className={`inline-block px-2 py-0.5 rounded-lg font-bold ${
+                                                                                                stock===0?'bg-rose-50 text-rose-500':stock<=5?'bg-orange-50 text-orange-600':'bg-emerald-50 text-emerald-700'
+                                                                                            }`}>{stock}</span>
+                                                                                        ) : <span className="text-slate-200">—</span>}
+                                                                                    </td>
+                                                                                );
+                                                                            })}
+                                                                            <td className="px-4 py-2.5 text-center">
+                                                                                <span className={`font-bold px-2 py-0.5 rounded-lg ${rowTotal===0?'bg-rose-50 text-rose-500':'bg-blue-50 text-blue-600'}`}>{rowTotal}</span>
+                                                                            </td>
+                                                                        </tr>
+                                                                    );
+                                                                })}
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        )}
+                                        </React.Fragment>
                                     );
                                 })}
                             </tbody>

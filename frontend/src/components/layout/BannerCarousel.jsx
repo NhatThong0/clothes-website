@@ -1,78 +1,123 @@
-﻿import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 
-export default function BannerCarousel({ banners = [], autoPlay = true, interval = 4500 }) {
-  const [current, setCurrent] = useState(0);
-  const [paused, setPaused] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const progressRef = useRef(null);
-  const startRef = useRef(null);
+export default function BannerCarousel({ banners = [], autoPlay = true, interval = 5000 }) {
+  const active = banners.filter((b) => b.isActive !== false);
+  const count  = active.length;
 
-  const active = banners.filter((banner) => banner.isActive !== false);
-  const count = active.length;
+  const [current,    setCurrent]    = useState(0);
+  const [dragDelta,  setDragDelta]  = useState(0);   // live px offset while dragging
+  const [isDragging, setIsDragging] = useState(false);
+  const [progress,   setProgress]   = useState(0);   // 0-100 for active dot fill
 
-  const go = useCallback(
-    (index) => {
-      if (count === 0) return;
-      setCurrent((index + count) % count);
-      setProgress(0);
-      startRef.current = performance.now();
-    },
-    [count]
-  );
+  const containerRef   = useRef(null);
+  const rafRef         = useRef(null);
+  const progressStart  = useRef(null);
+  const pausedRef      = useRef(false); // hover pause (avoids RAF stale closure)
+  const dragStartX     = useRef(null);
 
-  const next = useCallback(() => go(current + 1), [current, go]);
-  const previous = useCallback(() => go(current - 1), [current, go]);
+  // ── Navigation ───────────────────────────────────────────────────────────
+  const go = useCallback((index) => {
+    setCurrent(((index % count) + count) % count);
+    setProgress(0);
+    progressStart.current = null;
+  }, [count]);
 
+  const goNext = useCallback(() => go(current + 1), [current, go]);
+  const goPrev = useCallback(() => go(current - 1), [current, go]);
+
+  // ── Auto-play (requestAnimationFrame for smooth progress bar) ─────────────
   useEffect(() => {
-    if (!autoPlay || paused || count < 2) return undefined;
+    if (!autoPlay || count < 2) return;
+    cancelAnimationFrame(rafRef.current);
 
-    startRef.current = performance.now();
-
-    const tick = (now) => {
-      const elapsed = now - (startRef.current || now);
-      const percentage = Math.min((elapsed / interval) * 100, 100);
-      setProgress(percentage);
-
-      if (percentage >= 100) {
-        next();
+    const tick = (ts) => {
+      if (pausedRef.current) {
+        progressStart.current = null;
+        rafRef.current = requestAnimationFrame(tick);
         return;
       }
-
-      progressRef.current = requestAnimationFrame(tick);
+      if (!progressStart.current) progressStart.current = ts;
+      const pct = Math.min(((ts - progressStart.current) / interval) * 100, 100);
+      setProgress(pct);
+      if (pct >= 100) { goNext(); return; }
+      rafRef.current = requestAnimationFrame(tick);
     };
 
-    progressRef.current = requestAnimationFrame(tick);
+    rafRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [autoPlay, count, current, goNext, interval]);
 
-    return () => {
-      cancelAnimationFrame(progressRef.current);
-    };
-  }, [autoPlay, count, current, interval, next, paused]);
+  // ── Drag / swipe handlers ─────────────────────────────────────────────────
+  const onDragStart = useCallback((clientX) => {
+    dragStartX.current = clientX;
+    setIsDragging(true);
+    pausedRef.current = true;
+    cancelAnimationFrame(rafRef.current);
+    setProgress(0);
+    progressStart.current = null;
+  }, []);
 
-  if (!active.length) return null;
+  const onDragMove = useCallback((clientX) => {
+    if (dragStartX.current === null) return;
+    const delta = clientX - dragStartX.current;
+    const atEdge = (current === 0 && delta > 0) || (current === count - 1 && delta < 0);
+    setDragDelta(atEdge ? delta * 0.18 : delta);
+  }, [count, current]);
+
+  const onDragEnd = useCallback((clientX) => {
+    if (dragStartX.current === null) return;
+    const delta     = clientX - dragStartX.current;
+    const threshold = (containerRef.current?.offsetWidth || 400) * 0.18;
+    dragStartX.current = null;
+    setDragDelta(0);
+    setIsDragging(false);
+    pausedRef.current = false;
+
+    if (delta < -threshold) goNext();
+    else if (delta > threshold) goPrev();
+  }, [goNext, goPrev]);
+
+  if (!count) return null;
+
+  // Flex-strip: width = count × 100%, each slide = 100% of section
+  // translateX to slide N = -(N / count × 100)%  (% of flex-strip's own width)
+  const tx = `calc(${-(current / count) * 100}% + ${dragDelta}px)`;
 
   return (
     <section
-      className="editorial-card relative overflow-hidden rounded-[36px]"
-      onMouseEnter={() => setPaused(true)}
-      onMouseLeave={() => setPaused(false)}
+      ref={containerRef}
+      className="relative overflow-hidden rounded-[32px] select-none"
+      style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
+      onMouseEnter={() => { if (!isDragging) pausedRef.current = true;  }}
+      onMouseLeave={() => {
+        pausedRef.current = false;
+        if (dragStartX.current !== null) onDragEnd(dragStartX.current);
+      }}
+      onMouseDown={(e) => { e.preventDefault(); onDragStart(e.clientX); }}
+      onMouseMove={(e) => { if (dragStartX.current !== null) onDragMove(e.clientX); }}
+      onMouseUp={(e)   => onDragEnd(e.clientX)}
+      onTouchStart={(e) => onDragStart(e.touches[0].clientX)}
+      onTouchMove={(e)  => { e.preventDefault(); onDragMove(e.touches[0].clientX); }}
+      onTouchEnd={(e)   => onDragEnd(e.changedTouches[0].clientX)}
     >
-      <div className="absolute inset-0 editorial-grid opacity-30" />
+      <div className="relative aspect-[16/8] min-h-[420px] w-full sm:min-h-[500px] lg:min-h-[580px]">
 
-      <div className="relative aspect-[16/8] min-h-[420px] w-full sm:min-h-[500px] lg:min-h-[620px]">
-        {active.map((banner, index) => {
-          const isCurrent = index === current;
-
-          return (
-            <article
-              key={banner._id || index}
-              className={`absolute inset-0 transition-all duration-700 ease-out ${
-                isCurrent
-                  ? 'translate-y-0 opacity-100 scale-100'
-                  : index < current
-                    ? '-translate-y-4 opacity-0 scale-[0.985]'
-                    : 'translate-y-4 opacity-0 scale-[1.015]'
-              }`}
+        {/* ── Slide strip ────────────────────────────────────────────── */}
+        <div
+          className="absolute inset-0 flex h-full"
+          style={{
+            width: `${count * 100}%`,
+            transform: `translateX(${tx})`,
+            transition: isDragging ? 'none' : 'transform 0.52s cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+            willChange: 'transform',
+          }}
+        >
+          {active.map((banner, i) => (
+            <div
+              key={banner._id || i}
+              className="relative h-full flex-shrink-0"
+              style={{ width: `${100 / count}%` }}
             >
               <img
                 src={banner.image}
@@ -80,91 +125,65 @@ export default function BannerCarousel({ banners = [], autoPlay = true, interval
                 className="h-full w-full object-cover"
                 draggable={false}
               />
-              <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(10,10,10,0.84)_0%,rgba(10,10,10,0.38)_45%,rgba(10,10,10,0.08)_100%)]" />
-              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.14),transparent_32%)]" />
 
-              <div className="relative flex h-full flex-col justify-between p-7 text-white sm:p-10 lg:p-14">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="rounded-full border border-white/20 bg-white/10 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.34em] backdrop-blur">
-                    Giao diện cảm hứng từ Figma
-                  </div>
-                  <div className="hidden rounded-full border border-white/15 bg-black/20 px-4 py-2 text-[11px] font-medium uppercase tracking-[0.28em] text-white/70 lg:block">
-                    Bố cục 16:9 nổi bật
-                  </div>
-                </div>
+              {/* Gradient overlay */}
+              <div className="absolute inset-0 bg-gradient-to-r from-black/72 via-black/30 to-black/5" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
 
-                <div className="max-w-3xl space-y-6">
-                  {banner.title && (
-                    <h1 className="max-w-2xl text-4xl font-extrabold leading-[0.95] tracking-[-0.04em] sm:text-5xl lg:text-7xl">
-                      {banner.title}
-                    </h1>
-                  )}
-                  {banner.subtitle && (
-                    <p className="max-w-xl text-sm leading-7 text-white/78 sm:text-base lg:text-lg">
-                      {banner.subtitle}
-                    </p>
-                  )}
-
-                  <div className="flex flex-wrap items-center gap-3 pt-2">
-                    <Link
-                      to={banner.link || '/products'}
-                      className="rounded-full bg-white px-6 py-3 text-sm font-semibold text-black transition hover:bg-[#ecece8]"
-                    >
-                      Khám phá bộ sưu tập
-                    </Link>
-                    <Link
-                      to="/products"
-                      className="rounded-full border border-white/18 bg-white/8 px-6 py-3 text-sm font-semibold text-white backdrop-blur transition hover:bg-white/14"
-                    >
-                      Xem tất cả sản phẩm
-                    </Link>
-                  </div>
-                </div>
-              </div>
-            </article>
-          );
-        })}
-
-        {count > 1 && (
-          <>
-            <div className="absolute inset-x-0 bottom-0 z-20 flex items-center justify-between gap-4 border-t border-white/12 bg-black/16 px-5 py-4 backdrop-blur sm:px-8">
-              <div className="flex items-center gap-2">
-                {active.map((_, index) => (
-                  <button
-                    key={index}
-                    onClick={() => go(index)}
-                    aria-label={`Đi tới banner ${index + 1}`}
-                    className={`rounded-full transition-all ${
-                      index === current ? 'h-2 w-10 bg-white' : 'h-2 w-2 bg-white/35 hover:bg-white/70'
-                    }`}
-                  />
-                ))}
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={previous}
-                  className="flex h-11 w-11 items-center justify-center rounded-full border border-white/18 bg-white/10 text-lg text-white transition hover:bg-white/18"
-                  aria-label="Banner trước"
+              {/* Text content */}
+              <div className="absolute inset-0 flex flex-col justify-end p-7 pb-16 sm:p-10 sm:pb-20 lg:p-14 lg:pb-24">
+                {banner.subtitle && (
+                  <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.32em] text-white/55">
+                    {banner.subtitle}
+                  </p>
+                )}
+                {banner.title && (
+                  <h2 className="mb-5 max-w-lg text-3xl font-extrabold leading-[1.05] tracking-[-0.03em] text-white sm:text-4xl lg:text-[3.2rem]">
+                    {banner.title}
+                  </h2>
+                )}
+                <Link
+                  to={banner.link || '/products'}
+                  onClick={(e) => isDragging && e.preventDefault()}
+                  draggable={false}
+                  className="w-fit rounded-full bg-white px-6 py-2.5 text-sm font-bold text-black transition hover:bg-gray-100 active:scale-[0.97]"
                 >
-                  ‹
-                </button>
-                <button
-                  onClick={next}
-                  className="flex h-11 w-11 items-center justify-center rounded-full border border-white/18 bg-white text-lg text-black transition hover:bg-[#ecece8]"
-                  aria-label="Banner sau"
-                >
-                  ›
-                </button>
+                  Khám phá ngay →
+                </Link>
               </div>
             </div>
+          ))}
+        </div>
 
-            {autoPlay && !paused && (
-              <div className="absolute inset-x-0 bottom-0 z-30 h-[2px] bg-white/10">
-                <div className="h-full bg-white transition-none" style={{ width: `${progress}%` }} />
-              </div>
-            )}
-          </>
+        {/* ── Dot indicators (no arrows) ──────────────────────────────── */}
+        {count > 1 && (
+          <div className="absolute bottom-5 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1.5">
+            {active.map((_, i) => {
+              const isActive = i === current;
+              return (
+                <button
+                  key={i}
+                  onClick={() => go(i)}
+                  aria-label={`Banner ${i + 1}`}
+                  className="relative overflow-hidden rounded-full transition-all duration-300"
+                  style={{
+                    width:      isActive ? 32 : 7,
+                    height:     7,
+                    background: isActive ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.30)',
+                    flexShrink: 0,
+                  }}
+                >
+                  {/* Animated progress fill on active dot */}
+                  {isActive && autoPlay && (
+                    <span
+                      className="absolute inset-y-0 left-0 rounded-full bg-white"
+                      style={{ width: `${progress}%`, transition: 'none' }}
+                    />
+                  )}
+                </button>
+              );
+            })}
+          </div>
         )}
       </div>
     </section>
