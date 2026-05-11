@@ -4,9 +4,10 @@ import ProductCard from '@features/product/components/ProductCard';
 import Loading from '@components/common/Loading';
 import Empty from '@components/common/Empty';
 import BannerCarousel from '@components/layout/BannerCarousel';
-import { productAPI } from '@features/shared/services/api';
+import { productAPI, recommendationAPI } from '@features/shared/services/api';
 import apiClient from '@features/shared/services/apiClient';
 import { getSocket } from '@features/chat/hooks/useChat';
+import { useAuth } from '@context/AuthContext';
 
 const normalizeProduct = (product) => {
   const flashSale = product.flashSale || null;
@@ -61,12 +62,21 @@ const getCategoryDescription = (category) => {
 };
 
 export default function HomePage() {
+  const { isAuthenticated } = useAuth();
   const [featuredProducts, setFeaturedProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [banners, setBanners] = useState([]);
   const [flashSales, setFlashSales] = useState([]);
   const [nowTs, setNowTs] = useState(Date.now());
   const [loading, setLoading] = useState(true);
+  const [forYouProducts, setForYouProducts] = useState([]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    recommendationAPI.forYou(8)
+      .then(res => setForYouProducts((res.data?.data || []).map(normalizeProduct)))
+      .catch(() => {});
+  }, [isAuthenticated]);
 
   useEffect(() => {
     fetchData();
@@ -267,7 +277,24 @@ export default function HomePage() {
           ))}
         </div>
       </section>
-
+      {isAuthenticated && forYouProducts.length > 0 && (
+        <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+          <div className="mb-7 flex items-end justify-between gap-4">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.34em] text-slate-400">Dành riêng cho bạn</p>
+              <h2 className="mt-2 text-3xl font-extrabold tracking-[-0.04em] text-black sm:text-4xl">Gợi ý sản phẩm</h2>
+            </div>
+            <Link to="/products" className="hidden text-sm font-semibold text-slate-500 transition hover:text-black sm:inline-flex">
+              Xem thêm
+            </Link>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {forYouProducts.map((product) => (
+              <ProductCard key={product.id} product={product} />
+            ))}
+          </div>
+        </section>
+      )}
       <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="mb-7 flex items-end justify-between gap-4">
           <div>
@@ -354,6 +381,7 @@ export default function HomePage() {
           </div>
         )}
       </section>
+
 
       
     </div>

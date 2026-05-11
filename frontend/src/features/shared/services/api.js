@@ -86,3 +86,14 @@ export const voucherAPI = {
   // ✅ Dùng apiClient thay vì axios trực tiếp
   validateVoucher: (data) => apiClient.post('/promotions/validate', data),
 };
+
+// ============ RECOMMENDATIONS ============
+export const recommendationAPI = {
+  trackView:       (productId) => apiClient.post(`/recommendations/view/${productId}`).catch(() => {}),
+  forYou:          (limit = 12) => apiClient.get('/recommendations/for-you', { params: { limit } }),
+  related:         (productId, limit = 8) => apiClient.get(`/recommendations/related/${productId}`, { params: { limit } }),
+  popular:         (limit = 12) => apiClient.get('/recommendations/popular', { params: { limit } }),
+  getWishlist:     () => apiClient.get('/recommendations/wishlist'),
+  toggleWishlist:  (productId) => apiClient.post(`/recommendations/wishlist/${productId}`),
+  checkWishlist:   (productId) => apiClient.get(`/recommendations/wishlist/check/${productId}`),
+};

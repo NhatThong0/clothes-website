@@ -1,10 +1,10 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import Loading from '@components/common/Loading';
 import Error from '@components/common/Error';
 import { useCart } from '@features/cart/hooks/useCart';
 import { formatPrice } from '@utils/helpers';
-import { productAPI } from '@features/shared/services/api';
+import { productAPI, recommendationAPI } from '@features/shared/services/api';
 import { useAuth } from '@context/AuthContext';
 import ARTryOnModal from '../components/ARTryOnModal';
 
@@ -63,11 +63,37 @@ export default function ProductDetailPage() {
     const [starFilter,     setStarFilter]     = useState(0);
     const [toast,          setToast]          = useState(null);
     const [showARTryOn,    setShowARTryOn]    = useState(false);
+    const [relatedProducts, setRelatedProducts] = useState([]);
+    const [savedToWishlist, setSavedToWishlist] = useState(false);
+    const [wishlistLoading, setWishlistLoading] = useState(false);
     const myReview = editTarget || { rating: 0, comment: '', images: [] };
 
     const showToast = (msg, type = 'success') => setToast({ message: msg, type });
 
+    const handleToggleWishlist = async () => {
+        if (!isAuthenticated) { showToast('Đăng nhập để lưu sản phẩm', 'error'); return; }
+        setWishlistLoading(true);
+        try {
+            await recommendationAPI.toggleWishlist(id);
+            setSavedToWishlist(prev => !prev);
+            showToast(savedToWishlist ? 'Đã xóa khỏi yêu thích' : 'Đã lưu vào yêu thích');
+        } catch { showToast('Không thể cập nhật', 'error'); }
+        finally { setWishlistLoading(false); }
+    };
+
     useEffect(() => { fetchProduct(); fetchReviews(); fetchMyReviews(); }, [id]);
+
+    useEffect(() => {
+        recommendationAPI.trackView(id);
+        recommendationAPI.related(id, 8)
+            .then(res => setRelatedProducts(res.data?.data || []))
+            .catch(() => {});
+        if (isAuthenticated) {
+            recommendationAPI.checkWishlist(id)
+                .then(res => setSavedToWishlist(res.data?.data?.saved || false))
+                .catch(() => {});
+        }
+    }, [id, isAuthenticated]);
 
     const fetchProduct = async () => {
         try {
@@ -559,6 +585,15 @@ export default function ProductDetailPage() {
                             }`}>
                             {outOfStock ? 'Không có sẵn' : product.flashSale?.isSoldOut ? 'Đã hết' : 'Mua ngay'}
                         </button>
+                        <button onClick={handleToggleWishlist} disabled={wishlistLoading}
+                            title={savedToWishlist ? 'Xóa khỏi yêu thích' : 'Lưu vào yêu thích'}
+                            className={`px-4 py-3 rounded-lg border-2 text-xl transition-all flex-shrink-0 ${
+                                savedToWishlist
+                                    ? 'border-rose-400 bg-rose-50 text-rose-500 hover:bg-rose-100'
+                                    : 'border-gray-300 text-gray-400 hover:border-rose-300 hover:text-rose-400'
+                            }`}>
+                            {savedToWishlist ? '♥' : '♡'}
+                        </button>
                     </div>
 
                     {product.features.length > 0 && (
@@ -737,6 +772,43 @@ export default function ProductDetailPage() {
                     <div className="relative max-w-3xl w-full">
                         <img src={previewImg} alt="Preview" className="w-full rounded-xl object-contain max-h-[85vh]"/>
                         <button onClick={()=>setPreviewImg(null)} className="absolute top-3 right-3 bg-white text-black rounded-full w-9 h-9 flex items-center justify-center font-bold text-lg hover:bg-gray-200">✕</button>
+                    </div>
+                </div>
+            )}
+
+            {/* Related Products */}
+            {relatedProducts.length > 0 && (
+                <div className="mt-16 border-t border-gray-200 pt-10">
+                    <h2 className="text-2xl font-bold text-dark mb-6">Sản phẩm liên quan</h2>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                        {relatedProducts.map(p => {
+                            const rPrice = p.discount > 0 ? Math.round(p.price * (1 - p.discount / 100)) : p.price;
+                            return (
+                                <Link key={p._id} to={`/products/${p._id}`}
+                                    className="group block rounded-xl overflow-hidden border border-gray-200 hover:shadow-md transition-all">
+                                    <div className="aspect-[3/4] overflow-hidden bg-gray-100">
+                                        <img
+                                            src={p.images?.[0] || 'https://placehold.co/300x400?text=No+Image'}
+                                            alt={p.name}
+                                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                                        />
+                                    </div>
+                                    <div className="p-3">
+                                        <p className="text-sm font-semibold text-dark line-clamp-2 mb-1">{p.name}</p>
+                                        {p.averageRating > 0 && (
+                                            <div className="flex items-center gap-1 mb-1">
+                                                <span className="text-yellow-400 text-xs">★</span>
+                                                <span className="text-xs text-gray-500">{Number(p.averageRating).toFixed(1)}</span>
+                                            </div>
+                                        )}
+                                        <p className="text-primary font-bold text-sm">{formatPrice(rPrice)}</p>
+                                        {p.discount > 0 && (
+                                            <p className="text-xs text-gray-400 line-through">{formatPrice(p.price)}</p>
+                                        )}
+                                    </div>
+                                </Link>
+                            );
+                        })}
                     </div>
                 </div>
             )}
