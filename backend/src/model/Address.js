@@ -37,6 +37,9 @@ const addressSchema = new mongoose.Schema({
         type: String,
         required: true,
     },
+    ghnProvinceId: { type: String, default: '' },
+    ghnDistrictId: { type: String, default: '' },
+    ghnWardCode:   { type: String, default: '' },
     isDefault: {
         type: Boolean,
         default: false,

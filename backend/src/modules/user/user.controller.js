@@ -181,7 +181,8 @@ exports.getAddresses = async (req, res, next) => {
  */
 exports.createAddress = async (req, res, next) => {
     try {
-        const { label, fullName, phone, address, ward, district, city, isDefault } = req.body;
+        const { label, fullName, phone, address, ward, district, city, isDefault,
+                ghnProvinceId, ghnDistrictId, ghnWardCode } = req.body;
 
         if (!fullName || !phone || !address || !city) {
             return res.status(400).json({ status: 'error', message: 'Vui lòng điền đầy đủ thông tin bắt buộc' });
@@ -197,13 +198,16 @@ exports.createAddress = async (req, res, next) => {
 
         const newAddress = await Address.create({
             userId: req.userId,
-            label:     label     || 'Nhà riêng',
+            label:         label     || 'Nhà riêng',
             fullName,
             phone,
             address,
-            ward:      ward      || '',
-            district:  district  || '',
+            ward:          ward      || '',
+            district:      district  || '',
             city,
+            ghnProvinceId: ghnProvinceId || '',
+            ghnDistrictId: ghnDistrictId || '',
+            ghnWardCode:   ghnWardCode   || '',
             isDefault: isDefault || count === 0,
         });
 
@@ -222,7 +226,8 @@ exports.createAddress = async (req, res, next) => {
 exports.updateAddress = async (req, res, next) => {
     try {
         const { addressId } = req.params;
-        const { label, fullName, phone, address, ward, district, city, isDefault } = req.body;
+        const { label, fullName, phone, address, ward, district, city, isDefault,
+                ghnProvinceId, ghnDistrictId, ghnWardCode } = req.body;
 
         const existing = await Address.findOne({ _id: addressId, userId: req.userId });
         if (!existing) return res.status(404).json({ status: 'error', message: 'Không tìm thấy địa chỉ' });
@@ -233,7 +238,11 @@ exports.updateAddress = async (req, res, next) => {
 
         const updated = await Address.findByIdAndUpdate(
             addressId,
-            { label, fullName, phone, address, ward, district, city, isDefault: isDefault || false },
+            { label, fullName, phone, address, ward, district, city,
+              ghnProvinceId: ghnProvinceId || '',
+              ghnDistrictId: ghnDistrictId || '',
+              ghnWardCode:   ghnWardCode   || '',
+              isDefault: isDefault || false },
             { new: true, runValidators: true }
         );
 

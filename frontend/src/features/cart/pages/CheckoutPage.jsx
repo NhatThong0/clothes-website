@@ -280,11 +280,11 @@ export default function CheckoutPage() {
         if (addr.ghnDistrictId && addr.ghnWardCode) {
           setGhnAddr({
             provinceId:   String(addr.ghnProvinceId  || ''),
-            provinceName: addr.provinceName           || addr.province || '',
+            provinceName: addr.provinceName || addr.province || addr.city || '',
             districtId:   String(addr.ghnDistrictId),
-            districtName: addr.districtName           || addr.district || '',
+            districtName: addr.districtName || addr.district || '',
             wardCode:     addr.ghnWardCode,
-            wardName:     addr.wardName               || addr.ward     || '',
+            wardName:     addr.wardName || addr.ward || '',
           });
         }
       }

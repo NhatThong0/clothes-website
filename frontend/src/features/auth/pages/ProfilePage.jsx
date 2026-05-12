@@ -8,6 +8,91 @@ import { formatOrderCode } from '@utils/helpers';
 // ─── Constants ────────────────────────────────────────────────────────────────
 const LABELS     = ['Nhà riêng', 'Văn phòng', 'Khác'];
 const LABEL_ICON = { 'Nhà riêng': '🏠', 'Văn phòng': '🏢', 'Khác': '📍' };
+
+const GHN_EMPTY = { provinceId: '', provinceName: '', districtId: '', districtName: '', wardCode: '', wardName: '' };
+
+// ─── GHN Dropdown Component ───────────────────────────────────────────────────
+function GHNAddressDropdowns({ value, onChange }) {
+  const [provinces, setProvinces] = useState([]);
+  const [districts, setDistricts] = useState([]);
+  const [wards,     setWards]     = useState([]);
+  const [loadingP,  setLoadingP]  = useState(false);
+  const [loadingD,  setLoadingD]  = useState(false);
+  const [loadingW,  setLoadingW]  = useState(false);
+
+  useEffect(() => {
+    setLoadingP(true);
+    apiClient.get('/shipping/provinces')
+      .then(res => setProvinces(res.data.data || []))
+      .catch(() => {})
+      .finally(() => setLoadingP(false));
+  }, []);
+
+  useEffect(() => {
+    if (!value.provinceId) { setDistricts([]); setWards([]); return; }
+    setLoadingD(true); setDistricts([]); setWards([]);
+    apiClient.get(`/shipping/districts?province_id=${value.provinceId}`)
+      .then(res => setDistricts(res.data.data || []))
+      .catch(() => {})
+      .finally(() => setLoadingD(false));
+  }, [value.provinceId]);
+
+  useEffect(() => {
+    if (!value.districtId) { setWards([]); return; }
+    setLoadingW(true); setWards([]);
+    apiClient.get(`/shipping/wards?district_id=${value.districtId}`)
+      .then(res => setWards(res.data.data || []))
+      .catch(() => {})
+      .finally(() => setLoadingW(false));
+  }, [value.districtId]);
+
+  const handleProvince = (e) => {
+    const id   = e.target.value;
+    const name = provinces.find(p => String(p.ProvinceID) === id)?.ProvinceName || '';
+    onChange({ provinceId: id, provinceName: name, districtId: '', districtName: '', wardCode: '', wardName: '' });
+  };
+  const handleDistrict = (e) => {
+    const id   = e.target.value;
+    const name = districts.find(d => String(d.DistrictID) === id)?.DistrictName || '';
+    onChange({ ...value, districtId: id, districtName: name, wardCode: '', wardName: '' });
+  };
+  const handleWard = (e) => {
+    const code = e.target.value;
+    const name = wards.find(w => w.WardCode === code)?.WardName || '';
+    onChange({ ...value, wardCode: code, wardName: name });
+  };
+
+  const sel = `${cls.input} disabled:bg-slate-50 disabled:text-slate-400 cursor-pointer`;
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="relative">
+        <FieldLabel required>Tỉnh / Thành phố</FieldLabel>
+        <select value={value.provinceId} onChange={handleProvince} disabled={loadingP} className={sel} required>
+          <option value="">{loadingP ? 'Đang tải...' : 'Chọn tỉnh/thành'}</option>
+          {provinces.map(p => <option key={p.ProvinceID} value={p.ProvinceID}>{p.ProvinceName}</option>)}
+        </select>
+        {loadingP && <div className="absolute right-3 top-[42px] w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"/>}
+      </div>
+      <div className="relative">
+        <FieldLabel required>Quận / Huyện</FieldLabel>
+        <select value={value.districtId} onChange={handleDistrict} disabled={!value.provinceId || loadingD} className={sel}>
+          <option value="">{loadingD ? 'Đang tải...' : 'Chọn quận/huyện'}</option>
+          {districts.map(d => <option key={d.DistrictID} value={d.DistrictID}>{d.DistrictName}</option>)}
+        </select>
+        {loadingD && <div className="absolute right-3 top-[42px] w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"/>}
+      </div>
+      <div className="relative">
+        <FieldLabel required>Phường / Xã</FieldLabel>
+        <select value={value.wardCode} onChange={handleWard} disabled={!value.districtId || loadingW} className={sel}>
+          <option value="">{loadingW ? 'Đang tải...' : 'Chọn phường/xã'}</option>
+          {wards.map(w => <option key={w.WardCode} value={w.WardCode}>{w.WardName}</option>)}
+        </select>
+        {loadingW && <div className="absolute right-3 top-[42px] w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"/>}
+      </div>
+    </div>
+  );
+}
 const STATUS_MAP = {
   delivered:  { label: 'Đã giao',      color: 'bg-emerald-100 text-emerald-700 border border-emerald-200' },
   processing: { label: 'Đang xử lý',   color: 'bg-amber-100 text-amber-700 border border-amber-200'       },
@@ -17,8 +102,10 @@ const STATUS_MAP = {
   cancelled:  { label: 'Đã hủy',       color: 'bg-rose-100 text-rose-600 border border-rose-200'           },
 };
 const EMPTY_ADDR = {
-  label: 'Nhà riêng', fullName: '', phone: '',
-  address: '', ward: '', district: '', city: '', isDefault: false,
+  label: 'Nhà riêng', fullName: '', phone: '', address: '',
+  city: '', district: '', ward: '',
+  ghnProvinceId: '', ghnDistrictId: '', ghnWardCode: '',
+  isDefault: false,
 };
 const cls = {
   input: 'w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white transition',
@@ -53,12 +140,39 @@ function Spinner({ size = 4, color = 'border-blue-500' }) {
 // ─── Address Modal ────────────────────────────────────────────────────────────
 function AddressModal({ initial, onClose, onSave }) {
   const [form,   setForm]   = useState(initial || EMPTY_ADDR);
+  const [ghn,    setGhn]    = useState({
+    provinceId:   initial?.ghnProvinceId  || '',
+    provinceName: initial?.city           || '',
+    districtId:   initial?.ghnDistrictId  || '',
+    districtName: initial?.district       || '',
+    wardCode:     initial?.ghnWardCode    || '',
+    wardName:     initial?.ward           || '',
+  });
   const [saving, setSaving] = useState(false);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
+  const handleGHNChange = (next) => {
+    setGhn(next);
+    setForm(f => ({
+      ...f,
+      city:          next.provinceName,
+      district:      next.districtName,
+      ward:          next.wardName,
+      ghnProvinceId: next.provinceId,
+      ghnDistrictId: next.districtId,
+      ghnWardCode:   next.wardCode,
+    }));
+  };
+
   const handleSubmit = async () => {
-    if (!form.fullName || !form.phone || !form.address || !form.city) {
-      alert('Vui lòng điền đầy đủ thông tin bắt buộc'); return;
+    if (!form.fullName || !form.phone) {
+      alert('Vui lòng điền đầy đủ họ tên và số điện thoại'); return;
+    }
+    if (!form.address) {
+      alert('Vui lòng nhập số nhà, tên đường'); return;
+    }
+    if (!ghn.wardCode) {
+      alert('Vui lòng chọn Tỉnh/Thành, Quận/Huyện và Phường/Xã'); return;
     }
     setSaving(true);
     try { await onSave(form); }
@@ -79,7 +193,7 @@ function AddressModal({ initial, onClose, onSave }) {
         </div>
 
         <div className="px-6 py-5 space-y-4">
-          {/* Type buttons */}
+          {/* Label type */}
           <div>
             <FieldLabel>Loại địa chỉ</FieldLabel>
             <div className="flex gap-2">
@@ -94,6 +208,7 @@ function AddressModal({ initial, onClose, onSave }) {
             </div>
           </div>
 
+          {/* Name + phone */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <FieldLabel required>Họ và tên</FieldLabel>
@@ -105,26 +220,24 @@ function AddressModal({ initial, onClose, onSave }) {
             </div>
           </div>
 
+          {/* Street address */}
           <div>
-            <FieldLabel required>Địa chỉ</FieldLabel>
-            <input className={cls.input} value={form.address} onChange={e => set('address', e.target.value)} placeholder="Số nhà, tên đường"/>
+            <FieldLabel required>Số nhà, tên đường</FieldLabel>
+            <input className={cls.input} value={form.address} onChange={e => set('address', e.target.value)} placeholder="VD: 123 Đường Lê Lợi"/>
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <FieldLabel>Phường / Xã</FieldLabel>
-              <input className={cls.input} value={form.ward} onChange={e => set('ward', e.target.value)} placeholder="P. Bến Nghé"/>
-            </div>
-            <div>
-              <FieldLabel>Quận / Huyện</FieldLabel>
-              <input className={cls.input} value={form.district} onChange={e => set('district', e.target.value)} placeholder="Q. 1"/>
-            </div>
-            <div>
-              <FieldLabel required>Tỉnh / Thành</FieldLabel>
-              <input className={cls.input} value={form.city} onChange={e => set('city', e.target.value)} placeholder="TP. HCM"/>
-            </div>
-          </div>
+          {/* GHN Dropdowns */}
+          <GHNAddressDropdowns value={ghn} onChange={handleGHNChange} />
 
+          {/* GHN shipping preview badge */}
+          {ghn.wardCode && (
+            <div className="flex items-center gap-2 px-3 py-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-700">
+              <span>🚚</span>
+              <span className="font-medium">Địa chỉ đã liên kết GHN — phí vận chuyển sẽ được tính tự động khi thanh toán</span>
+            </div>
+          )}
+
+          {/* Default */}
           <label className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all ${
             form.isDefault ? 'border-blue-400 bg-blue-50' : 'border-slate-200 hover:border-blue-300'
           }`}>
@@ -700,6 +813,15 @@ export default function ProfilePage() {
                       <p className="text-sm text-slate-600 mt-1">
                         {[addr.address, addr.ward, addr.district, addr.city].filter(Boolean).join(', ')}
                       </p>
+                      {addr.ghnWardCode ? (
+                        <span className="inline-flex items-center gap-1 mt-1.5 text-[10px] font-bold px-2 py-0.5 bg-emerald-50 text-emerald-600 border border-emerald-200 rounded-full">
+                          🚚 GHN tính phí tự động
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 mt-1.5 text-[10px] font-medium px-2 py-0.5 bg-amber-50 text-amber-600 border border-amber-200 rounded-full">
+                          ⚠️ Chưa liên kết GHN
+                        </span>
+                      )}
                     </div>
                   ))}
                 </div>
