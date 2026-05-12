@@ -7,6 +7,27 @@ import { formatPrice } from '@utils/helpers';
 import { productAPI, recommendationAPI } from '@features/shared/services/api';
 import { useAuth } from '@context/AuthContext';
 import ARTryOnModal from '../components/ARTryOnModal';
+import ProductCard from '../components/ProductCard';
+
+const normalizeProduct = (product) => {
+    const discountedPrice = product.discount > 0
+        ? Math.round(product.price * (1 - product.discount / 100))
+        : product.price;
+    return {
+        id: product._id || product.id,
+        _id: product._id || product.id,
+        name: product.name,
+        price: product.price,
+        discountedPrice,
+        discount: product.discount || 0,
+        category: product.category?.name || product.category || '',
+        image: product.images?.[0] || 'https://placehold.co/400x500?text=No+Image',
+        rating: product.averageRating || product.rating || 0,
+        reviews: product.reviewCount || 0,
+        stock: product.stock || 0,
+        soldCount: product.soldCount || 0,
+    };
+};
 
 const sizeChartColumns = [
     { key: 'size', label: 'Size' },
@@ -806,37 +827,13 @@ export default function ProductDetailPage() {
 
             {/* Related Products */}
             {relatedProducts.length > 0 && (
-                <div className="mt-16 border-t border-gray-200 pt-10">
-                    <h2 className="text-2xl font-bold text-dark mb-6">Sản phẩm liên quan</h2>
+                <div className="mt-16 border-t border-black/8 pt-10">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.34em] text-slate-400 mb-2">Gợi ý</p>
+                    <h2 className="text-2xl font-extrabold tracking-tight text-black mb-8">Sản phẩm liên quan</h2>
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                        {relatedProducts.map(p => {
-                            const rPrice = p.discount > 0 ? Math.round(p.price * (1 - p.discount / 100)) : p.price;
-                            return (
-                                <Link key={p._id} to={`/products/${p._id}`}
-                                    className="group block rounded-xl overflow-hidden border border-gray-200 hover:shadow-md transition-all">
-                                    <div className="aspect-[3/4] overflow-hidden bg-gray-100">
-                                        <img
-                                            src={p.images?.[0] || 'https://placehold.co/300x400?text=No+Image'}
-                                            alt={p.name}
-                                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                                        />
-                                    </div>
-                                    <div className="p-3">
-                                        <p className="text-sm font-semibold text-dark line-clamp-2 mb-1">{p.name}</p>
-                                        {p.averageRating > 0 && (
-                                            <div className="flex items-center gap-1 mb-1">
-                                                <span className="text-yellow-400 text-xs">★</span>
-                                                <span className="text-xs text-gray-500">{Number(p.averageRating).toFixed(1)}</span>
-                                            </div>
-                                        )}
-                                        <p className="text-primary font-bold text-sm">{formatPrice(rPrice)}</p>
-                                        {p.discount > 0 && (
-                                            <p className="text-xs text-gray-400 line-through">{formatPrice(p.price)}</p>
-                                        )}
-                                    </div>
-                                </Link>
-                            );
-                        })}
+                        {relatedProducts.map(p => (
+                            <ProductCard key={p._id} product={normalizeProduct(p)} />
+                        ))}
                     </div>
                 </div>
             )}
