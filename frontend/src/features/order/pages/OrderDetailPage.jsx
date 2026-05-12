@@ -1,6 +1,6 @@
 // src/pages/OrderDetailPage.jsx
 import { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import Loading from '@components/common/Loading';
 import { formatPrice, formatDate, formatOrderCode } from '@utils/helpers';
 import { orderAPI, productAPI } from '@features/shared/services/api';
@@ -289,6 +289,7 @@ function ReviewModal({ modal, form, setForm, images, setImages, loading, onClose
 
 export default function OrderDetailPage() {
     const { id } = useParams();
+    const navigate = useNavigate();
     const getReviewKey = (orderId, productId) => `${orderId}:${productId}`;
     const getOrderProductIds = (nextOrder) => [...new Set((nextOrder?.items || [])
         .map((item) => item.productId?._id || item.productId)
@@ -368,11 +369,50 @@ export default function OrderDetailPage() {
     };
 
     const handleReorder = async () => {
+        const outOfStock = [];
+        const reorderItems = [];
         try {
-            for (const item of order.items)
-                await apiClient.post('/cart',{ productId:item.productId, quantity:item.quantity, color:item.color||'', size:item.size||'' });
-            window.location.href='/cart';
-        } catch { alert('Không thể thêm vào giỏ hàng'); }
+            for (const item of order.items) {
+                const productId = item.productId?._id || item.productId;
+                let product = null;
+                try {
+                    const res = await productAPI.getProductById(productId);
+                    product = res.data?.data || res.data;
+                } catch { /* product not found */ }
+
+                if (!product) { outOfStock.push(item.name || 'Sản phẩm không xác định'); continue; }
+
+                const color = item.color || '';
+                const size = item.size || '';
+                let availableStock = product.stock;
+                if (product.variants?.length > 0) {
+                    const variant = product.variants.find(
+                        (v) => (!color || v.color === color) && (!size || v.size === size),
+                    );
+                    availableStock = variant ? variant.stock : 0;
+                }
+
+                if (availableStock < item.quantity) {
+                    outOfStock.push(item.name || 'Sản phẩm');
+                    continue;
+                }
+
+                reorderItems.push({
+                    _id: product._id, id: product._id, name: product.name, price: product.price,
+                    discountedPrice: product.discount > 0 ? Math.round(product.price * (1 - product.discount / 100)) : product.price,
+                    image: product.images?.[0] || '', stock: product.stock,
+                    quantity: item.quantity, color, size,
+                });
+            }
+
+            if (outOfStock.length > 0) {
+                alert(`Một số sản phẩm đã hết hàng:\n• ${outOfStock.join('\n• ')}`);
+            }
+            if (reorderItems.length > 0) {
+                sessionStorage.setItem('checkoutItems', JSON.stringify(reorderItems));
+                navigate('/checkout');
+            }
+        } catch { alert('Không thể xử lý đơn hàng'); }
     };
 
     const openReviewModal = () => {

@@ -417,7 +417,7 @@ export default function CheckoutPage() {
   };
 
   // ── Guards ──────────────────────────────────────────────────────────────────
-  if (cartItems.length === 0 && !orderPlaced) {
+  if (checkoutItems.length === 0 && !orderPlaced) {
     return (
       <div className="min-h-[50vh] flex flex-col items-center justify-center gap-4 text-slate-400">
         <span className="text-6xl">🛒</span>

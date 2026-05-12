@@ -1,6 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { useCart } from '@features/cart/hooks/useCart';
 import Loading from '@components/common/Loading';
 import Empty from '@components/common/Empty';
 import { formatPrice, formatDate, formatOrderCode, normalizeOrderSearch } from '@utils/helpers';
@@ -427,7 +426,6 @@ export default function OrdersPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { addToCart } = useCart();
   const getReviewKey = (orderId, productId) => `${orderId}:${productId}`;
   const getOrderProductIds = (order) => [...new Set((order.items || [])
     .map((item) => item.productId?._id || item.productId)
@@ -609,15 +607,50 @@ export default function OrdersPage() {
   };
 
   const handleReorder = async (order) => {
+    const outOfStock = [];
+    const reorderItems = [];
     try {
       for (const item of order.items) {
-        const res = await productAPI.getProductById(item.productId?._id || item.productId);
-        const product = res.data?.data || res.data;
-        if (!product || product.stock < item.quantity) { alert(`Sản phẩm "${item.name}" đã hết hàng`); return; }
-        addToCart({ id: product._id, _id: product._id, name: product.name, price: product.price, discountedPrice: product.discount > 0 ? Math.round(product.price * (1 - product.discount / 100)) : product.price, image: product.images?.[0] || '', stock: product.stock }, item.quantity);
+        const productId = item.productId?._id || item.productId;
+        let product = null;
+        try {
+          const res = await productAPI.getProductById(productId);
+          product = res.data?.data || res.data;
+        } catch { /* product not found */ }
+
+        if (!product) { outOfStock.push(item.name || 'Sản phẩm không xác định'); continue; }
+
+        const color = item.color || '';
+        const size = item.size || '';
+        let availableStock = product.stock;
+        if (product.variants?.length > 0) {
+          const variant = product.variants.find(
+            (v) => (!color || v.color === color) && (!size || v.size === size),
+          );
+          availableStock = variant ? variant.stock : 0;
+        }
+
+        if (availableStock < item.quantity) {
+          outOfStock.push(item.name || 'Sản phẩm');
+          continue;
+        }
+
+        reorderItems.push({
+          _id: product._id, id: product._id, name: product.name, price: product.price,
+          discountedPrice: product.discount > 0 ? Math.round(product.price * (1 - product.discount / 100)) : product.price,
+          image: product.images?.[0] || '', stock: product.stock,
+          quantity: item.quantity, color, size,
+        });
       }
-      navigate('/checkout');
-    } catch { alert('Có lỗi xảy ra'); }
+
+      if (outOfStock.length > 0) {
+        alert(`Một số sản phẩm đã hết hàng:\n• ${outOfStock.join('\n• ')}`);
+      }
+      if (reorderItems.length > 0) {
+        sessionStorage.setItem('checkoutItems', JSON.stringify(reorderItems));
+        navigate('/checkout');
+      }
+    } catch { alert('Có lỗi xảy ra khi xử lý đơn hàng'); }
   };
 
   const handleReview = (order) => {
