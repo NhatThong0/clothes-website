@@ -232,16 +232,10 @@ export default function HomePage() {
             <div className="absolute right-8 top-8 hidden h-40 w-40 rounded-full bg-black/[0.04] blur-3xl lg:block" />
             <div className="grid items-end gap-10 lg:grid-cols-[1.15fr_0.85fr]">
               <div className="space-y-7">
-                <div className="w-fit rounded-full border border-black/10 bg-[#f4f4f1] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.34em] text-slate-500">
-                  Giao diện theo hướng Dribbble
-                </div>
                 <div className="space-y-5">
                   <h1 className="max-w-3xl text-4xl font-extrabold leading-[0.95] tracking-[-0.05em] sm:text-5xl lg:text-7xl">
                     Thời trang unisex hiện đại với giao diện sạch và gọn gàng.
                   </h1>
-                  <p className="max-w-xl text-sm leading-7 text-slate-500 sm:text-base lg:text-lg">
-                    Nền trắng, điểm nhấn đen, bề mặt xám nhạt và kiểu chữ sans-serif thanh lịch giúp cửa hàng trông cao cấp và dễ tập trung hơn ngay từ màn hình đầu tiên.
-                  </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
                   <Link to="/products" className="rounded-full bg-black px-6 py-3 text-sm font-semibold text-white transition hover:bg-[#242424]">
