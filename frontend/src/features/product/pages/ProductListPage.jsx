@@ -228,21 +228,37 @@ useEffect(() => {
                   </button>
 
                   {categoryOpen && (
-                    <div className="mt-4 space-y-2.5">
-                      <label className="flex cursor-pointer items-center justify-between rounded-2xl border border-black/6 bg-[#f7f7f4] px-4 py-3 text-sm text-slate-600">
+                    <div className="mt-4 space-y-1">
+                      <label className="flex cursor-pointer items-center justify-between rounded-2xl border border-black/6 bg-[#f7f7f4] px-4 py-3 text-sm text-slate-600 mb-2">
                         <span>Tất cả</span>
                         <input type="radio" name="category" checked={filters.category === ''} onChange={() => updateFilter('category', '')} className="accent-black" />
                       </label>
-                      {categories.map((category) => {
-                        const categoryId = category._id || category;
-                        const categoryName = category.name || category;
-                        return (
-                          <label key={categoryId} className="flex cursor-pointer items-center justify-between rounded-2xl border border-black/6 bg-white px-4 py-3 text-sm text-slate-600 transition hover:bg-[#f7f7f4]">
-                            <span>{categoryName}</span>
-                            <input type="radio" name="category" checked={filters.category === categoryId} onChange={() => updateFilter('category', categoryId)} className="accent-black" />
-                          </label>
-                        );
-                      })}
+                      {(() => {
+                        const topLevel = categories.filter(c => !c.parent);
+                        const childrenOf = (pid) => categories.filter(c => (c.parent?._id || c.parent) === pid);
+                        return topLevel.map((parent) => {
+                          const kids = childrenOf(parent._id);
+                          if (kids.length === 0) {
+                            return (
+                              <label key={parent._id} className="flex cursor-pointer items-center justify-between rounded-2xl border border-black/6 bg-white px-4 py-3 text-sm text-slate-600 transition hover:bg-[#f7f7f4]">
+                                <span>{parent.name}</span>
+                                <input type="radio" name="category" checked={filters.category === parent._id} onChange={() => updateFilter('category', parent._id)} className="accent-black" />
+                              </label>
+                            );
+                          }
+                          return (
+                            <div key={parent._id} className="mb-1">
+                              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-400 px-2 pt-3 pb-1">{parent.name}</p>
+                              {kids.map(child => (
+                                <label key={child._id} className="flex cursor-pointer items-center justify-between rounded-2xl border border-black/6 bg-white px-4 py-2.5 text-sm text-slate-600 transition hover:bg-[#f7f7f4] ml-2">
+                                  <span>{child.name}</span>
+                                  <input type="radio" name="category" checked={filters.category === child._id} onChange={() => updateFilter('category', child._id)} className="accent-black" />
+                                </label>
+                              ))}
+                            </div>
+                          );
+                        });
+                      })()}
                     </div>
                   )}
                 </div>

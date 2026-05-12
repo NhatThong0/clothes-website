@@ -36,10 +36,10 @@ const normalizeProduct = (product) => {
 };
 
 const FALLBACK_CATEGORIES = [
-  { _id: 'unisex', name: 'Đồ unisex' },
-  { _id: 'outerwear', name: 'Áo khoác' },
-  { _id: 'tops', name: 'Áo mặc hằng ngày' },
-  { _id: 'accessories', name: 'Phụ kiện' },
+  { _id: 'ao-nam', name: 'Áo nam' },
+  { _id: 'ao-nu', name: 'Áo nữ' },
+  { _id: 'dam', name: 'Đầm' },
+  { _id: 'phu-kien', name: 'Phụ kiện' },
 ];
 
 const FEATURE_STRIPS = [

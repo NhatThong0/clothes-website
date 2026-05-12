@@ -13,6 +13,21 @@ const DEFAULT_SIZES  = ['XS','S','M','L','XL','XXL','3XL','38','39','40','41','4
 const fmt = v => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(v ?? 0);
 const inputCls = 'w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white transition';
 
+// Render <option> / <optgroup> cho select danh mục theo cấu trúc cha-con
+const renderCategoryOptions = (categories) => {
+    const topLevel = categories.filter(c => !c.parent);
+    const childrenOf = (pid) => categories.filter(c => (c.parent?._id || c.parent) === pid);
+    return topLevel.map(parent => {
+        const kids = childrenOf(parent._id);
+        if (kids.length === 0) return <option key={parent._id} value={parent._id}>{parent.name}</option>;
+        return (
+            <optgroup key={parent._id} label={parent.name}>
+                {kids.map(child => <option key={child._id} value={child._id}>{child.name}</option>)}
+            </optgroup>
+        );
+    });
+};
+
 const getCategorySizeChart = (category) => category?.sizeChart || null;
 const getCategorySizeOptions = (category) => {
     const chart = getCategorySizeChart(category);
@@ -536,7 +551,7 @@ const AdminProductManagement = () => {
                     <select value={selCat} onChange={e => { setSelCat(e.target.value); setPage(1); }}
                         className="px-4 py-2.5 border border-slate-200 rounded-xl text-sm bg-white min-w-40 focus:outline-none focus:ring-2 focus:ring-blue-500">
                         <option value="">Tất cả danh mục</option>
-                        {categories.map(c => <option key={c._id} value={c._id}>{c.name}</option>)}
+                        {renderCategoryOptions(categories)}
                     </select>
                     <button onClick={() => setSortBySold(s => !s)}
                         className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold border transition-all ${
@@ -728,7 +743,7 @@ const AdminProductManagement = () => {
                                                 onChange={e => handleCategoryChange(e.target.value)}
                                                 className={inputCls}>
                                                 <option value="">-- Chọn danh mục --</option>
-                                                {categories.map(c=><option key={c._id} value={c._id}>{c.name}</option>)}
+                                                {renderCategoryOptions(categories)}
                                             </select>
                                         </FormField>
                                         <FormField label="Mô tả" required>

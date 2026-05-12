@@ -799,7 +799,7 @@ exports.deleteProduct = async (req, res, next) => {
  */
 exports.adminGetAllCategories = async (req, res, next) => {
     try {
-        const categories = await Category.find().populate('sizeChart');
+        const categories = await Category.find().populate('sizeChart').populate('parent', 'name');
 
         // Get product count for each category
         const categoriesWithCount = await Promise.all(
@@ -830,7 +830,7 @@ exports.adminGetAllCategories = async (req, res, next) => {
  */
 exports.createCategory = async (req, res, next) => {
     try {
-        const { name, description, image, isFeatured, sizeChart } = req.body;
+        const { name, description, image, isFeatured, parent, sizeChart } = req.body;
 
         if (!name) {
             return res.status(400).json({
@@ -843,7 +843,8 @@ exports.createCategory = async (req, res, next) => {
             name,
             description: description || '',
             image: image || null,
-            isFeatured: isFeatured || false, // ✅ thêm
+            isFeatured: isFeatured || false,
+            parent: parent || null,
         });
 
         await newCategory.save();
@@ -859,12 +860,13 @@ exports.createCategory = async (req, res, next) => {
             await newCategory.save();
         }
         await newCategory.populate('sizeChart');
-        
+        await newCategory.populate('parent', 'name');
+
         // ── LƯU SANG MYSQL (Song song) ──────────────────────────────────────────
         try {
             await pool.query(
-                'INSERT INTO categories (id, name, description, image, isFeatured, createdAt) VALUES (?, ?, ?, ?, ?, NOW())',
-                [newCategory._id.toString(), name, description || '', image || null, isFeatured || false]
+                'INSERT INTO categories (id, name, description, image, isFeatured, parentId, createdAt) VALUES (?, ?, ?, ?, ?, ?, NOW())',
+                [newCategory._id.toString(), name, description || '', image || null, isFeatured || false, parent || null]
             );
             console.log("✅ Category saved to MySQL successfully");
         } catch (mysqlErr) {
@@ -897,8 +899,8 @@ exports.createCategory = async (req, res, next) => {
 exports.updateCategory = async (req, res, next) => {
     try {
         const { id } = req.params;
-        const { name, description, image, isFeatured, sizeChart, clearSizeChart } = req.body;
-        const updateData = { name, description, image, isFeatured };
+        const { name, description, image, isFeatured, parent, sizeChart, clearSizeChart } = req.body;
+        const updateData = { name, description, image, isFeatured, parent: parent !== undefined ? (parent || null) : undefined };
         const category = await Category.findById(id);
 
         if (!category) {
@@ -925,12 +927,13 @@ exports.updateCategory = async (req, res, next) => {
 
         await category.save();
         await category.populate('sizeChart');
-        
+        await category.populate('parent', 'name');
+
         // ── CẬP NHẬT SANG MYSQL (Song song) ─────────────────────────────────────
         try {
             await pool.query(
-                'UPDATE categories SET name = ?, description = ?, image = ?, isFeatured = ?, updatedAt = NOW() WHERE id = ?',
-                [name || category.name, description || category.description, image || category.image, isFeatured !== undefined ? isFeatured : category.isFeatured, id]
+                'UPDATE categories SET name = ?, description = ?, image = ?, isFeatured = ?, parentId = ?, updatedAt = NOW() WHERE id = ?',
+                [name || category.name, description || category.description, image || category.image, isFeatured !== undefined ? isFeatured : category.isFeatured, parent !== undefined ? (parent || null) : category.parent, id]
             );
         } catch (mysqlErr) {
             console.error("❌ MySQL Update Error (Category):", mysqlErr.message);
@@ -962,7 +965,16 @@ exports.deleteCategory = async (req, res, next) => {
         if (productCount > 0) {
             return res.status(400).json({
                 status: 'error',
-                message: `Cannot delete category. It has ${productCount} product(s)`
+                message: `Không thể xóa. Danh mục đang có ${productCount} sản phẩm`
+            });
+        }
+
+        // Check if category has child categories
+        const childCount = await Category.countDocuments({ parent: id });
+        if (childCount > 0) {
+            return res.status(400).json({
+                status: 'error',
+                message: `Không thể xóa. Vui lòng xóa ${childCount} danh mục con trước`
             });
         }
 

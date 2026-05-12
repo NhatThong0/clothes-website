@@ -343,7 +343,7 @@ const AdminCategoryManagement = () => {
   const [categories,      setCategories]      = useState([]);
   const [drawerOpen,      setDrawerOpen]      = useState(false);
   const [editingCategory, setEditingCategory] = useState(null);
-  const [form,            setForm]            = useState({ name: '', description: '', image: '', isFeatured: false, sizeChart: emptySizeChart() });
+  const [form,            setForm]            = useState({ name: '', description: '', image: '', isFeatured: false, parent: '', sizeChart: emptySizeChart() });
   const [saving,          setSaving]          = useState(false);
   const [deleteId,        setDeleteId]        = useState(null);
   const [search,          setSearch]          = useState('');
@@ -357,12 +357,14 @@ const AdminCategoryManagement = () => {
     if (data) setCategories(data);
   };
 
-  const openCreate = () => {
+  const openCreate = (presetParent = '') => {
     setEditingCategory(null);
-    setForm({ name: '', description: '', image: '', isFeatured: false, sizeChart: emptySizeChart() });
+    setForm({ name: '', description: '', image: '', isFeatured: false, parent: presetParent, sizeChart: emptySizeChart() });
     setSizeChartImportMeta(null);
     setDrawerOpen(true);
   };
+
+  const openCreateChild = (parentId) => openCreate(parentId);
 
   const openEdit = (c) => {
     setEditingCategory(c);
@@ -371,6 +373,7 @@ const AdminCategoryManagement = () => {
       description: c.description || '',
       image:       c.image       || '',
       isFeatured:  c.isFeatured  || false,
+      parent:      c.parent?._id || c.parent || '',
       sizeChart:   normalizeSizeChart(c.sizeChart),
     });
     setSizeChartImportMeta(null);
@@ -412,6 +415,7 @@ const AdminCategoryManagement = () => {
         description: form.description,
         image: form.image,
         isFeatured: form.isFeatured,
+        parent: form.parent || null,
         sizeChart: buildSizeChartPayload(form.sizeChart, form.name),
         clearSizeChart: editingCategory ? !form.sizeChart?.enabled : false,
       };
@@ -490,88 +494,108 @@ const AdminCategoryManagement = () => {
             )}
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {filtered.map(cat => (
-              <div key={cat._id}
-                className={`bg-white rounded-2xl border shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden group ${
-                  cat.isFeatured ? 'border-amber-200' : 'border-slate-100'
-                }`}>
+          (() => {
+            const topLevel = filtered.filter(c => !c.parent);
+            const childrenOf = (pid) => filtered.filter(c => (c.parent?._id || c.parent) === pid);
+            const allChildIds = new Set(filtered.filter(c => c.parent).map(c => c.parent?._id || c.parent));
 
-                {/* Image */}
-                <div className="relative h-40 bg-slate-100 overflow-hidden">
+            const CategoryCard = ({ cat, isChild }) => (
+              <div className={`bg-white rounded-2xl border shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden group ${
+                cat.isFeatured ? 'border-amber-200' : 'border-slate-100'
+              }`}>
+                <div className="relative h-36 bg-slate-100 overflow-hidden">
                   {cat.image ? (
-                    <img src={cat.image} alt={cat.name}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"/>
+                    <img src={cat.image} alt={cat.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"/>
                   ) : (
-                    <div className={`w-full h-full flex items-center justify-center bg-gradient-to-br ${
-                      cat.isFeatured ? 'from-amber-50 to-amber-100' : 'from-slate-50 to-slate-100'
-                    }`}>
-                      <div className="w-16 h-16 rounded-2xl bg-white flex items-center justify-center shadow-sm">
-                        <span className="text-3xl">📂</span>
-                      </div>
+                    <div className={`w-full h-full flex items-center justify-center bg-gradient-to-br ${cat.isFeatured ? 'from-amber-50 to-amber-100' : 'from-slate-50 to-slate-100'}`}>
+                      <span className="text-3xl">{isChild ? '📄' : '📁'}</span>
                     </div>
                   )}
-
-                  {/* isFeatured badge */}
                   {cat.isFeatured && (
-                    <div className="absolute top-2 left-2 bg-amber-400 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm">
-                      ⭐ Nổi bật
-                    </div>
+                    <div className="absolute top-2 left-2 bg-amber-400 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm">⭐ Nổi bật</div>
                   )}
-
-                  {/* Overlay actions */}
                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                    <button onClick={() => openEdit(cat)}
-                      className="px-3 py-1.5 bg-white text-blue-600 text-xs font-bold rounded-xl hover:bg-blue-50 transition-colors">
-                      ✏️ Sửa
-                    </button>
-                    <button onClick={() => setDeleteId(cat._id)}
-                      className="px-3 py-1.5 bg-white text-rose-600 text-xs font-bold rounded-xl hover:bg-rose-50 transition-colors">
-                      🗑️ Xóa
-                    </button>
+                    <button onClick={() => openEdit(cat)} className="px-3 py-1.5 bg-white text-blue-600 text-xs font-bold rounded-xl hover:bg-blue-50">✏️ Sửa</button>
+                    <button onClick={() => setDeleteId(cat._id)} className="px-3 py-1.5 bg-white text-rose-600 text-xs font-bold rounded-xl hover:bg-rose-50">🗑️ Xóa</button>
                   </div>
                 </div>
-
-                {/* Info */}
-                <div className="p-4">
-                  <div className="flex items-start justify-between gap-2 mb-1">
-                    <h3 className="font-bold text-slate-800 text-base leading-tight">{cat.name}</h3>
-                  </div>
-                  {cat.description && (
-                    <p className="text-xs text-slate-400 mt-1 line-clamp-2 leading-relaxed">{cat.description}</p>
-                  )}
+                <div className="p-3">
+                  <h3 className="font-bold text-slate-800 text-sm leading-tight mb-1">{cat.name}</h3>
+                  {cat.description && <p className="text-xs text-slate-400 line-clamp-1 mb-2">{cat.description}</p>}
                   {cat.sizeChart?.sizes?.length > 0 && (
-                    <div className="mt-2 flex items-center gap-2 flex-wrap">
-                      <span className="text-[11px] font-semibold bg-blue-50 text-blue-600 px-2 py-1 rounded-lg border border-blue-100">
-                        Bảng size: {cat.sizeChart.sizeFormat === 'numeric' ? 'size số' : cat.sizeChart.sizeFormat === 'alpha' ? 'size chữ' : 'hỗn hợp'}
-                      </span>
-                      <span className="text-[11px] text-slate-400">{cat.sizeChart.sizes.length} dòng size</span>
-                    </div>
-                  )}
-                  <div className="mt-3 flex items-center justify-between">
-                    <span className="text-xs font-semibold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg">
-                      {cat.productCount || 0} sản phẩm
+                    <span className="text-[10px] font-semibold bg-blue-50 text-blue-600 px-2 py-0.5 rounded-lg border border-blue-100 mr-1">
+                      Bảng size · {cat.sizeChart.sizes.length} dòng
                     </span>
+                  )}
+                  <div className="mt-2 flex items-center justify-between">
+                    <span className="text-xs text-slate-400">{cat.productCount || 0} sản phẩm</span>
                     <div className="flex gap-1">
-                      <button onClick={() => openEdit(cat)}
-                        className="p-1.5 hover:bg-blue-50 text-blue-600 rounded-lg transition-colors text-sm">✏️</button>
-                      <button onClick={() => setDeleteId(cat._id)}
-                        className="p-1.5 hover:bg-rose-50 text-rose-500 rounded-lg transition-colors text-sm">🗑️</button>
+                      <button onClick={() => openEdit(cat)} className="p-1 hover:bg-blue-50 text-blue-600 rounded-lg text-sm">✏️</button>
+                      <button onClick={() => setDeleteId(cat._id)} className="p-1 hover:bg-rose-50 text-rose-500 rounded-lg text-sm">🗑️</button>
                     </div>
                   </div>
                 </div>
               </div>
-            ))}
+            );
 
-            {/* Add new card */}
-            <button onClick={openCreate}
-              className="bg-white rounded-2xl border-2 border-dashed border-slate-200 hover:border-blue-400 shadow-sm hover:shadow-md transition-all duration-200 h-[232px] flex flex-col items-center justify-center gap-3 text-slate-400 hover:text-blue-500 group">
-              <div className="w-12 h-12 rounded-2xl bg-slate-100 group-hover:bg-blue-50 flex items-center justify-center transition-colors">
-                <span className="text-2xl">+</span>
+            return (
+              <div className="space-y-8">
+                {topLevel.map(parent => {
+                  const kids = childrenOf(parent._id);
+                  const isParentGroup = allChildIds.has(parent._id) || kids.length > 0;
+                  return (
+                    <div key={parent._id}>
+                      {/* Section header */}
+                      <div className="flex items-center gap-3 mb-4">
+                        <span className="text-base font-bold text-slate-800">
+                          {isParentGroup ? '📁' : '📄'} {parent.name}
+                        </span>
+                        {parent.isFeatured && <span className="text-xs bg-amber-100 text-amber-600 px-2 py-0.5 rounded-full">⭐ Nổi bật</span>}
+                        <span className="text-xs text-slate-400">{parent.productCount || 0} sp trực tiếp</span>
+                        <div className="flex-1 h-px bg-slate-200"/>
+                        <button onClick={() => openCreateChild(parent._id)}
+                          className="flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700 px-3 py-1.5 rounded-xl border border-blue-200 hover:bg-blue-50 transition-all whitespace-nowrap">
+                          + Thêm con
+                        </button>
+                        <button onClick={() => openEdit(parent)} className="text-xs text-slate-500 hover:text-blue-600 px-2 py-1.5 rounded-lg hover:bg-blue-50 transition-colors">✏️ Sửa</button>
+                        <button onClick={() => setDeleteId(parent._id)} className="text-xs text-slate-500 hover:text-rose-600 px-2 py-1.5 rounded-lg hover:bg-rose-50 transition-colors">🗑️</button>
+                      </div>
+
+                      {/* Children grid */}
+                      {kids.length > 0 ? (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 pl-5 border-l-2 border-slate-200">
+                          {kids.map(child => <CategoryCard key={child._id} cat={child} isChild />)}
+                          <button onClick={() => openCreateChild(parent._id)}
+                            className="bg-white rounded-2xl border-2 border-dashed border-slate-200 hover:border-blue-400 h-[180px] flex flex-col items-center justify-center gap-2 text-slate-400 hover:text-blue-500 transition-all">
+                            <span className="text-xl">+</span>
+                            <span className="text-xs font-semibold">Thêm vào {parent.name}</span>
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="pl-5 border-l-2 border-dashed border-slate-200">
+                          <button onClick={() => openCreateChild(parent._id)}
+                            className="w-full max-w-xs bg-white rounded-2xl border-2 border-dashed border-slate-200 hover:border-blue-400 h-24 flex items-center justify-center gap-2 text-slate-400 hover:text-blue-500 transition-all">
+                            <span>+</span>
+                            <span className="text-sm font-semibold">Thêm danh mục con</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {/* Add top-level category */}
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 h-px bg-slate-200"/>
+                  <button onClick={() => openCreate()}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-white border-2 border-dashed border-slate-200 hover:border-blue-400 rounded-2xl text-slate-400 hover:text-blue-500 text-sm font-semibold transition-all whitespace-nowrap">
+                    <span>+</span> Thêm nhóm danh mục gốc
+                  </button>
+                  <div className="flex-1 h-px bg-slate-200"/>
+                </div>
               </div>
-              <span className="text-sm font-semibold">Thêm danh mục</span>
-            </button>
-          </div>
+            );
+          })()
         )}
       </div>
 
@@ -604,6 +628,27 @@ const AdminCategoryManagement = () => {
                     onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
                     placeholder="VD: Áo khoác, Váy đầm..."
                     className={inputCls}/>
+                </div>
+
+                {/* Parent category */}
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-600 uppercase tracking-wide">Danh mục cha</label>
+                  <select
+                    value={form.parent}
+                    onChange={e => setForm(f => ({ ...f, parent: e.target.value }))}
+                    className={inputCls}
+                  >
+                    <option value="">— Không có (danh mục gốc) —</option>
+                    {categories
+                      .filter(c => !c.parent && c._id !== editingCategory?._id)
+                      .map(c => (
+                        <option key={c._id} value={c._id}>{c.name}</option>
+                      ))
+                    }
+                  </select>
+                  {form.parent && (
+                    <p className="text-xs text-slate-400">Danh mục này sẽ nằm dưới nhóm đã chọn.</p>
+                  )}
                 </div>
 
                 {/* Description */}

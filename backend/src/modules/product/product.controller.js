@@ -417,7 +417,7 @@ exports.getFeaturedProducts = async (req, res, next) => {
 // ── GET /api/products/categories ─────────────────────────────────────────────
 exports.getCategories = async (req, res, next) => {
     try {
-        const categories = await Category.find().populate('sizeChart');
+        const categories = await Category.find().populate('sizeChart').populate('parent', 'name');
         res.status(200).json({ status: 'success', data: categories });
     } catch (error) {
         next(error);
