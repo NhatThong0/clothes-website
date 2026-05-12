@@ -517,15 +517,18 @@ const AdminLayout = () => {
                     )}
                   </div>
 
-                  <div className="border-t border-slate-100 bg-slate-50/50 p-2">
+                  <div className="border-t border-slate-100 bg-slate-50/50 p-2 flex gap-2">
                     <button
-                      onClick={() => {
-                        navigate('/admin/orders');
-                        setIsNotifOpen(false);
-                      }}
-                      className="w-full rounded-lg border border-slate-200 bg-white py-2 text-[11px] font-bold text-slate-500 shadow-sm transition-colors hover:bg-slate-100"
+                      onClick={() => { navigate('/admin/orders'); setIsNotifOpen(false); }}
+                      className="flex-1 rounded-lg border border-slate-200 bg-white py-2 text-[11px] font-bold text-slate-500 shadow-sm transition-colors hover:bg-slate-100"
                     >
-                      Xem tất cả đơn hàng
+                      Đơn hàng
+                    </button>
+                    <button
+                      onClick={() => { navigate('/admin/reviews'); setIsNotifOpen(false); }}
+                      className="flex-1 rounded-lg border border-slate-200 bg-white py-2 text-[11px] font-bold text-slate-500 shadow-sm transition-colors hover:bg-slate-100"
+                    >
+                      Đánh giá
                     </button>
                   </div>
                 </div>

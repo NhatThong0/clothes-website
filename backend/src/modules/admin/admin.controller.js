@@ -7,7 +7,7 @@ const mongoose = require('mongoose');
 const { pool } = require('../../db/mysql');
 const Order = require('../../model/Order');
 const Voucher = require('../../model/Voucher');
-const { notifyOrderStatus } = require('../notification/notification.controller');
+const { notifyOrderStatus, createNotification } = require('../notification/notification.controller');
 const { syncUserLoyaltySnapshot, getUserLoyaltyDetails } = require('../loyalty/loyalty.service');
 const { calculateReviewMetrics } = require('../product/reviewModeration.service');
 const {
@@ -2105,6 +2105,23 @@ exports.manualModerateReview = async (req, res, next) => {
         product.averageRating = metrics.averageRating;
         product.rating = metrics.rating;
         await product.save();
+
+        // Thông báo cho tác giả đánh giá
+        const authorId = review.userId?.toString();
+        if (authorId) {
+            await createNotification({
+                userId: authorId,
+                type: 'review',
+                title: decision === 'approve' ? 'Đánh giá đã được duyệt' : 'Đánh giá bị từ chối',
+                message: decision === 'approve'
+                    ? 'Đánh giá của bạn đã được admin duyệt và hiển thị công khai.'
+                    : `Đánh giá của bạn đã bị admin từ chối.${notes ? ' Lý do: ' + notes : ''}`,
+                icon: decision === 'approve' ? '✅' : '❌',
+                color: decision === 'approve' ? 'green' : 'red',
+                link: `/products/${productId}`,
+                meta: { productId, reviewId, decision, notes },
+            }, req);
+        }
 
         res.status(200).json({
             status: 'success',

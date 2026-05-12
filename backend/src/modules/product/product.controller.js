@@ -7,6 +7,7 @@ const { pool } = require('../../db/mysql');
 const { validateObjectId } = require('../../utils/validators');
 const loyaltyService = require('../loyalty/loyalty.service');
 const { calculateReviewMetrics, moderateReviewText, buildModerationUpdate } = require('./reviewModeration.service');
+const { createNotification, notifyAdmin } = require('../notification/notification.controller');
 
 // ── Helper ────────────────────────────────────────────────────────────────────
 const getSoldMap = async (productIds) => {
@@ -504,6 +505,43 @@ exports.addReview = async (req, res, next) => {
                 await freshProduct.save();
 
                 console.log(`[reviewModeration] ${savedReviewId} → ${update.moderationStatus} (${update.moderationSource}, score=${update.moderationScore?.toFixed(2)})`);
+
+                // Thông báo cho người dùng và admin nếu có dấu hiệu vi phạm
+                if (update.moderationStatus === 'pending') {
+                    const productName = freshProduct.name || 'sản phẩm';
+                    await Promise.all([
+                        createNotification({
+                            userId,
+                            type: 'review',
+                            title: 'Đánh giá đang chờ xem xét',
+                            message: 'Đánh giá của bạn có dấu hiệu vi phạm nội dung và đang chờ admin xem xét.',
+                            icon: '⚠️',
+                            color: 'orange',
+                            link: `/products/${id}`,
+                            meta: { productId: id, reviewId: savedReviewId.toString() },
+                        }, req),
+                        notifyAdmin({
+                            type: 'review',
+                            title: '⚠️ Đánh giá có dấu hiệu vi phạm',
+                            message: `Một đánh giá mới cho "${productName}" bị gắn cờ vi phạm và cần xem xét.`,
+                            icon: '⚠️',
+                            color: 'orange',
+                            link: '/admin/reviews',
+                            meta: { productId: id, reviewId: savedReviewId.toString() },
+                        }, req),
+                    ]);
+                } else if (update.moderationStatus === 'rejected') {
+                    await createNotification({
+                        userId,
+                        type: 'review',
+                        title: 'Đánh giá bị từ chối tự động',
+                        message: 'Đánh giá của bạn đã bị từ chối do vi phạm nội dung cộng đồng.',
+                        icon: '❌',
+                        color: 'red',
+                        link: `/products/${id}`,
+                        meta: { productId: id, reviewId: savedReviewId.toString() },
+                    }, req);
+                }
             } catch (e) {
                 console.error('[reviewModeration] background moderation failed:', e.message);
             }
@@ -564,10 +602,72 @@ exports.updateReview = async (req, res, next) => {
         product.rating = metrics.rating;
 
         await product.save();
+
+        const savedReviewId = review._id;
+        const editedComment = review.comment;
+
         res.status(200).json({
             status: 'success',
-            message: 'Review đã được cập nhật và đưa lại vào hàng chờ kiểm duyệt',
+            message: 'Review đã được cập nhật và đang chờ kiểm duyệt',
             data: review,
+        });
+
+        // Fire-and-forget AI moderation cho bản chỉnh sửa
+        setImmediate(async () => {
+            try {
+                const result = await moderateReviewText({ comment: editedComment, userId });
+                const update = buildModerationUpdate(result);
+
+                const freshProduct = await Product.findById(id);
+                const rev = freshProduct?.reviews?.id(savedReviewId);
+                if (!rev) return;
+
+                Object.assign(rev, update);
+                const freshMetrics = calculateReviewMetrics(freshProduct.reviews);
+                freshProduct.averageRating = freshMetrics.averageRating;
+                freshProduct.rating = freshMetrics.rating;
+                await freshProduct.save();
+
+                console.log(`[reviewModeration] edit ${savedReviewId} → ${update.moderationStatus}`);
+
+                if (update.moderationStatus === 'pending') {
+                    const productName = freshProduct.name || 'sản phẩm';
+                    await Promise.all([
+                        createNotification({
+                            userId,
+                            type: 'review',
+                            title: 'Đánh giá chỉnh sửa đang chờ xem xét',
+                            message: 'Đánh giá đã chỉnh sửa của bạn có dấu hiệu vi phạm và đang chờ admin xem xét.',
+                            icon: '⚠️',
+                            color: 'orange',
+                            link: `/products/${id}`,
+                            meta: { productId: id, reviewId: savedReviewId.toString(), isEdit: true },
+                        }, req),
+                        notifyAdmin({
+                            type: 'review',
+                            title: '⚠️ Đánh giá chỉnh sửa có dấu hiệu vi phạm',
+                            message: `Một đánh giá đã chỉnh sửa cho "${productName}" bị gắn cờ vi phạm và cần xem xét.`,
+                            icon: '⚠️',
+                            color: 'orange',
+                            link: '/admin/reviews',
+                            meta: { productId: id, reviewId: savedReviewId.toString(), isEdit: true },
+                        }, req),
+                    ]);
+                } else if (update.moderationStatus === 'rejected') {
+                    await createNotification({
+                        userId,
+                        type: 'review',
+                        title: 'Đánh giá chỉnh sửa bị từ chối',
+                        message: 'Đánh giá đã chỉnh sửa của bạn đã bị từ chối do vi phạm nội dung cộng đồng.',
+                        icon: '❌',
+                        color: 'red',
+                        link: `/products/${id}`,
+                        meta: { productId: id, reviewId: savedReviewId.toString(), isEdit: true },
+                    }, req);
+                }
+            } catch (e) {
+                console.error('[reviewModeration] background moderation (edit) failed:', e.message);
+            }
         });
     } catch (error) {
         next(error);

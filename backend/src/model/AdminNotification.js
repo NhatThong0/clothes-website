@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 
 const adminNotificationSchema = new mongoose.Schema(
   {
-    type:    { type: String, enum: ['order', 'return', 'user', 'system'], required: true },
+    type:    { type: String, enum: ['order', 'return', 'user', 'system', 'review'], required: true },
     title:   { type: String, required: true },
     message: { type: String, required: true },
     icon:    { type: String, default: '🔔' },

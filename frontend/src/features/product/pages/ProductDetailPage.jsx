@@ -641,24 +641,45 @@ export default function ProductDetailPage() {
                         {myReviews.length > 0 && (
                             <div className="mb-6 p-4 border-2 border-primary rounded-xl bg-blue-50">
                                 <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
-                                    <p className="font-semibold text-primary">Tat ca danh gia cua ban cho san pham nay</p>
+                                    <p className="font-semibold text-primary">Tất cả đánh giá của bạn cho sản phẩm này</p>
                                     <span className="text-xs font-semibold text-blue-600 bg-white/80 border border-blue-200 rounded-full px-3 py-1">
-                                        {myReviews.length} danh gia
+                                        {myReviews.length} đánh giá
                                     </span>
                                 </div>
                                 <div className="space-y-4">
-                                    {myReviews.map((review, index) => (
-                                        <div key={review._id || index} className="rounded-xl border border-blue-100 bg-white/80 p-4">
+                                    {myReviews.map((review, index) => {
+                                        const status = review.moderationStatus;
+                                        const statusBadge = status === 'processing'
+                                            ? { label: 'Đang xử lý', icon: '⏳', cls: 'bg-slate-100 text-slate-500 border-slate-200' }
+                                            : status === 'pending'
+                                            ? { label: 'Đang chờ xem xét — có dấu hiệu vi phạm', icon: '⚠️', cls: 'bg-orange-50 text-orange-600 border-orange-200' }
+                                            : status === 'rejected'
+                                            ? { label: 'Đã bị từ chối', icon: '❌', cls: 'bg-red-50 text-red-600 border-red-200' }
+                                            : status === 'approved'
+                                            ? { label: 'Đã duyệt', icon: '✓', cls: 'bg-green-50 text-green-600 border-green-200' }
+                                            : null;
+
+                                        return (
+                                        <div key={review._id || index} className={`rounded-xl border p-4 ${
+                                            status === 'rejected' ? 'border-red-200 bg-red-50/40'
+                                            : status === 'pending' ? 'border-orange-200 bg-orange-50/40'
+                                            : 'border-blue-100 bg-white/80'
+                                        }`}>
                                             <div className="flex justify-between items-start gap-3 mb-2 flex-wrap">
                                                 <div>
                                                     <p className="font-semibold text-slate-800">
-                                                        Don hang #{String(review.orderId || '').slice(-8).toUpperCase() || 'N/A'}
+                                                        Đơn hàng #{String(review.orderId || '').slice(-8).toUpperCase() || 'N/A'}
                                                     </p>
                                                     <p className="text-xs text-slate-400">
                                                         {new Date(review.createdAt).toLocaleDateString('vi-VN')}
                                                     </p>
                                                 </div>
-                                                <div className="flex gap-2">
+                                                <div className="flex gap-2 items-center">
+                                                    {statusBadge && (
+                                                        <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${statusBadge.cls}`}>
+                                                            {statusBadge.icon} {statusBadge.label}
+                                                        </span>
+                                                    )}
                                                     <button
                                                         onClick={() => {
                                                             setEditTarget(review);
@@ -667,15 +688,21 @@ export default function ProductDetailPage() {
                                                         }}
                                                         className="text-sm text-blue-600 hover:underline"
                                                     >
-                                                        Sua
+                                                        Sửa
                                                     </button>
                                                     <button onClick={() => handleDeleteMyReview(review)} className="text-sm text-red-500 hover:underline">
-                                                        Xoa
+                                                        Xóa
                                                     </button>
                                                 </div>
                                             </div>
                                             <div className="flex mb-2">{[...Array(5)].map((_, i) => <span key={i} className={`text-lg ${i < review.rating ? 'text-yellow-400' : 'text-gray-300'}`}>★</span>)}</div>
-                                            <p className="text-gray-700">{review.comment}</p>
+                                            {status === 'rejected' && review.moderationSummary && (
+                                                <p className="text-xs text-red-500 mb-2 italic">{review.moderationSummary}</p>
+                                            )}
+                                            {status === 'pending' && (
+                                                <p className="text-xs text-orange-500 mb-2">Đánh giá của bạn đang được admin xem xét và chưa hiển thị công khai.</p>
+                                            )}
+                                            <p className={`${status === 'rejected' || status === 'pending' ? 'text-slate-500 line-through' : 'text-gray-700'}`}>{review.comment}</p>
                                             {review.images?.length > 0 && (
                                                 <div className="flex gap-2 mt-3 flex-wrap">
                                                     {review.images.map((img, imageIndex) => (
@@ -684,7 +711,8 @@ export default function ProductDetailPage() {
                                                 </div>
                                             )}
                                         </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             </div>
                         )}
