@@ -23,7 +23,7 @@ const orderSchema = new mongoose.Schema({
     },
     paymentMethod: {
         type: String,
-        enum: ['cod', 'vnpay'],
+        enum: ['cod', 'vnpay', 'momo', 'payos'],
         required: true,
     },
     paymentStatus: {
@@ -47,6 +47,8 @@ const orderSchema = new mongoose.Schema({
     notes:           { type: String, default: '' },
     trackingNumber:  { type: String, default: null },
     vnpayTxnRef:     { type: String, default: null },
+    momoRequestId:   { type: String, default: null },
+    payosOrderCode:  { type: Number, default: null },
     revenueRecorded: { type: Boolean, default: false },
 
     // ── Timestamps ────────────────────────────────────────────────────────────

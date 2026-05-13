@@ -29,7 +29,7 @@ function SectionCard({ title, icon, children }) {
 
 const PAYMENT_METHODS = [
   { id: 'cod',   label: 'Thanh toán khi nhận hàng', icon: '💵', desc: 'Trả tiền mặt khi nhận hàng' },
-  { id: 'vnpay', label: 'VNPay',                    icon: '🏦', desc: 'Thanh toán qua VNPay (ATM, QR, Ví VNPay)' },
+  { id: 'payos', label: 'PayOS',                     icon: '💳', desc: 'Thanh toán qua PayOS (QR, chuyển khoản ngân hàng)' },
 ];
 
 function DiscountTypeBadge({ voucher }) {
@@ -392,20 +392,25 @@ export default function CheckoutPage() {
       });
       const createdOrder = orderRes.data.data;
 
+      if (formData.paymentMethod === 'payos') {
+        const payRes     = await apiClient.post('/payment/payos-create', { orderId: createdOrder._id });
+        const paymentUrl = payRes.data?.data?.paymentUrl;
+        if (!paymentUrl) throw new Error('Không nhận được URL thanh toán từ PayOS');
+        // Clean up right before navigating away (no re-render visible)
+        sessionStorage.removeItem('checkoutItems');
+        checkoutItems.forEach(item =>
+          removeFromCart(item._id || item.id, item.color || '', item.size || '')
+        );
+        window.location.href = paymentUrl;
+        return;
+      }
+
       await Promise.allSettled(
         checkoutItems.map(item =>
           removeFromCart(item._id || item.id, item.color || '', item.size || '')
         )
       );
       sessionStorage.removeItem('checkoutItems');
-
-      if (formData.paymentMethod === 'vnpay') {
-        const payRes     = await apiClient.post('/payment/vnpay-create', { orderId: createdOrder._id });
-        const paymentUrl = payRes.data?.data?.paymentUrl;
-        if (!paymentUrl) throw new Error('Không nhận được paymentUrl từ server');
-        window.location.href = paymentUrl;
-        return;
-      }
 
       setOrderPlaced(true);
       setTimeout(() => navigate(`/orders/${createdOrder._id}`), 2500);

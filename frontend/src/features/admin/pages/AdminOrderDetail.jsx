@@ -260,11 +260,13 @@ const AdminOrderDetail = () => {
   );
 
   const paymentMethodLabel = {
-    cod: 'Thanh toán khi nhận hàng (COD)',
-    banking: 'Chuyển khoản ngân hàng',
-    bank_transfer: 'Chuyển khoản ngân hàng',
-    card: 'Thẻ tín dụng / Ghi nợ',
-    momo: 'Ví MoMo',
+    cod:          'Thanh toán khi nhận hàng (COD)',
+    banking:      'Chuyển khoản ngân hàng',
+    bank_transfer:'Chuyển khoản ngân hàng',
+    card:         'Thẻ tín dụng / Ghi nợ',
+    momo:         'Ví MoMo',
+    vnpay:        'VNPay',
+    payos:        'PayOS',
   };
   const paymentStatusLabel = {
     pending: 'Chờ thanh toán',

@@ -1,20 +1,11 @@
-// src/pages/PaymentResultPage.jsx
 import { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate, Link } from 'react-router-dom';
 import apiClient from '@features/shared/services/apiClient';
 
-const VNPAY_CODES = {
-    '07': 'Trừ tiền thành công nhưng giao dịch bị nghi ngờ gian lận.',
-    '09': 'Thẻ/Tài khoản chưa đăng ký dịch vụ InternetBanking.',
-    '10': 'Xác thực thông tin thẻ/tài khoản quá 3 lần.',
-    '11': 'Đã hết hạn chờ thanh toán. Vui lòng thực hiện lại giao dịch.',
-    '12': 'Thẻ/Tài khoản bị khóa.',
-    '13': 'Sai mật khẩu OTP. Vui lòng thực hiện lại giao dịch.',
-    '24': 'Bạn đã hủy giao dịch.',
-    '51': 'Tài khoản không đủ số dư.',
-    '65': 'Tài khoản vượt hạn mức giao dịch trong ngày.',
-    '75': 'Ngân hàng thanh toán đang bảo trì.',
-    '79': 'Sai mật khẩu thanh toán quá số lần quy định.',
+const PAYOS_MESSAGES = {
+    cancelled: 'Bạn đã hủy giao dịch.',
+    failed:    'Thanh toán không thành công. Vui lòng thử lại.',
+    CANCELLED: 'Bạn đã hủy giao dịch.',
 };
 
 export default function PaymentResultPage() {
@@ -40,7 +31,7 @@ export default function PaymentResultPage() {
         setRetryLoading(true);
         try {
             await apiClient.post(`/orders/${orderId}/retry-payment`);
-            const payRes     = await apiClient.post('/payment/vnpay-create', { orderId });
+            const payRes     = await apiClient.post('/payment/payos-create', { orderId });
             const paymentUrl = payRes.data?.data?.paymentUrl;
             if (!paymentUrl) throw new Error('Không nhận được URL thanh toán');
             window.location.href = paymentUrl;
@@ -51,7 +42,7 @@ export default function PaymentResultPage() {
     };
 
     const errorMsg = code
-        ? (VNPAY_CODES[code] || `Giao dịch thất bại (mã lỗi: ${code})`)
+        ? (PAYOS_MESSAGES[code] || `Thanh toán không thành công (${code})`)
         : (msg ? decodeURIComponent(msg) : 'Thanh toán không thành công. Vui lòng thử lại.');
 
     return (
@@ -67,13 +58,12 @@ export default function PaymentResultPage() {
                             </svg>
                         </div>
                         <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-50 rounded-full mb-4">
-                            <img src="https://sandbox.vnpayment.vn/paymentv2/Assets/Images/logoVNPAY.svg"
-                                alt="VNPay" className="h-4" onError={e => e.target.style.display='none'}/>
-                            <span className="text-xs font-bold text-blue-600">VNPay</span>
+                            <span className="text-xl">💳</span>
+                            <span className="text-xs font-bold text-blue-700">PayOS</span>
                         </div>
                         <h2 className="text-2xl font-black text-slate-900 mb-2">Thanh toán thành công!</h2>
                         <p className="text-slate-500 text-sm leading-relaxed mb-6">
-                            Đơn hàng của bạn đã được xác nhận thanh toán qua VNPay.
+                            Đơn hàng của bạn đã được xác nhận thanh toán qua PayOS.
                         </p>
                         {orderId && (
                             <p className="text-xs text-slate-400 font-mono bg-slate-50 rounded-xl px-4 py-2 mb-6">

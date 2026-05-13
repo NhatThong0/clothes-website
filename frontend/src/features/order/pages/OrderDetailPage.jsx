@@ -20,7 +20,7 @@ const STATUS_CFG = {
 const sc = s => STATUS_CFG[s] || { label:s, icon:'📋', dot:'#94A3B8', bg:'#F8FAFC', text:'#475569' };
 const MAIN_STEPS         = ['pending','confirmed','shipped','delivered'];
 const RETURN_WINDOW_DAYS = 3; // Rút ngắn từ 5 → 3 ngày
-const PAYMENT_LABELS     = { cod:'Thanh toán khi nhận (COD)', bank_transfer:'Chuyển khoản', momo:'Ví MoMo', vnpay:'VNPay' };
+const PAYMENT_LABELS     = { cod:'Thanh toán khi nhận (COD)', bank_transfer:'Chuyển khoản', momo:'Ví MoMo', vnpay:'VNPay', payos:'PayOS' };
 
 async function uploadImage(file) {
     if (file.size > 10*1024*1024) throw new Error(`Ảnh "${file.name}" quá lớn (tối đa 10MB)`);
@@ -345,7 +345,7 @@ export default function OrderDetailPage() {
         setRetryLoading(true);
         try {
             await apiClient.post(`/orders/${id}/retry-payment`);
-            const payRes=await apiClient.post('/payment/vnpay-create',{orderId:id});
+            const payRes=await apiClient.post('/payment/payos-create',{orderId:id});
             const url=payRes.data?.data?.paymentUrl;
             if (!url) throw new Error('Không nhận được URL thanh toán');
             window.location.href=url;
@@ -498,7 +498,7 @@ export default function OrderDetailPage() {
     // ✅ Hoàn trả chỉ tính từ ngày user xác nhận nhận hàng
     const canReturn = !hasReviewed && isDelivered && userConfirmed &&
         (Date.now() - new Date(order.userConfirmedAt).getTime()) / 86400000 <= RETURN_WINDOW_DAYS;
-    const canRetryPayment = order.paymentMethod==='vnpay' && order.paymentStatus!=='completed'
+    const canRetryPayment = ['vnpay','momo','payos'].includes(order.paymentMethod) && order.paymentStatus!=='completed'
         && order.status!=='cancelled' && !isExpired;
 
     return (

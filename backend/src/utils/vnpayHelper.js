@@ -1,5 +1,4 @@
 const crypto = require('crypto');
-const qs     = require('qs');
 const moment = require('moment');
 
 const TMN_CODE    = process.env.VNPAY_TMN_CODE    || '';
@@ -13,7 +12,7 @@ function createPaymentUrl({ orderId, amount, orderInfo, clientIp }) {
 
     process.env.TZ = 'Asia/Ho_Chi_Minh';
 
-    const createDate = moment(new Date()).format('YYYYMMDDHHmmss');
+    const createDate = moment().format('YYYYMMDDHHmmss');
     const amountInt  = Math.round(Number(amount)) * 100;
     const txnRef     = `${orderId.toString().slice(-8)}${Date.now()}`;
 
@@ -24,39 +23,37 @@ function createPaymentUrl({ orderId, amount, orderInfo, clientIp }) {
         .replace('::ffff:', '').replace('::1', '127.0.0.1')
         .split(',')[0].trim();
 
-    // Params raw — chưa encode
     const rawParams = {
-        vnp_Version:    '2.1.0',
+        vnp_Amount:     amountInt,
         vnp_Command:    'pay',
-        vnp_TmnCode:    TMN_CODE,
-        vnp_Locale:     'vn',
+        vnp_CreateDate: createDate,
         vnp_CurrCode:   'VND',
-        vnp_TxnRef:     txnRef,
+        vnp_IpAddr:     ip,
+        vnp_Locale:     'vn',
         vnp_OrderInfo:  safeInfo,
         vnp_OrderType:  'other',
-        vnp_Amount:     amountInt,
         vnp_ReturnUrl:  RETURN_URL,
-        vnp_IpAddr:     ip,
-        vnp_CreateDate: createDate,
+        vnp_TmnCode:    TMN_CODE,
+        vnp_TxnRef:     txnRef,
+        vnp_Version:    '2.1.0',
     };
 
-    // Bước 1: sort key alphabet
-    const sortedKeys = Object.keys(rawParams).sort();
+    // ✅ signData: sort key, dùng giá trị RAW (không encode)
+    const signData = Object.keys(rawParams)
+        .sort()
+        .map(k => `${k}=${rawParams[k]}`)
+        .join('&');
 
-    // Bước 2: build signData theo đúng VNPay — dùng sortObject để encode
-    const encodedParams = sortObject(rawParams);
-    const signData = qs.stringify(encodedParams, { encode: false });
-
-    // Bước 3: HMAC-SHA512
     const signed = crypto.createHmac('sha512', HASH_SECRET)
         .update(Buffer.from(signData, 'utf-8'))
         .digest('hex');
 
-    // Bước 4: build URL — dùng raw params + encodeURIComponent từng value
-    // KHÔNG qua sortObject để tránh double encode
-    const queryString = sortedKeys
+    // ✅ URL: encode từng value để truyền tải an toàn
+    const queryString = Object.keys(rawParams)
+        .sort()
         .map(k => `${k}=${encodeURIComponent(rawParams[k])}`)
         .join('&');
+
     const paymentUrl = `${VNPAY_URL}?${queryString}&vnp_SecureHash=${signed}`;
 
     console.log('[VNPay] txnRef    :', txnRef);
@@ -74,9 +71,11 @@ function verifyReturn(query) {
     delete vnp_Params['vnp_SecureHash'];
     delete vnp_Params['vnp_SecureHashType'];
 
-    // Express đã decode query string → dùng sortObject để encode lại giống lúc tạo
-    const encodedParams = sortObject(vnp_Params);
-    const signData = qs.stringify(encodedParams, { encode: false });
+    // ✅ Express đã decode sẵn → dùng giá trị RAW luôn
+    const signData = Object.keys(vnp_Params)
+        .sort()
+        .map(k => `${k}=${vnp_Params[k]}`)
+        .join('&');
 
     const signed = crypto.createHmac('sha512', HASH_SECRET)
         .update(Buffer.from(signData, 'utf-8'))
@@ -93,23 +92,6 @@ function verifyReturn(query) {
         txnRef:       query.vnp_TxnRef       || '',
         amount:       Number(query.vnp_Amount || 0) / 100,
     };
-}
-
-// sortObject nguyên bản VNPay — CHỈ dùng để tạo signData
-function sortObject(obj) {
-    let sorted = {};
-    let str    = [];
-    let key;
-    for (key in obj) {
-        if (obj.hasOwnProperty(key)) {
-            str.push(encodeURIComponent(key));
-        }
-    }
-    str.sort();
-    for (key = 0; key < str.length; key++) {
-        sorted[str[key]] = encodeURIComponent(obj[str[key]]).replace(/%20/g, '+');
-    }
-    return sorted;
 }
 
 function removeAccents(str) {
