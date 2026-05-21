@@ -56,36 +56,34 @@ export default function ProductCard({ product, onAddToCart }) {
             </h3>
           </div>
 
-          {product.rating > 0 && (
-            <div className="flex items-center gap-2 text-sm text-slate-500">
-              <div className="flex text-black">
-                {[...Array(5)].map((_, i) => (
-                  <svg
-                    key={i}
-                    className={`h-4 w-4 ${i < Math.round(product.rating) ? 'fill-current' : 'fill-slate-300'}`}
-                    viewBox="0 0 20 20"
-                  >
-                    <path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z" />
-                  </svg>
-                ))}
-              </div>
-              <span>({product.reviews || 0} đánh giá)</span>
+          <div className="flex items-center gap-2 text-sm text-slate-500">
+            <div className="flex text-black">
+              {[...Array(5)].map((_, i) => (
+                <svg
+                  key={i}
+                  className={`h-4 w-4 ${i < Math.round(product.rating || 0) ? 'fill-current' : 'fill-slate-300'}`}
+                  viewBox="0 0 20 20"
+                >
+                  <path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z" />
+                </svg>
+              ))}
             </div>
-          )}
+            <span>({product.reviews || 0} đánh giá)</span>
+          </div>
 
           <div className="flex items-end justify-between gap-3">
-            <div className="flex flex-wrap items-baseline gap-2">
+            <div className="flex flex-col gap-0.5">
               <span className="text-xl font-extrabold tracking-tight text-black sm:text-2xl">
                 {formatPrice(product.discountedPrice || product.price)}
               </span>
-              {(hasDiscount || flashSaleActive) && (
-                <span className="text-sm text-slate-400 line-through">{formatPrice(product.price)}</span>
-              )}
+              <span className={`text-sm line-through ${(hasDiscount || flashSaleActive) ? 'text-slate-400' : 'invisible'}`}>
+                {formatPrice(product.price)}
+              </span>
             </div>
             {product.soldCount > 0 && (
               <div className="rounded-2xl border border-black/8 bg-[#f7f7f4] px-3 py-2 text-right shadow-[0_10px_24px_rgba(15,15,15,0.04)]">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">Độ phổ biến</p>
-                <p className="mt-1 text-sm font-bold text-black">{product.soldCount} đã bán</p>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">Đã bán</p>
+                <p className="mt-1 text-sm font-bold text-black">{product.soldCount}</p>
               </div>
             )}
           </div>

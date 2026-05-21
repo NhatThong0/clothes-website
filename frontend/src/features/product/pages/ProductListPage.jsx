@@ -35,12 +35,12 @@ const normalizeProduct = (product) => {
 const PAGE_META = {
   default: {
     eyebrow: 'Tất cả sản phẩm',
-    title: 'Danh sách sản phẩm tối giản cho thời trang unisex hiện đại',
+    title: 'Danh sách sản phẩm cho thời trang unisex hiện đại',
     
   },
   sale: {
     eyebrow: 'Khuyến mãi',
-    title: 'Những ưu đãi đang được nổi bật',
+    title: 'Những ưu đãi nổi bật cho phong cách unisex hiện đại',
     
   },
 };
