@@ -9,9 +9,9 @@ export default function Footer() {
           <div>
             <div className="flex items-center space-x-2 mb-4">
               <div className="w-10 h-10 bg-gradient-to-br from-primary to-secondary rounded-lg flex items-center justify-center">
-                <span className="text-white font-bold">F</span>
+                <img src="/public/DaClothes.png" alt="DaClothes Logo" className="w-10 h-10 rounded-lg" />
               </div>
-              <span className="font-bold text-lg">Fashion Hub</span>
+              <span className="font-bold text-lg">DaClothes</span>
             </div>
             <p className="text-gray-300 text-sm">
               Thời trang chất lượng cao với giá tốt nhất cho bạn.

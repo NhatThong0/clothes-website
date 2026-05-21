@@ -68,7 +68,7 @@ export default function ProductCard({ product, onAddToCart }) {
                 </svg>
               ))}
             </div>
-            <span>({product.reviews || 0} đánh giá)</span>
+            <span>({product.reviews || 'Chưa có'} đánh giá)</span>
           </div>
 
           <div className="flex items-end justify-between gap-3">
@@ -83,7 +83,7 @@ export default function ProductCard({ product, onAddToCart }) {
             {product.soldCount > 0 && (
               <div className="rounded-2xl border border-black/8 bg-[#f7f7f4] px-3 py-2 text-right shadow-[0_10px_24px_rgba(15,15,15,0.04)]">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">Đã bán</p>
-                <p className="mt-1 text-sm font-bold text-black">{product.soldCount}</p>
+                <p className="mt-1 text-sm font-bold text-black text-center">{product.soldCount}</p>
               </div>
             )}
           </div>

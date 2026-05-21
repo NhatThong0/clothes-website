@@ -377,7 +377,44 @@ export default function HomePage() {
       </section>
 
 
-      
+      <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+  <div className="relative overflow-hidden rounded-[36px] border border-black/8 bg-white px-6 py-10 sm:px-10 sm:py-12 lg:px-14 lg:py-14">
+    <div className="absolute right-8 top-8 hidden h-40 w-40 rounded-full bg-black/[0.04] blur-3xl lg:block" />
+
+    <div className="relative grid items-center gap-8 lg:grid-cols-[1.1fr_0.9fr]">
+      <div className="space-y-5">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.34em] text-slate-400">
+          Bản tin thời trang
+        </p>
+        <h2 className="max-w-xl text-3xl font-extrabold leading-tight tracking-[-0.04em] text-black sm:text-4xl lg:text-5xl">
+          Đăng ký nhận tin và ưu đãi sớm nhất.
+        </h2>
+        <p className="max-w-md text-sm leading-7 text-slate-500">
+          Cập nhật bộ sưu tập mới, mã giảm giá độc quyền và quà tặng dành riêng cho thành viên.
+        </p>
+      </div>
+
+      <div className="space-y-4">
+        <div className="flex flex-col gap-3 rounded-full border border-black/10 bg-[#f4f4f1] p-2 sm:flex-row">
+          <input
+            type="email"
+            placeholder="Nhập email của bạn"
+            className="flex-1 rounded-full bg-transparent px-5 py-3 text-sm text-black placeholder:text-slate-400 focus:outline-none"
+          />
+          <button
+            type="button"
+            className="rounded-full bg-black px-6 py-3 text-sm font-semibold text-white transition hover:bg-[#242424]"
+          >
+            Đăng ký
+          </button>
+        </div>
+        <p className="px-2 text-[11px] text-slate-400">
+          Bằng việc đăng ký, bạn đồng ý với điều khoản và chính sách bảo mật của chúng tôi.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
     </div>
   );
 }

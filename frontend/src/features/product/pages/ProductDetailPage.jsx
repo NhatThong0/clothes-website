@@ -87,7 +87,8 @@ export default function ProductDetailPage() {
     const [relatedProducts, setRelatedProducts] = useState([]);
     const [savedToWishlist, setSavedToWishlist] = useState(false);
     const [wishlistLoading, setWishlistLoading] = useState(false);
-    const myReview = editTarget || { rating: 0, comment: '', images: [] };
+    const [activeTab, setActiveTab] = useState('description');
+
 
     const showToast = (msg, type = 'success') => setToast({ message: msg, type });
 
@@ -352,6 +353,7 @@ export default function ProductDetailPage() {
                             ))}
                         </div>
                     )}
+
                 </div>
 
                 {/* ── Info ────────────────────────────────────────────────────── */}
@@ -394,8 +396,6 @@ export default function ProductDetailPage() {
                             Giá gốc: <span className="line-through">{formatPrice(product.price)}</span>
                         </p>
                     )}
-
-                    {product.description && <p className="text-gray-600 mb-6 leading-relaxed">{product.description}</p>}
 
                     {/* ── Variant selector (Shopee-style) ─────────────────────── */}
                     {hasVariants && (
@@ -516,56 +516,6 @@ export default function ProductDetailPage() {
                         </div>
                     )}
 
-                    {product.resolvedSizeChart?.sizes?.length > 0 && (
-                        <div className="mb-8 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                            <div className="flex flex-col gap-2 border-b border-slate-100 bg-slate-50 px-4 py-4 md:flex-row md:items-center md:justify-between">
-                                <div>
-                                    <h3 className="text-base font-semibold text-slate-900">Bảng size tham khảo</h3>
-                                    <p className="text-sm text-slate-500">
-                                        Dùng để đối chiếu nhanh trước khi chọn size. AI cũng sẽ dựa trên bảng này để tư vấn.
-                                    </p>
-                                </div>
-                                <div className="flex flex-wrap gap-2 text-xs font-medium">
-                                    <span className="rounded-full bg-indigo-100 px-3 py-1 text-indigo-700">
-                                        {product.resolvedSizeChart.sizeFormat === 'numeric' ? 'Size số' : product.resolvedSizeChart.sizeFormat === 'alpha' ? 'Size chữ' : 'Size hỗn hợp'}
-                                    </span>
-                                    <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-600">
-                                        {product.sizeChartSource === 'category' ? 'Theo danh mục' : 'Theo sản phẩm'}
-                                    </span>
-                                </div>
-                            </div>
-                            {product.resolvedSizeChart.notes && (
-                                <div className="border-b border-slate-100 px-4 py-3 text-sm text-slate-600">
-                                    {product.resolvedSizeChart.notes}
-                                </div>
-                            )}
-                            <div className="overflow-x-auto">
-                                <table className="min-w-full text-sm">
-                                    <thead className="bg-white">
-                                        <tr className="border-b border-slate-100">
-                                            {visibleSizeChartColumns.map((column) => (
-                                                <th key={column.key} className="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                                    {column.label}
-                                                </th>
-                                            ))}
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {product.resolvedSizeChart.sizes.map((row, index) => (
-                                            <tr key={`${row.size}-${index}`} className="border-b border-slate-100 last:border-b-0">
-                                                {visibleSizeChartColumns.map((column) => (
-                                                    <td key={column.key} className="whitespace-nowrap px-4 py-3 text-slate-700">
-                                                        {formatSizeChartValue(row[column.key])}
-                                                    </td>
-                                                ))}
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    )}
-
                     {/* Số lượng */}
                     {!outOfStock && selectedColor && selectedSize && (
                         <div className="flex items-center space-x-4 mb-8">
@@ -617,48 +567,110 @@ export default function ProductDetailPage() {
                         </button>
                     </div>
 
-                    {product.features.length > 0 && (
-                        <div className="border-t border-gray-200 pt-6">
-                            <h3 className="font-semibold text-dark mb-3">Đặc điểm</h3>
-                            <ul className="space-y-2">
-                                {product.features.map((f,i) => (
-                                    <li key={i} className="flex items-center text-gray-600">
-                                        <span className="w-2 h-2 bg-primary rounded-full mr-3 flex-shrink-0"/>
-                                        {f}
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-                    )}
+                </div>
+            </div>
 
-                    {/* ── Reviews ──────────────────────────────────────────────── */}
-                    <div className="mt-12 border-t border-gray-200 pt-10">
-                        <h2 className="text-2xl font-bold text-dark mb-6">
-                            Đánh giá sản phẩm
-                            {reviews.length > 0 && <span className="ml-3 text-lg font-normal text-gray-500">({reviews.length} đánh giá)</span>}
-                        </h2>
+            {/* ── Tab section ────────────────────────────────────────────────── */}
+            <div className="mt-10">
+                {/* Tab headers */}
+                <div className="flex border-b border-gray-200">
+                    {[
+                        { key: 'description', label: 'Mô tả' },
+                        { key: 'sizechart',   label: 'Bảng size', hidden: !product.resolvedSizeChart?.sizes?.length },
+                        { key: 'reviews',     label: `Đánh giá (${reviews.length})` },
+                    ].filter(t => !t.hidden).map(tab => (
+                        <button
+                            key={tab.key}
+                            onClick={() => setActiveTab(tab.key)}
+                            className={`px-6 py-3 text-sm font-semibold transition-colors border-b-2 -mb-px ${
+                                activeTab === tab.key
+                                    ? 'border-primary text-primary'
+                                    : 'border-transparent text-gray-500 hover:text-dark hover:border-gray-300'
+                            }`}
+                        >
+                            {tab.label}
+                        </button>
+                    ))}
+                </div>
 
-                        {editTarget && myReviews.length > 999999 && (
-                            <div className="mb-6 p-4 border-2 border-primary rounded-xl bg-blue-50">
-                                <div className="flex justify-between items-start mb-2">
-                                    <p className="font-semibold text-primary">⭐ Đánh giá của bạn</p>
-                                    <div className="flex gap-2">
-                                        <button onClick={() => { setEditForm({rating:myReview.rating,comment:myReview.comment}); setEditMode(true); }} className="text-sm text-blue-600 hover:underline">✏️ Sửa</button>
-                                        <button onClick={handleDeleteMyReview} className="text-sm text-red-500 hover:underline">🗑️ Xóa</button>
-                                    </div>
-                                </div>
-                                <div className="flex mb-2">{[...Array(5)].map((_,i)=><span key={i} className={`text-lg ${i<myReview.rating?'text-yellow-400':'text-gray-300'}`}>★</span>)}</div>
-                                <p className="text-gray-700">{myReview.comment}</p>
-                                {myReview.images?.length > 0 && (
-                                    <div className="flex gap-2 mt-3 flex-wrap">
-                                        {myReview.images.map((img,i)=>(
-                                            <img key={i} src={img} alt="" className="w-20 h-20 object-cover rounded-lg border cursor-pointer hover:opacity-80" onClick={()=>setPreviewImg(img)}/>
-                                        ))}
-                                    </div>
-                                )}
+                {/* Tab: Mô tả */}
+                {activeTab === 'description' && (
+                    <div className="py-6 space-y-6">
+                        {product.description ? (
+                            <p className="text-gray-600 leading-relaxed">{product.description}</p>
+                        ) : (
+                            <p className="text-gray-400 italic">Sản phẩm chưa có mô tả.</p>
+                        )}
+                        {product.features.length > 0 && (
+                            <div>
+                                <h3 className="font-semibold text-dark mb-3">Đặc điểm sản phẩm</h3>
+                                <ul className="space-y-2">
+                                    {product.features.map((f, i) => (
+                                        <li key={i} className="flex items-center text-gray-600">
+                                            <span className="w-2 h-2 bg-primary rounded-full mr-3 flex-shrink-0"/>
+                                            {f}
+                                        </li>
+                                    ))}
+                                </ul>
                             </div>
                         )}
+                    </div>
+                )}
 
+                {/* Tab: Bảng size */}
+                {activeTab === 'sizechart' && product.resolvedSizeChart?.sizes?.length > 0 && (
+                    <div className="py-6">
+                        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                            <div className="flex flex-col gap-2 border-b border-slate-100 bg-slate-50 px-4 py-4 md:flex-row md:items-center md:justify-between">
+                                <div>
+                                    <h3 className="text-base font-semibold text-slate-900">Bảng size tham khảo</h3>
+                                    <p className="text-sm text-slate-500">Dùng để đối chiếu nhanh trước khi chọn size.</p>
+                                </div>
+                                <div className="flex flex-wrap gap-2 text-xs font-medium">
+                                    <span className="rounded-full bg-indigo-100 px-3 py-1 text-indigo-700">
+                                        {product.resolvedSizeChart.sizeFormat === 'numeric' ? 'Size số' : product.resolvedSizeChart.sizeFormat === 'alpha' ? 'Size chữ' : 'Size hỗn hợp'}
+                                    </span>
+                                    <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-600">
+                                        {product.sizeChartSource === 'category' ? 'Theo danh mục' : 'Theo sản phẩm'}
+                                    </span>
+                                </div>
+                            </div>
+                            {product.resolvedSizeChart.notes && (
+                                <div className="border-b border-slate-100 px-4 py-3 text-sm text-slate-600">
+                                    {product.resolvedSizeChart.notes}
+                                </div>
+                            )}
+                            <div className="overflow-x-auto">
+                                <table className="min-w-full text-sm">
+                                    <thead className="bg-white">
+                                        <tr className="border-b border-slate-100">
+                                            {visibleSizeChartColumns.map(col => (
+                                                <th key={col.key} className="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                                    {col.label}
+                                                </th>
+                                            ))}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {product.resolvedSizeChart.sizes.map((row, index) => (
+                                            <tr key={`${row.size}-${index}`} className="border-b border-slate-100 last:border-b-0">
+                                                {visibleSizeChartColumns.map(col => (
+                                                    <td key={col.key} className="whitespace-nowrap px-4 py-3 text-slate-700">
+                                                        {formatSizeChartValue(row[col.key])}
+                                                    </td>
+                                                ))}
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Tab: Đánh giá */}
+                {activeTab === 'reviews' && (
+                    <div className="py-6">
                         {myReviews.length > 0 && (
                             <div className="mb-6 p-4 border-2 border-primary rounded-xl bg-blue-50">
                                 <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
@@ -679,59 +691,37 @@ export default function ProductDetailPage() {
                                             : status === 'approved'
                                             ? { label: 'Đã duyệt', icon: '✓', cls: 'bg-green-50 text-green-600 border-green-200' }
                                             : null;
-
                                         return (
-                                        <div key={review._id || index} className={`rounded-xl border p-4 ${
-                                            status === 'rejected' ? 'border-red-200 bg-red-50/40'
-                                            : status === 'pending' ? 'border-orange-200 bg-orange-50/40'
-                                            : 'border-blue-100 bg-white/80'
-                                        }`}>
-                                            <div className="flex justify-between items-start gap-3 mb-2 flex-wrap">
-                                                <div>
-                                                    <p className="font-semibold text-slate-800">
-                                                        Đơn hàng #{String(review.orderId || '').slice(-8).toUpperCase() || 'N/A'}
-                                                    </p>
-                                                    <p className="text-xs text-slate-400">
-                                                        {new Date(review.createdAt).toLocaleDateString('vi-VN')}
-                                                    </p>
+                                            <div key={review._id || index} className={`rounded-xl border p-4 ${
+                                                status === 'rejected' ? 'border-red-200 bg-red-50/40'
+                                                : status === 'pending' ? 'border-orange-200 bg-orange-50/40'
+                                                : 'border-blue-100 bg-white/80'
+                                            }`}>
+                                                <div className="flex justify-between items-start gap-3 mb-2 flex-wrap">
+                                                    <div>
+                                                        <p className="font-semibold text-slate-800">Đơn hàng #{String(review.orderId || '').slice(-8).toUpperCase() || 'N/A'}</p>
+                                                        <p className="text-xs text-slate-400">{new Date(review.createdAt).toLocaleDateString('vi-VN')}</p>
+                                                    </div>
+                                                    <div className="flex gap-2 items-center">
+                                                        {statusBadge && (
+                                                            <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${statusBadge.cls}`}>
+                                                                {statusBadge.icon} {statusBadge.label}
+                                                            </span>
+                                                        )}
+                                                        <button onClick={() => { setEditTarget(review); setEditForm({ rating: review.rating, comment: review.comment }); setEditMode(true); }} className="text-sm text-blue-600 hover:underline">Sửa</button>
+                                                        <button onClick={() => handleDeleteMyReview(review)} className="text-sm text-red-500 hover:underline">Xóa</button>
+                                                    </div>
                                                 </div>
-                                                <div className="flex gap-2 items-center">
-                                                    {statusBadge && (
-                                                        <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${statusBadge.cls}`}>
-                                                            {statusBadge.icon} {statusBadge.label}
-                                                        </span>
-                                                    )}
-                                                    <button
-                                                        onClick={() => {
-                                                            setEditTarget(review);
-                                                            setEditForm({ rating: review.rating, comment: review.comment });
-                                                            setEditMode(true);
-                                                        }}
-                                                        className="text-sm text-blue-600 hover:underline"
-                                                    >
-                                                        Sửa
-                                                    </button>
-                                                    <button onClick={() => handleDeleteMyReview(review)} className="text-sm text-red-500 hover:underline">
-                                                        Xóa
-                                                    </button>
-                                                </div>
+                                                <div className="flex mb-2">{[...Array(5)].map((_, i) => <span key={i} className={`text-lg ${i < review.rating ? 'text-yellow-400' : 'text-gray-300'}`}>★</span>)}</div>
+                                                {status === 'rejected' && review.moderationSummary && <p className="text-xs text-red-500 mb-2 italic">{review.moderationSummary}</p>}
+                                                {status === 'pending' && <p className="text-xs text-orange-500 mb-2">Đánh giá đang được admin xem xét và chưa hiển thị công khai.</p>}
+                                                <p className={status === 'rejected' || status === 'pending' ? 'text-slate-500 line-through' : 'text-gray-700'}>{review.comment}</p>
+                                                {review.images?.length > 0 && (
+                                                    <div className="flex gap-2 mt-3 flex-wrap">
+                                                        {review.images.map((img, idx) => <img key={idx} src={img} alt="" className="w-20 h-20 object-cover rounded-lg border cursor-pointer hover:opacity-80" onClick={() => setPreviewImg(img)}/>)}
+                                                    </div>
+                                                )}
                                             </div>
-                                            <div className="flex mb-2">{[...Array(5)].map((_, i) => <span key={i} className={`text-lg ${i < review.rating ? 'text-yellow-400' : 'text-gray-300'}`}>★</span>)}</div>
-                                            {status === 'rejected' && review.moderationSummary && (
-                                                <p className="text-xs text-red-500 mb-2 italic">{review.moderationSummary}</p>
-                                            )}
-                                            {status === 'pending' && (
-                                                <p className="text-xs text-orange-500 mb-2">Đánh giá của bạn đang được admin xem xét và chưa hiển thị công khai.</p>
-                                            )}
-                                            <p className={`${status === 'rejected' || status === 'pending' ? 'text-slate-500 line-through' : 'text-gray-700'}`}>{review.comment}</p>
-                                            {review.images?.length > 0 && (
-                                                <div className="flex gap-2 mt-3 flex-wrap">
-                                                    {review.images.map((img, imageIndex) => (
-                                                        <img key={imageIndex} src={img} alt="" className="w-20 h-20 object-cover rounded-lg border cursor-pointer hover:opacity-80" onClick={() => setPreviewImg(img)}/>
-                                                    ))}
-                                                </div>
-                                            )}
-                                        </div>
                                         );
                                     })}
                                 </div>
@@ -812,7 +802,7 @@ export default function ProductDetailPage() {
                             </div>
                         )}
                     </div>
-                </div>
+                )}
             </div>
 
             {/* Image Preview Modal */}
