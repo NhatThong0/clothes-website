@@ -344,11 +344,10 @@ export default function OrderDetailPage() {
     const handleRetryPayment = async () => {
         setRetryLoading(true);
         try {
-            await apiClient.post(`/orders/${id}/retry-payment`);
-            const payRes=await apiClient.post('/payment/payos-create',{orderId:id});
-            const url=payRes.data?.data?.paymentUrl;
+            const res = await apiClient.post(`/orders/${id}/retry-payment`);
+            const url = res.data?.data?.paymentUrl;
             if (!url) throw new Error('Không nhận được URL thanh toán');
-            window.location.href=url;
+            window.location.href = url;
         } catch(err) { alert(err.response?.data?.message||err.message||'Không thể tạo thanh toán'); setRetryLoading(false); }
     };
 
@@ -691,7 +690,7 @@ export default function OrderDetailPage() {
                     <div className="space-y-2.5">
                         {canRetryPayment&&(
                             <button onClick={handleRetryPayment} disabled={retryLoading} className="od-btn w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-2">
-                                {retryLoading?<><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>Đang xử lý...</>:'🏦 Tiếp tục thanh toán VNPay'}
+                                {retryLoading?<><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>Đang xử lý...</>:`🏦 Tiếp tục thanh toán ${order.paymentMethod==='payos'?'PayOS':'VNPay'}`}
                             </button>
                         )}
                         {['pending','confirmed'].includes(order.status)&&(

@@ -9,7 +9,7 @@ export default function Footer() {
           <div>
             <div className="flex items-center space-x-2 mb-4">
               <div className="w-10 h-10 bg-gradient-to-br from-primary to-secondary rounded-lg flex items-center justify-center">
-                <img src="/public/DaClothes.png" alt="DaClothes Logo" className="w-10 h-10 rounded-lg" />
+                <img src="/Daclothes.png" alt="DaClothes Logo" className="w-10 h-10 rounded-lg" />
               </div>
               <span className="font-bold text-lg">DaClothes</span>
             </div>

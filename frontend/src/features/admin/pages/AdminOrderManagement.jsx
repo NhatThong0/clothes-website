@@ -86,6 +86,16 @@ function QuickActionBtn({ order, onDone }) {
 
   if (!action) return null;
 
+  if (order.status === 'pending'
+    && ['payos', 'vnpay'].includes(order.paymentMethod)
+    && order.paymentStatus !== 'completed') {
+    return (
+      <span className="px-2.5 py-1.5 text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg whitespace-nowrap">
+        ⏳ Chờ TT
+      </span>
+    );
+  }
+
   const handle = async (e) => {
     e.preventDefault();
     e.stopPropagation();

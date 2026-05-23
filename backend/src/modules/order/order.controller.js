@@ -5,11 +5,13 @@ const Voucher  = require('../../model/Voucher');
 const Promotion = require('../../model/Promotion');
 const User     = require('../../model/User');
 const mongoose = require('mongoose');
-const { 
-    notifyOrderStatus, 
-    notifyAdminNewOrder, 
-    notifyAdminDeliveryConfirmed, 
-    notifyAdminReturnRequest 
+const { createPayosPayment } = require('../../utils/payosHelper');
+const { createPaymentUrl }   = require('../../utils/vnpayHelper');
+const {
+    notifyOrderStatus,
+    notifyAdminNewOrder,
+    notifyAdminDeliveryConfirmed,
+    notifyAdminReturnRequest
 } = require('../notification/notification.controller');
 
 // ─── Helper: trừ stock đúng variant ──────────────────────────────────────────
@@ -538,12 +540,42 @@ const retryPayment = async (req, res) => {
         const order  = await Order.findById(req.params.id);
         if (!order)  return res.status(404).json({ status: 'error', message: 'Không tìm thấy đơn hàng.' });
         if (order.userId.toString() !== userId.toString()) return res.status(403).json({ status: 'error', message: 'Không có quyền.' });
-        if (order.paymentMethod !== 'vnpay')       return res.status(400).json({ status: 'error', message: 'Chỉ áp dụng cho đơn VNPay.' });
+        if (!['vnpay', 'payos'].includes(order.paymentMethod))
+            return res.status(400).json({ status: 'error', message: 'Phương thức thanh toán không hỗ trợ.' });
         if (order.paymentStatus === 'completed')   return res.status(400).json({ status: 'error', message: 'Đơn hàng đã được thanh toán.' });
         if (order.status === 'cancelled')          return res.status(400).json({ status: 'error', message: 'Đơn hàng đã bị hủy.' });
+
         order.paymentStatus = 'pending';
         await order.save();
-        res.status(200).json({ status: 'success', data: order });
+
+        if (order.paymentMethod === 'payos') {
+            const NGROK_BASE = process.env.PAYOS_NGROK_BASE || 'http://localhost:5000';
+            const orderCode  = Date.now();
+            const { checkoutUrl } = await createPayosPayment({
+                orderCode,
+                amount:      order.total,
+                description: `DH ${order._id.toString().slice(-8).toUpperCase()}`,
+                returnUrl:   `${NGROK_BASE}/api/payment/payos-return`,
+                cancelUrl:   `${NGROK_BASE}/api/payment/payos-return`,
+                buyerName:   order.shippingAddress?.fullName || '',
+                buyerEmail:  order.shippingAddress?.email    || '',
+                buyerPhone:  order.shippingAddress?.phone    || '',
+            });
+            await Order.findByIdAndUpdate(order._id, { payosOrderCode: orderCode });
+            return res.status(200).json({ status: 'success', data: { paymentUrl: checkoutUrl } });
+        }
+
+        // vnpay
+        const clientIp = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1')
+            .replace('::ffff:', '').replace('::1', '127.0.0.1').split(',')[0].trim();
+        const { paymentUrl, txnRef } = createPaymentUrl({
+            orderId:   order._id.toString(),
+            amount:    order.total,
+            orderInfo: `Thanh toan don hang ${order._id.toString().slice(-6).toUpperCase()}`,
+            clientIp,
+        });
+        await Order.findByIdAndUpdate(order._id, { vnpayTxnRef: txnRef });
+        return res.status(200).json({ status: 'success', data: { paymentUrl } });
     } catch (err) {
         res.status(500).json({ status: 'error', message: err.message });
     }
@@ -893,7 +925,6 @@ module.exports = {
     retryPayment,
     confirmDelivery,
     autoConfirmDeliveredOrders,
-    // Hoàn trả
     approveReturn,
     rejectReturn,
     confirmReturn,

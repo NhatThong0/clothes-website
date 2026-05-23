@@ -139,6 +139,9 @@ function ActionPanel({ order, onActionDone }) {
   const { updateOrderStatus }   = useAdmin ? useAdmin() : {};
 
   const action = ACTION_CFG[order.status];
+  const awaitingPayment = order.status === 'pending'
+    && ['payos', 'vnpay'].includes(order.paymentMethod)
+    && order.paymentStatus !== 'completed';
 
   const handleAction = async () => {
     if (!action) return;
@@ -163,6 +166,18 @@ function ActionPanel({ order, onActionDone }) {
   // Return flow: after confirm-return → need "Đã nhận hàng" step
   // This is handled inside ACTION_CFG for return_requested already.
   // "returned" = terminal, no action.
+
+  if (awaitingPayment) {
+    return (
+      <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-xl text-center">
+        <span className="text-2xl">⏳</span>
+        <p className="text-sm font-bold text-amber-700 mt-1">Đang chờ thanh toán</p>
+        <p className="text-xs text-amber-600 mt-1">
+          Nút xác nhận sẽ xuất hiện sau khi khách hoàn thành thanh toán qua {order.paymentMethod === 'payos' ? 'PayOS' : 'VNPay'}.
+        </p>
+      </div>
+    );
+  }
 
   if (!action) {
     // Terminal states
