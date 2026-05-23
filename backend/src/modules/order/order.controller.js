@@ -337,9 +337,28 @@ const createOrder = async (req, res) => {
         // ── LƯU SANG MYSQL (Song song) ──────────────────────────────────────────
         try {
             await pool.query(
-                `INSERT INTO orders (id, userId, total, status, paymentMethod, paymentStatus, subtotal, shippingFee, discountAmount, voucherCode, notes, shippingAddress, createdAt) 
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [order._id.toString(), userId.toString(), total, order.status, paymentMethod, order.paymentStatus, subtotal, shippingFee, discountAmount, order.voucherCode, notes || '', JSON.stringify(shippingAddress), order.createdAt || new Date()]
+                `INSERT INTO orders (id, userId, total, status, paymentMethod, paymentStatus, subtotal, shippingFee, discountAmount, voucherCode, notes, createdAt)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [order._id.toString(), userId.toString(), total, order.status, paymentMethod, order.paymentStatus, subtotal, shippingFee, discountAmount, order.voucherCode || null, notes || '', order.createdAt || new Date()]
+            );
+
+            await pool.query(
+                `INSERT INTO order_shipping_addresses (id, orderId, fullName, email, phone, address, ward, district, city, ghnProvinceId, ghnDistrictId, ghnWardCode)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                    order._id.toString(),
+                    order._id.toString(),
+                    shippingAddress?.fullName  || '',
+                    shippingAddress?.email     || '',
+                    shippingAddress?.phone     || '',
+                    shippingAddress?.address   || '',
+                    shippingAddress?.ward      || '',
+                    shippingAddress?.district  || '',
+                    shippingAddress?.city      || '',
+                    shippingAddress?.ghnProvinceId  || null,
+                    shippingAddress?.ghnDistrictId  || null,
+                    shippingAddress?.ghnWardCode    || null,
+                ]
             );
 
             for (const item of verifiedItems) {
