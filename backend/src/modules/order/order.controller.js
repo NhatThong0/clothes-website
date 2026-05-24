@@ -343,10 +343,9 @@ const createOrder = async (req, res) => {
             );
 
             await pool.query(
-                `INSERT INTO order_shipping_addresses (id, orderId, fullName, email, phone, address, ward, district, city, ghnProvinceId, ghnDistrictId, ghnWardCode)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                `INSERT INTO order_shipping_addresses (orderId, fullName, email, phone, address, ward, district, city, ghnProvinceId, ghnDistrictId, ghnWardCode)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
-                    order._id.toString(),
                     order._id.toString(),
                     shippingAddress?.fullName  || '',
                     shippingAddress?.email     || '',
