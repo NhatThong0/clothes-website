@@ -198,7 +198,7 @@ function ReviewModal({ modal, form, setForm, images, setImages, loading, onClose
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl max-h-[90vh] overflow-y-auto">
                 <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-lg font-bold text-slate-900">Danh gia san pham</h2>
+                    <h2 className="text-lg font-bold text-slate-900">Đánh giá sản phẩm</h2>
                     <button onClick={onClose} className="w-8 h-8 flex items-center justify-center hover:bg-slate-100 rounded-xl text-slate-400">✕</button>
                 </div>
 
@@ -220,7 +220,7 @@ function ReviewModal({ modal, form, setForm, images, setImages, loading, onClose
                 <p className="text-sm text-slate-500 mb-4 font-medium">{modal.productName}</p>
 
                 <div className="mb-4">
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">So sao</label>
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Số sao</label>
                     <div className="flex gap-1.5">
                         {[1, 2, 3, 4, 5].map((star) => (
                             <button
@@ -235,10 +235,10 @@ function ReviewModal({ modal, form, setForm, images, setImages, loading, onClose
                 </div>
 
                 <div className="mb-4">
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Nhan xet</label>
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Nhận xét</label>
                     <textarea
                         rows={4}
-                        placeholder="Chia se trai nghiem cua ban..."
+                        placeholder="Chia sẻ trải nghiệm của bạn..."
                         value={form.comment}
                         onChange={(e) => setForm((prev) => ({ ...prev, comment: e.target.value }))}
                         className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none resize-none"
@@ -246,7 +246,7 @@ function ReviewModal({ modal, form, setForm, images, setImages, loading, onClose
                 </div>
 
                 <div className="mb-5">
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Hinh anh (toi da 5)</label>
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Hình ảnh (tối đa 5)</label>
                     <input
                         type="file"
                         accept="image/*"
@@ -272,14 +272,14 @@ function ReviewModal({ modal, form, setForm, images, setImages, loading, onClose
                 </div>
 
                 <div className="flex gap-3">
-                    <button onClick={onClose} className="flex-1 py-2.5 border-2 border-slate-200 text-slate-600 rounded-xl font-semibold text-sm hover:bg-slate-50">Huy</button>
+                    <button onClick={onClose} className="flex-1 py-2.5 border-2 border-slate-200 text-slate-600 rounded-xl font-semibold text-sm hover:bg-slate-50">Hủy</button>
                     <button
                         onClick={onSubmit}
                         disabled={loading}
                         className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold text-sm disabled:opacity-50 flex items-center justify-center gap-2"
                     >
                         {loading && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
-                        {loading ? 'Dang gui...' : 'Gui danh gia'}
+                        {loading ? 'Đang gửi...' : 'Gửi đánh giá'}
                     </button>
                 </div>
             </div>
@@ -450,12 +450,12 @@ export default function OrderDetailPage() {
 
     const handleSubmitReview = async () => {
         if (!reviewModal?.productId) {
-            alert('Khong tim thay san pham de danh gia');
+            alert('Không tìm thấy sản phẩm để đánh giá');
             return;
         }
 
         if (!reviewForm.comment.trim()) {
-            alert('Vui long nhap noi dung danh gia');
+            alert('Vui lòng nhập nội dung đánh giá');
             return;
         }
 
@@ -467,7 +467,7 @@ export default function OrderDetailPage() {
                 comment: reviewForm.comment.trim(),
                 images: reviewImages,
             });
-            alert('Danh gia thanh cong!');
+            alert('Đánh giá thành công!');
             setReviewedReviewKeys((prev) => {
                 const nextKey = getReviewKey(reviewModal.orderId, reviewModal.productId);
                 return prev.includes(nextKey) ? prev : [...prev, nextKey];
@@ -476,7 +476,7 @@ export default function OrderDetailPage() {
             setReviewForm({ rating: 5, comment: '' });
             setReviewImages([]);
         } catch (error) {
-            alert(error.response?.data?.message || 'Khong the gui danh gia');
+            alert(error.response?.data?.message || 'Không thể gửi đánh giá');
         } finally {
             setReviewLoading(false);
         }
@@ -582,7 +582,7 @@ export default function OrderDetailPage() {
                                 {hasReviewed&&(
                                     <div className="flex items-center gap-2 p-3 bg-emerald-50 border border-emerald-100 rounded-xl">
                                         <span>Đã đánh giá</span>
-                                        <p className="text-sm font-semibold text-emerald-700">Ban da danh gia thanh cong</p>
+                                        <p className="text-sm font-semibold text-emerald-700">Bạn đã đánh giá thành công</p>
                                     </div>
                                 )}
                             </div>

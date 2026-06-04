@@ -567,16 +567,16 @@ const AdminProductManagement = () => {
                         <table className="w-full text-sm">
                             <thead>
                                 <tr className="bg-slate-50 border-b border-slate-200">
-                                    {['Sản phẩm', 'Danh mục', 'Giá', 'Tồn kho', '🔥 Đã bán', 'Trạng thái', ''].map(h => (
+                                    {['Sản phẩm', 'Giá', 'Tồn kho', '🔥 Đã bán', 'Trạng thái', 'Hành động'].map(h => (
                                         <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                                     ))}
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
                                 {loading && products.length === 0 ? (
-                                    <tr><td colSpan={7} className="px-4 py-12 text-center"><div className="flex flex-col items-center gap-2"><div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"/><span className="text-sm text-slate-400">Đang tải...</span></div></td></tr>
+                                    <tr><td colSpan={6} className="px-4 py-12 text-center"><div className="flex flex-col items-center gap-2"><div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"/><span className="text-sm text-slate-400">Đang tải...</span></div></td></tr>
                                 ) : displayProducts.length === 0 ? (
-                                    <tr><td colSpan={7} className="px-4 py-12 text-center"><div className="flex flex-col items-center gap-2"><span className="text-4xl">📦</span><span className="text-slate-400">Không tìm thấy sản phẩm nào</span></div></td></tr>
+                                    <tr><td colSpan={6} className="px-4 py-12 text-center"><div className="flex flex-col items-center gap-2"><span className="text-4xl">📦</span><span className="text-slate-400">Không tìm thấy sản phẩm nào</span></div></td></tr>
                                 ) : displayProducts.map((p, idx) => {
                                     const isOpen = expandedId === p._id;
                                     const colors = [...new Set((p.variants||[]).map(v=>v.color))];
@@ -592,18 +592,14 @@ const AdminProductManagement = () => {
                                                     <div className="w-12 h-12 rounded-xl overflow-hidden bg-slate-100 flex-shrink-0 border border-slate-200">
                                                         {p.images?.[0] ? <img src={p.images[0]} alt="" className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center text-slate-400 text-xl">📷</div>}
                                                     </div>
-                                                    <div className="min-w-0">
-                                                        <div className="flex items-center gap-1.5">
-                                                            <p className="font-semibold text-slate-800 line-clamp-1">{p.name}</p>
-                                                            {colors.length > 0 && (
-                                                                <span className={`text-[10px] transition-transform duration-200 text-slate-400 ${isOpen ? 'rotate-180' : ''}`}>▾</span>
-                                                            )}
-                                                        </div>
-                                                        <p className="text-xs text-slate-400 mt-0.5 line-clamp-1">{p.description}</p>
+                                                    <div className="min-w-0 flex items-center gap-1.5">
+                                                        <p className="font-semibold text-slate-800 line-clamp-1">{p.name}</p>
+                                                        {colors.length > 0 && (
+                                                            <span className={`text-[10px] transition-transform duration-200 text-slate-400 ${isOpen ? 'rotate-180' : ''}`}>▾</span>
+                                                        )}
                                                     </div>
                                                 </div>
                                             </td>
-                                            <td className="px-4 py-3"><span className="px-2 py-1 bg-slate-100 text-slate-600 rounded-lg text-xs font-medium">{p.category?.name || '—'}</span></td>
                                             <td className="px-4 py-3">
                                                 <p className="font-semibold text-slate-800 whitespace-nowrap">{fmt(p.price)}</p>
                                                 {p.discount > 0 && <p className="text-xs text-emerald-600 font-medium">-{p.discount}%</p>}
@@ -623,20 +619,25 @@ const AdminProductManagement = () => {
                                                     </div>
                                                 ) : <span className="text-slate-300 text-xs">—</span>}
                                             </td>
-                                            <td className="px-4 py-3"><Badge active={p.isActive}/></td>
+                                            <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                                                <button
+                                                    onClick={async () => { await toggleProductStatus(p._id); loadProducts(); }}
+                                                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${p.isActive ? 'bg-emerald-500' : 'bg-slate-300'}`}
+                                                    title={p.isActive ? 'Ẩn sản phẩm' : 'Hiện sản phẩm'}
+                                                >
+                                                    <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform duration-200 ${p.isActive ? 'translate-x-5' : 'translate-x-0'}`}/>
+                                                </button>
+                                            </td>
                                             <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                                                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                                     <button onClick={() => openEdit(p)} className="p-2 hover:bg-blue-50 text-blue-600 rounded-lg" title="Sửa">✏️</button>
-                                                    <button onClick={async () => { await toggleProductStatus(p._id); loadProducts(); }}
-                                                        className="p-2 hover:bg-amber-50 text-amber-600 rounded-lg"
-                                                        title={p.isActive ? 'Ẩn' : 'Hiện'}>{p.isActive ? '👁️' : '🙈'}</button>
                                                     <button onClick={() => setDeleteId(p._id)} className="p-2 hover:bg-rose-50 text-rose-500 rounded-lg" title="Xóa">🗑️</button>
                                                 </div>
                                             </td>
                                         </tr>
                                         {isOpen && colors.length > 0 && (
                                             <tr>
-                                                <td colSpan={7} className="px-6 pb-5 pt-0 bg-blue-50/40 border-b border-blue-100">
+                                                <td colSpan={6} className="px-6 pb-5 pt-0 bg-blue-50/40 border-b border-blue-100">
                                                     <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm mt-3">
                                                         <table className="text-xs border-collapse w-auto">
                                                             <thead>

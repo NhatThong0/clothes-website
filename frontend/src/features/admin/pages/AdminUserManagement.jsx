@@ -335,7 +335,7 @@ const AdminUserManagement = () => {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-100">
-                  {['Người dùng', 'Điện thoại','Loyalty', 'Vai trò', 'Trạng thái', 'Đăng nhập gần nhất', 'Ngày tạo', ].map(h => (
+                  {['Người dùng', 'Điện thoại','Loyalty', 'Vai trò', 'Trạng thái', 'Đăng nhập gần nhất', 'Ngày tạo', 'Hành động' ].map(h => (
                     <th key={h} className="px-5 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wider whitespace-nowrap">{h}</th>
                   ))}
                 </tr>

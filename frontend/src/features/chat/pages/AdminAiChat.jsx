@@ -167,9 +167,9 @@ export default function AdminAiChat() {
                     <div className={`flex items-end gap-2 ${isAi ? 'flex-row' : 'flex-row-reverse'}`}>
                       <div
                         className={`max-w-[70%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
-                          isAi ? 'bg-white border border-slate-200 text-slate-800 rounded-bl-sm' : 'text-white rounded-br-sm'
+                          isAi ? 'text-white rounded-bl-sm' : 'bg-white border border-slate-200 text-slate-800 rounded-br-sm'
                         }`}
-                        style={isAi ? {} : { background: 'linear-gradient(135deg,#2563EB,#1D4ED8)' }}
+                        style={isAi ? { background: 'linear-gradient(135deg,#2563EB,#1D4ED8)' } : {}}
                       >
                         {msg.content}
 
