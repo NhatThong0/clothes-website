@@ -53,7 +53,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
         const banner = await Banner.findByIdAndUpdate(
             req.params.id,
             req.body,
-            { new: true, runValidators: true }
+            { returnDocument: 'after', runValidators: true }
         );
         if (!banner) return res.status(404).json({ status: 'error', message: 'Banner not found' });
 

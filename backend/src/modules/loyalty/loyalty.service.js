@@ -319,7 +319,7 @@ async function syncUserLoyaltySnapshot(userId, loyaltyRow = null) {
         updatedAt: Date.now(),
       },
     },
-    { new: false },
+    { returnDocument: 'before' },
   );
 
   return snapshot;

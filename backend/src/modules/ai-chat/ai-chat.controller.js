@@ -128,7 +128,7 @@ exports.aiSendMessage = async (req, res) => {
         $set: { lastMessage: text.slice(0, 80), lastMessageAt: new Date() },
         $setOnInsert: { userId },
       },
-      { upsert: true, new: true },
+      { upsert: true, returnDocument: 'after' },
     );
 
     const savedUserMsg = conv.messages[conv.messages.length - 1];
@@ -190,7 +190,7 @@ exports.aiSendMessage = async (req, res) => {
             : {}),
         },
       },
-      { new: true },
+      { returnDocument: 'after' },
     );
 
     const savedAiMsg = updatedConv.messages[updatedConv.messages.length - 1];

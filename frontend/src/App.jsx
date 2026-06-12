@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { AuthProvider } from '@context/AuthContext';
 import { CartProvider } from '@context/CartContext';
 import { AdminProvider } from '@context/AdminContext';
+import { WishlistProvider } from '@context/WishlistContext';
 import { useAuth } from '@features/auth/hooks/useAuth';
 
 import MainLayout from '@layouts/MainLayout';
@@ -18,6 +19,7 @@ import AuthPage from '@features/auth/pages/AuthPage';
 import ProfilePage from '@features/auth/pages/ProfilePage';
 import OrdersPage from '@features/order/pages/OrdersPage';
 import OrderDetailPage from '@features/order/pages/OrderDetailPage';
+import WishlistPage from '@features/product/pages/WishlistPage';
 import PaymentResultPage from '@features/payment/pages/PaymentResultPage';
 import ChatWidget from '@features/chat/components/ChatWidget';
 
@@ -78,6 +80,7 @@ function AppRoutes() {
               <Route path="/profile" element={<ProfilePage />} />
               <Route path="/orders" element={<OrdersPage />} />
               <Route path="/orders/:id" element={<OrderDetailPage />} />
+              <Route path="/wishlist" element={<WishlistPage />} />
             </Route>
           </Route>
 
@@ -117,7 +120,9 @@ function App() {
       <AuthProvider>
         <CartProvider>
           <AdminProvider>
-            <AppRoutes />
+            <WishlistProvider>
+              <AppRoutes />
+            </WishlistProvider>
           </AdminProvider>
         </CartProvider>
       </AuthProvider>

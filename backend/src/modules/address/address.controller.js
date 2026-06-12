@@ -152,7 +152,7 @@ exports.updateAddress = async (req, res, next) => {
                 type: type || address.type,
                 isDefault: isDefault !== undefined ? isDefault : address.isDefault,
             },
-            { new: true }
+            { returnDocument: 'after' }
         );
 
         res.status(200).json({

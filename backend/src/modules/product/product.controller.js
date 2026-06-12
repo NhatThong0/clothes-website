@@ -296,7 +296,7 @@ exports.updateProduct = async (req, res, next) => {
         }
 
         const product = await Product.findByIdAndUpdate(id, updateData, {
-            new: true, runValidators: true,
+            returnDocument: 'after', runValidators: true,
         }).populate(productPopulate);
 
         if (!product)

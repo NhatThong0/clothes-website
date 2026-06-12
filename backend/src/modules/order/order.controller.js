@@ -260,7 +260,7 @@ const createOrder = async (req, res) => {
                         updated = await Product.findOneAndUpdate(
                             { _id: productId, [`variants.${idx}.stock`]: { $gte: quantity } },
                             { $inc: { [`variants.${idx}.stock`]: -quantity } },
-                            { new: true }
+                            { returnDocument: 'after' }
                         );
                         if (updated) {
                             const newTotal = updated.variants.reduce((s, v) => s + (v.stock || 0), 0);
@@ -271,7 +271,7 @@ const createOrder = async (req, res) => {
                     updated = await Product.findOneAndUpdate(
                         { _id: productId, stock: { $gte: quantity } },
                         { $inc: { stock: -quantity } },
-                        { new: true }
+                        { returnDocument: 'after' }
                     );
                 }
                 if (!updated) {
@@ -297,7 +297,7 @@ const createOrder = async (req, res) => {
                             flashSaleRemaining: { $gte: quantity },
                         },
                         { $inc: { flashSaleRemaining: -quantity } },
-                        { new: true },
+                        { returnDocument: 'after' },
                     ).lean();
 
                     if (!promoUpdated) {

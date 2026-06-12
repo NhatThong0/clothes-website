@@ -151,7 +151,7 @@ const updateVoucher = async (req, res) => {
                 endDate:           endDate   ? new Date(endDate)   : undefined,
                 isActive:          isActive  !== undefined ? isActive : undefined,
             },
-            { new: true, runValidators: true }
+            { returnDocument: 'after', runValidators: true }
         );
 
         if (!voucher) return res.status(404).json({ status: 'error', message: 'Không tìm thấy voucher.' });

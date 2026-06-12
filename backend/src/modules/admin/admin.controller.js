@@ -185,7 +185,7 @@ async function upsertCategorySizeChart({ categoryId, categoryName, sizeChart }) 
     return SizeChart.findOneAndUpdate(
         { code },
         payload,
-        { upsert: true, new: true, runValidators: true }
+        { upsert: true, returnDocument: 'after', runValidators: true }
     );
 }
 
@@ -664,7 +664,7 @@ exports.updateProduct = async (req, res, next) => {
         if (isActive !== undefined) updateData.isActive = isActive;
         if (isFeatured !== undefined) updateData.isFeatured = isFeatured;
 
-        const product = await Product.findByIdAndUpdate(id, updateData, { new: true, runValidators: true })
+        const product = await Product.findByIdAndUpdate(id, updateData, { returnDocument: 'after', runValidators: true })
             .populate('category', 'name');
 
         if (!product) return res.status(404).json({ status: 'error', message: 'Không tìm thấy sản phẩm' });
@@ -1476,7 +1476,7 @@ exports.updateUserRole = async (req, res, next) => {
         const user = await User.findByIdAndUpdate(
             userId,
             { role, updatedAt: Date.now() },
-            { new: true }
+            { returnDocument: 'after' }
         ).select('-password');
 
         if (!user) {
@@ -1644,7 +1644,7 @@ exports.adminUpdateUser = async (req, res, next) => {
             updateData.password = await bcrypt.hash(password, salt);
         }
 
-        const user = await User.findByIdAndUpdate(userId, updateData, { new: true }).select('-password');
+        const user = await User.findByIdAndUpdate(userId, updateData, { returnDocument: 'after' }).select('-password');
         if (!user) return res.status(404).json({ status: 'error', message: 'Không tìm thấy người dùng' });
 
         res.status(200).json({ status: 'success', message: 'Cập nhật thành công', data: user });
@@ -1973,7 +1973,7 @@ exports.updateVoucher = async (req, res, next) => {
 
         updateData.updatedAt = Date.now();
 
-        const voucher = await Voucher.findByIdAndUpdate(voucherId, updateData, { new: true })
+        const voucher = await Voucher.findByIdAndUpdate(voucherId, updateData, { returnDocument: 'after' })
             .populate('applicableProducts', 'name')
             .populate('applicableCategories', 'name');
 

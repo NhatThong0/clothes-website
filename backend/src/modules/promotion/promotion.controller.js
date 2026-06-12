@@ -311,7 +311,7 @@ const updatePromotion = async (req, res) => {
             }
         }
 
-        const promo = await Promotion.findByIdAndUpdate(req.params.id, next, { new: true, runValidators: true });
+        const promo = await Promotion.findByIdAndUpdate(req.params.id, next, { returnDocument: 'after', runValidators: true });
         if (!promo) return res.status(404).json({ status: 'error', message: 'Không tìm thấy khuyến mãi.' });
         res.status(200).json({ status: 'success', data: promo });
     } catch (err) {

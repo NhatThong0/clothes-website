@@ -73,7 +73,7 @@ const reserveFlashSale = async (req, res) => {
         flashSaleRemaining: { $gte: quantity },
       },
       { $inc: { flashSaleRemaining: -quantity } },
-      { new: true },
+      { returnDocument: 'after' },
     ).lean();
 
     if (!updated) {

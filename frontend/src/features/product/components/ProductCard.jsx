@@ -1,8 +1,20 @@
 ﻿import { Link } from 'react-router-dom';
 import { formatPrice } from '@utils/helpers';
+import { useAuth } from '@features/auth/hooks/useAuth';
+import { useWishlist } from '@context/WishlistContext';
 
 export default function ProductCard({ product, onAddToCart }) {
+  const { isAuthenticated } = useAuth();
+  const { isInWishlist, toggle } = useWishlist();
+  const saved = isInWishlist(product.id);
   const outOfStock = product.stock === 0;
+
+  const handleWishlist = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isAuthenticated) return;
+    toggle(product.id);
+  };
   const hasFlashSale = !!product.flashSale;
   const hasDiscount = !hasFlashSale && product.discount > 0;
   const flashSaleActive = hasFlashSale && !product.flashSale?.isSoldOut;
@@ -43,6 +55,18 @@ export default function ProductCard({ product, onAddToCart }) {
                 Hết hàng
               </span>
             </div>
+          )}
+
+          {isAuthenticated && (
+            <button
+              onClick={handleWishlist}
+              title={saved ? 'Xóa khỏi yêu thích' : 'Lưu vào yêu thích'}
+              className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full bg-white/90 shadow-md backdrop-blur transition hover:scale-110"
+            >
+              <span className={`text-lg leading-none ${saved ? 'text-rose-500' : 'text-slate-400'}`}>
+                {saved ? '♥' : '♡'}
+              </span>
+            </button>
           )}
         </div>
 

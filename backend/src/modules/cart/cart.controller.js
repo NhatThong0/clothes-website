@@ -177,7 +177,7 @@ exports.clearCart = async (req, res, next) => {
         const cart = await Cart.findOneAndUpdate(
             { userId },
             { items: [], updatedAt: new Date() },
-            { new: true }
+            { returnDocument: 'after' }
         );
 
         if (!cart) {

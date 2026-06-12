@@ -60,7 +60,11 @@ exports.popular = async (req, res) => {
 exports.getWishlist = async (req, res) => {
   try {
     const wishlist = await Wishlist.findOne({ userId: req.userId })
-      .populate('items.productId', '_id name price discount images averageRating stock soldCount category')
+      .populate({
+        path: 'items.productId',
+        select: '_id name price discount images averageRating stock soldCount category',
+        populate: { path: 'category', select: 'name' },
+      })
       .lean();
     const items = (wishlist?.items || [])
       .filter(i => i.productId)

@@ -49,7 +49,7 @@ exports.updateProfile = async (req, res, next) => {
         const user = await User.findByIdAndUpdate(
             req.userId,
             { name, phone, avatar, updatedAt: Date.now() },
-            { new: true, runValidators: true }
+            { returnDocument: 'after', runValidators: true }
         ).select('-password');
 
         if (!user) return res.status(404).json({ status: 'error', message: 'User not found' });
@@ -243,7 +243,7 @@ exports.updateAddress = async (req, res, next) => {
               ghnDistrictId: ghnDistrictId || '',
               ghnWardCode:   ghnWardCode   || '',
               isDefault: isDefault || false },
-            { new: true, runValidators: true }
+            { returnDocument: 'after', runValidators: true }
         );
 
         res.status(200).json({ status: 'success', message: 'Địa chỉ đã được cập nhật', data: updated });

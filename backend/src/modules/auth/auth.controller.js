@@ -434,7 +434,7 @@ exports.updateProfile = async (req, res, next) => {
                 avatar: avatar || undefined,
                 updatedAt: new Date(),
             },
-            { new: true, runValidators: true }
+            { returnDocument: 'after', runValidators: true }
         ).populate('addresses');
 
         if (!user) {
