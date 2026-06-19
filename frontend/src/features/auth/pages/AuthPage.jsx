@@ -491,11 +491,11 @@ export default function AuthPage() {
               )}
             </form>
 
-            {isLogin && (
+            {!otpStep && (
               <div className="mt-6 space-y-3">
                 <div className="flex items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
                   <span className="h-px flex-1 bg-black/8" />
-                  Hoặc đăng nhập bằng
+                  {isLogin ? 'Hoặc đăng nhập bằng' : 'Hoặc đăng ký bằng'}
                   <span className="h-px flex-1 bg-black/8" />
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
