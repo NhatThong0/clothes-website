@@ -5,7 +5,6 @@ import apiClient from '@features/shared/services/apiClient';
 const TYPES = [
   { value: 'coupon',     label: 'Mã Coupon',         icon: '🎟️', color: 'blue'   },
   { value: 'flash_sale', label: 'Flash Sale',         icon: '⚡', color: 'amber'  },
-  { value: 'loyalty',    label: 'Loyalty',            icon: '👑', color: 'violet' },
 ];
 const TYPE_COLOR = {
   coupon:     'bg-blue-50 text-blue-700 border-blue-200',
@@ -41,16 +40,44 @@ function Field({ label, required, hint, children }) {
   );
 }
 
+const FLASH_DURATIONS = [
+  { value: 1,  label: '1 giờ' },
+  { value: 2,  label: '2 giờ' },
+  { value: 3,  label: '3 giờ' },
+  { value: 6,  label: '6 giờ' },
+  { value: 12, label: '12 giờ' },
+  { value: 24, label: '1 ngày' },
+];
+
 const emptyForm = {
   type:'coupon', name:'', description:'', isActive:true,
-  startDate:'', endDate:'',
+  startDate:'', endDate:'', flashSaleDuration: 1,
   discountType:'percentage', discountValue:'', maxDiscountAmount:'', minOrderAmount:'0', minQuantity:'0',
-  applyTo:'all',
+  applyTo:'all', productIds:[], categoryIds:[],
+  userScope:'all', allowedUsers:[],
   code:'', maxUsageCount:'', maxUsagePerUser:'1',
   flashSaleStock:'', flashSaleHour:{ start:'', end:'' },
   flashSaleItems:[],
   holidayName:'', autoApply:false,
   loyaltyTier:'all', pointsRequired:'0', pointsReward:'0',
+};
+
+const DEFAULT_REWARD_FORM = {
+  name: '', description: '', pointsRequired: '', requiredTier: 'bronze',
+  discountType: 'percentage', discountValue: '', maxDiscountAmount: '',
+  minPurchaseAmount: '', voucherValidDays: '30', maxRedeemCount: '', maxRedeemPerUser: '',
+};
+const REWARD_TIERS = [
+  { value: 'bronze',   label: '🥉 Đồng (và cao hơn)' },
+  { value: 'silver',   label: '🥈 Bạc (và cao hơn)' },
+  { value: 'gold',     label: '🥇 Vàng (và cao hơn)' },
+  { value: 'platinum', label: '💎 Kim Cương' },
+];
+const REWARD_TIER_COLOR = {
+  bronze:   'bg-amber-50 text-amber-700 border-amber-200',
+  silver:   'bg-slate-100 text-slate-600 border-slate-300',
+  gold:     'bg-yellow-50 text-yellow-700 border-yellow-300',
+  platinum: 'bg-sky-50 text-sky-600 border-sky-300',
 };
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -67,7 +94,23 @@ export default function AdminVoucherManagement() {
   const [deleteId,    setDeleteId]    = useState(null);
   const [loading,     setLoading]     = useState(false);
   const [products,    setProducts]    = useState([]);
-  const [flashAddProductId, setFlashAddProductId] = useState('');
+  const [categories,  setCategories]  = useState([]);
+  const [flashAddProductId,  setFlashAddProductId]  = useState('');
+  const [addPromoProductId,  setAddPromoProductId]  = useState('');
+  const [userSearch,         setUserSearch]         = useState('');
+  const [userSearchResults,  setUserSearchResults]  = useState([]);
+  const [userSearchLoading,  setUserSearchLoading]  = useState(false);
+
+  // Rewards tab state
+  const [activeSection,  setActiveSection]  = useState('promos');
+  const [rewards,        setRewards]        = useState([]);
+  const [rewardsLoading, setRewardsLoading] = useState(false);
+  const [showRewardForm, setShowRewardForm] = useState(false);
+  const [editRewardId,   setEditRewardId]   = useState(null);
+  const [rewardForm,     setRewardForm]     = useState(DEFAULT_REWARD_FORM);
+  const [savingReward,   setSavingReward]   = useState(false);
+  const [rewardError,    setRewardError]    = useState('');
+  const [rewardSuccess,  setRewardSuccess]  = useState('');
 
   useEffect(() => { load(); }, [page, typeFilter]);
 
@@ -75,7 +118,119 @@ export default function AdminVoucherManagement() {
     apiClient.get('/admin/products?limit=200')
       .then(r => setProducts(r.data?.data?.products || []))
       .catch(() => setProducts([]));
+    apiClient.get('/admin/categories?limit=200')
+      .then(r => setCategories(r.data?.data?.categories || r.data?.data || []))
+      .catch(() => setCategories([]));
   }, []);
+
+  useEffect(() => {
+    if (activeSection === 'rewards') loadRewards();
+  }, [activeSection]);
+
+  useEffect(() => {
+    if (!userSearch.trim()) { setUserSearchResults([]); return; }
+    setUserSearchLoading(true);
+    const t = setTimeout(async () => {
+      try {
+        const res = await apiClient.get(`/admin/users?search=${encodeURIComponent(userSearch)}&limit=10`);
+        setUserSearchResults(res.data?.data?.users || []);
+      } catch { setUserSearchResults([]); }
+      finally { setUserSearchLoading(false); }
+    }, 350);
+    return () => clearTimeout(t);
+  }, [userSearch]);
+
+  const loadRewards = async () => {
+    setRewardsLoading(true);
+    try {
+      const res = await apiClient.get('/admin/loyalty-rewards');
+      setRewards(res.data.data || []);
+    } catch { /* silent */ }
+    finally { setRewardsLoading(false); }
+  };
+
+  const openCreateReward = () => {
+    setEditRewardId(null);
+    setRewardForm(DEFAULT_REWARD_FORM);
+    setRewardError('');
+    setShowRewardForm(true);
+  };
+  const openEditReward = (r) => {
+    setEditRewardId(r._id);
+    setRewardForm({
+      name:              r.name,
+      description:       r.description || '',
+      pointsRequired:    String(r.pointsRequired),
+      requiredTier:      r.requiredTier,
+      discountType:      r.discountType,
+      discountValue:     String(r.discountValue),
+      maxDiscountAmount: r.maxDiscountAmount != null ? String(r.maxDiscountAmount) : '',
+      minPurchaseAmount: r.minPurchaseAmount != null ? String(r.minPurchaseAmount) : '',
+      voucherValidDays:  String(r.voucherValidDays ?? 30),
+      maxRedeemCount:    r.maxRedeemCount != null ? String(r.maxRedeemCount) : '',
+      maxRedeemPerUser:  r.maxRedeemPerUser != null ? String(r.maxRedeemPerUser) : '',
+    });
+    setRewardError('');
+    setShowRewardForm(true);
+  };
+  const closeRewardForm = () => { setShowRewardForm(false); setEditRewardId(null); setRewardError(''); };
+
+  const handleSaveReward = async () => {
+    if (!rewardForm.name.trim() || !rewardForm.pointsRequired || !rewardForm.discountValue) {
+      setRewardError('Vui lòng điền đầy đủ các trường bắt buộc (*).');
+      return;
+    }
+    setSavingReward(true);
+    setRewardError('');
+    try {
+      const payload = {
+        name:              rewardForm.name.trim(),
+        description:       rewardForm.description.trim(),
+        pointsRequired:    Number(rewardForm.pointsRequired),
+        requiredTier:      rewardForm.requiredTier,
+        discountType:      rewardForm.discountType,
+        discountValue:     Number(rewardForm.discountValue),
+        maxDiscountAmount: rewardForm.maxDiscountAmount ? Number(rewardForm.maxDiscountAmount) : null,
+        minPurchaseAmount: rewardForm.minPurchaseAmount ? Number(rewardForm.minPurchaseAmount) : 0,
+        voucherValidDays:  Number(rewardForm.voucherValidDays) || 30,
+        maxRedeemCount:    rewardForm.maxRedeemCount ? Number(rewardForm.maxRedeemCount) : null,
+        maxRedeemPerUser:  rewardForm.maxRedeemPerUser ? Number(rewardForm.maxRedeemPerUser) : null,
+      };
+      if (editRewardId) {
+        await apiClient.put(`/admin/loyalty-rewards/${editRewardId}`, payload);
+        setRewardSuccess('Đã cập nhật phần thưởng.');
+      } else {
+        await apiClient.post('/admin/loyalty-rewards', payload);
+        setRewardSuccess('Đã tạo phần thưởng mới.');
+      }
+      closeRewardForm();
+      loadRewards();
+      setTimeout(() => setRewardSuccess(''), 3000);
+    } catch (err) {
+      setRewardError(err.response?.data?.message || 'Lưu thất bại.');
+    } finally {
+      setSavingReward(false);
+    }
+  };
+
+  const handleToggleReward = async (r) => {
+    try {
+      await apiClient.put(`/admin/loyalty-rewards/${r._id}`, { isActive: !r.isActive });
+      loadRewards();
+    } catch { /* silent */ }
+  };
+
+  const handleDeleteReward = async (r) => {
+    if (!window.confirm(`Xóa phần thưởng "${r.name}"?`)) return;
+    try {
+      await apiClient.delete(`/admin/loyalty-rewards/${r._id}`);
+      setRewardSuccess('Đã xóa phần thưởng.');
+      loadRewards();
+      setTimeout(() => setRewardSuccess(''), 3000);
+    } catch { setRewardError('Xóa thất bại.'); }
+  };
+
+  const rF = (k, v) => setRewardForm(p => ({ ...p, [k]: v }));
 
   const load = async () => {
     setLoading(true);
@@ -110,12 +265,19 @@ export default function AdminVoucherManagement() {
       minOrderAmount:    p.minOrderAmount?.toString() || '0',
       minQuantity:       p.minQuantity?.toString() || '0',
       applyTo:           p.applyTo || 'all',
+      productIds:        (p.productIds || []).map(String),
+      categoryIds:       (p.categoryIds || []).map(String),
+      userScope:         p.userScope || 'all',
+      allowedUsers:      Array.isArray(p.allowedUsers) ? p.allowedUsers.map(u => typeof u === 'object' ? { _id: String(u._id), name: u.name || '', email: u.email || '' } : { _id: String(u), name: '', email: '' }) : [],
       code:              p.code || '',
       maxUsageCount:     p.maxUsageCount?.toString() || '',
       maxUsagePerUser:   p.maxUsagePerUser?.toString() || '1',
       flashSaleStock:    p.flashSaleStock?.toString() || '',
       flashSaleHour:     p.flashSaleHour || { start:'', end:'' },
       flashSaleItems:    flashItems,
+      flashSaleDuration: p.type === 'flash_sale' && p.startDate && p.endDate
+        ? Math.max(1, Math.round((new Date(p.endDate) - new Date(p.startDate)) / 3600000))
+        : 1,
       holidayName:       p.holidayName || '',
       autoApply:         p.autoApply || false,
       loyaltyTier:       p.loyaltyTier || 'all',
@@ -153,7 +315,19 @@ export default function AdminVoucherManagement() {
         payload.flashSaleItems = items;
         payload.productIds = items.map(it => it.productId);
         payload.flashSalePrice = null;
+        // Tính endDate = startDate + duration (giờ)
+        if (form.startDate) {
+          const end = new Date(new Date(form.startDate).getTime() + Number(form.flashSaleDuration) * 3600000);
+          payload.endDate = end.toISOString();
+        }
+      } else {
+        // applyTo scope
+        payload.productIds  = form.applyTo === 'specific_products' ? (form.productIds || []) : [];
+        payload.categoryIds = [];
       }
+      // User scope
+      payload.userScope    = form.userScope || 'all';
+      payload.allowedUsers = form.userScope === 'specific' ? (form.allowedUsers || []).map(u => u._id) : [];
       if (editing) await apiClient.put(`/promotions/${editing._id}`, payload);
       else          await apiClient.post('/promotions', payload);
       closeDrawer();
@@ -181,8 +355,8 @@ export default function AdminVoucherManagement() {
   };
 
   const t = TYPES.find(t => t.value === form.type);
-  const productNameById = (id) =>
-    products.find((p) => String(p._id) === String(id))?.name || String(id || '').slice(-6);
+  const productNameById  = (id) => products.find((p) => String(p._id) === String(id))?.name  || String(id || '').slice(-6);
+  const categoryNameById = (id) => categories.find((c) => String(c._id) === String(id))?.name || String(id || '').slice(-6);
   const productById = (id) => products.find((p) => String(p._id) === String(id)) || null;
   const getSellingPriceInfo = (id) => {
     const p = productById(id);
@@ -201,31 +375,126 @@ export default function AdminVoucherManagement() {
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h1 className="text-xl font-bold text-slate-900">Quản lý Khuyến mãi</h1>
-            <p className="text-sm text-slate-400 mt-0.5">{total} chương trình</p>
+            {activeSection === 'promos'
+              ? <p className="text-sm text-slate-400 mt-0.5">{total} chương trình</p>
+              : <p className="text-sm text-slate-400 mt-0.5">{rewards.length} phần thưởng điểm</p>
+            }
           </div>
-          <button onClick={openCreate}
-            className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold transition-colors shadow-sm">
-            + Tạo khuyến mãi
-          </button>
+          {activeSection === 'promos'
+            ? <button onClick={openCreate} className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold transition-colors shadow-sm">+ Tạo khuyến mãi</button>
+            : <button onClick={openCreateReward} className="flex items-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-semibold transition-colors shadow-sm">+ Thêm phần thưởng</button>
+          }
         </div>
 
-        {/* Type filter pills */}
+        {/* Section tabs */}
         <div className="flex items-center gap-1.5 mt-3 flex-wrap">
-          {[{value:'',label:'Tất cả',icon:'📋'}, ...TYPES].map(t => (
-            <button key={t.value} onClick={() => { setTypeFilter(t.value); setPage(1); }}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
-                typeFilter === t.value
-                  ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                  : 'bg-white text-slate-500 border-slate-200 hover:border-blue-300'
-              }`}>
-              {t.icon} {t.label}
-            </button>
-          ))}
+          <button onClick={() => setActiveSection('promos')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${activeSection === 'promos' ? 'bg-blue-600 text-white border-blue-600 shadow-sm' : 'bg-white text-slate-500 border-slate-200 hover:border-blue-300'}`}>
+            🎟️ Khuyến mãi
+          </button>
+          <button onClick={() => setActiveSection('rewards')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${activeSection === 'rewards' ? 'bg-violet-600 text-white border-violet-600 shadow-sm' : 'bg-white text-slate-500 border-slate-200 hover:border-violet-300'}`}>
+            ⭐ Phần thưởng đổi điểm
+          </button>
+
+          {/* Type filter pills — only when in promos section */}
+          {activeSection === 'promos' && (
+            <>
+              <span className="text-slate-200 text-sm mx-1">|</span>
+              {[{value:'',label:'Tất cả',icon:'📋'}, ...TYPES].map(t => (
+                <button key={t.value} onClick={() => { setTypeFilter(t.value); setPage(1); }}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
+                    typeFilter === t.value
+                      ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                      : 'bg-white text-slate-500 border-slate-200 hover:border-blue-300'
+                  }`}>
+                  {t.icon} {t.label}
+                </button>
+              ))}
+            </>
+          )}
         </div>
       </div>
 
       <div className="p-6">
-        {loading ? (
+        {/* ── Rewards section ── */}
+        {activeSection === 'rewards' && (
+          <div className="space-y-4">
+            {rewardSuccess && (
+              <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm rounded-xl px-4 py-3 font-medium">{rewardSuccess}</div>
+            )}
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+              {rewardsLoading ? (
+                <div className="flex justify-center py-16"><div className="w-8 h-8 border-2 border-violet-500 border-t-transparent rounded-full animate-spin"/></div>
+              ) : rewards.length === 0 ? (
+                <div className="text-center py-16">
+                  <div className="text-5xl mb-3">⭐</div>
+                  <p className="font-semibold text-slate-600">Chưa có phần thưởng nào</p>
+                  <p className="text-sm text-slate-400 mt-1">Nhấn "Thêm phần thưởng" để tạo phần thưởng đổi điểm</p>
+                </div>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 border-b border-slate-100">
+                    <tr>
+                      <th className="text-left px-5 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">Tên phần thưởng</th>
+                      <th className="text-center px-4 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">Điểm cần</th>
+                      <th className="text-center px-4 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">Hạng tối thiểu</th>
+                      <th className="text-left px-4 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">Ưu đãi</th>
+                      <th className="text-center px-4 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">Hiệu lực</th>
+                      <th className="text-center px-4 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">Đã đổi</th>
+                      <th className="text-center px-4 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">Trạng thái</th>
+                      <th className="text-center px-4 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">Thao tác</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {rewards.map(r => (
+                      <tr key={r._id} className={`hover:bg-slate-50 transition-colors ${!r.isActive ? 'opacity-50' : ''}`}>
+                        <td className="px-5 py-4">
+                          <p className="font-semibold text-slate-900">{r.name}</p>
+                          {r.description && <p className="text-xs text-slate-400 mt-0.5 truncate max-w-[200px]">{r.description}</p>}
+                        </td>
+                        <td className="px-4 py-4 text-center">
+                          <span className="font-bold text-violet-600">{r.pointsRequired.toLocaleString()}</span>
+                          <span className="text-xs text-slate-400 ml-0.5">đ</span>
+                        </td>
+                        <td className="px-4 py-4 text-center">
+                          <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-bold border ${REWARD_TIER_COLOR[r.requiredTier] || ''}`}>
+                            {REWARD_TIERS.find(t => t.value === r.requiredTier)?.label.split(' ')[0]}+
+                          </span>
+                        </td>
+                        <td className="px-4 py-4 text-slate-700 font-medium">
+                          {r.discountType === 'percentage'
+                            ? `Giảm ${r.discountValue}%${r.maxDiscountAmount ? ` (tối đa ${fmtPrice(r.maxDiscountAmount)})` : ''}`
+                            : `Giảm ${fmtPrice(r.discountValue)}`}
+                        </td>
+                        <td className="px-4 py-4 text-center text-slate-500">{r.voucherValidDays} ngày</td>
+                        <td className="px-4 py-4 text-center">
+                          <span className="font-semibold text-slate-700">{r.redeemedCount}</span>
+                          {r.maxRedeemCount && <span className="text-slate-400">/{r.maxRedeemCount}</span>}
+                        </td>
+                        <td className="px-4 py-4 text-center">
+                          <button onClick={() => handleToggleReward(r)}
+                            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ${r.isActive ? 'bg-emerald-500' : 'bg-slate-300'}`}>
+                            <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform duration-200 ${r.isActive ? 'translate-x-5' : 'translate-x-0'}`} />
+                          </button>
+                        </td>
+                        <td className="px-4 py-4">
+                          <div className="flex items-center justify-center gap-2">
+                            <button onClick={() => openEditReward(r)} className="px-3 py-1.5 rounded-lg text-xs font-semibold text-blue-600 hover:bg-blue-50 transition-colors">Sửa</button>
+                            <button onClick={() => handleDeleteReward(r)} className="px-3 py-1.5 rounded-lg text-xs font-semibold text-rose-600 hover:bg-rose-50 transition-colors">Xóa</button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── Promotions section ── */}
+        {activeSection === 'promos' && (loading ? (
           <div className="flex justify-center py-20"><div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"/></div>
         ) : promos.length === 0 ? (
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm py-16 flex flex-col items-center gap-3 text-slate-400">
@@ -340,6 +609,44 @@ export default function AdminVoucherManagement() {
                       )}
                     </div>
 
+                    {/* Scope badge */}
+                    {p.type !== 'flash_sale' && p.applyTo && p.applyTo !== 'all' && (
+                      <div className="col-span-2 flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Áp dụng:</span>
+                        {p.applyTo === 'specific_categories' && (
+                          (p.categoryIds || []).slice(0, 3).map(id => (
+                            <span key={id} className="text-[11px] px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-200 font-semibold">
+                              📂 {categoryNameById(id)}
+                            </span>
+                          ))
+                        )}
+                        {p.applyTo === 'specific_products' && (
+                          (p.productIds || []).slice(0, 3).map(id => (
+                            <span key={id} className="text-[11px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-200 font-semibold">
+                              📦 {productNameById(id)}
+                            </span>
+                          ))
+                        )}
+                        {((p.applyTo === 'specific_categories' && (p.categoryIds||[]).length > 3) ||
+                          (p.applyTo === 'specific_products'   && (p.productIds||[]).length > 3)) && (
+                          <span className="text-[11px] text-slate-400">
+                            +{p.applyTo === 'specific_categories' ? (p.categoryIds.length - 3) : (p.productIds.length - 3)} khác
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {/* User scope badge */}
+                    {p.userScope === 'specific' && (
+                      <div className="flex items-center gap-1 mb-2 flex-wrap">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Người dùng:</span>
+                        {(p.allowedUsers || []).length === 0
+                          ? <span className="text-[11px] text-amber-600">Chưa chỉ định</span>
+                          : <span className="text-[11px] px-2 py-0.5 rounded-full bg-sky-50 text-sky-600 border border-sky-200 font-semibold">🎯 {(p.allowedUsers||[]).length} người</span>
+                        }
+                      </div>
+                    )}
+
                     {/* Actions */}
                     <div className="flex items-center gap-2 pt-3 border-t border-slate-50">
                       <button onClick={() => toggle(p)}
@@ -362,7 +669,7 @@ export default function AdminVoucherManagement() {
               );
             })}
           </div>
-        )}
+        ))}
 
         {/* Pagination */}
         {totalPages > 1 && (
@@ -430,9 +737,32 @@ export default function AdminVoucherManagement() {
                     <Field label="Ngày bắt đầu" required>
                       <input type="datetime-local" required value={form.startDate} onChange={e=>f('startDate',e.target.value)} className={inputCls}/>
                     </Field>
-                    <Field label="Ngày kết thúc" required>
-                      <input type="datetime-local" required value={form.endDate} onChange={e=>f('endDate',e.target.value)} className={inputCls}/>
-                    </Field>
+                    {form.type === 'flash_sale' ? (
+                      <Field label="Thời lượng sự kiện" required>
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {FLASH_DURATIONS.map(d => (
+                            <button key={d.value} type="button"
+                              onClick={() => f('flashSaleDuration', d.value)}
+                              className={`py-2 rounded-xl text-xs font-bold border-2 transition-all ${
+                                form.flashSaleDuration === d.value
+                                  ? 'border-amber-500 bg-amber-50 text-amber-700'
+                                  : 'border-slate-200 text-slate-500 hover:border-amber-300'
+                              }`}>
+                              {d.label}
+                            </button>
+                          ))}
+                        </div>
+                        {form.startDate && (
+                          <p className="text-[11px] text-amber-600 font-semibold mt-1.5">
+                            ⏰ Kết thúc: {new Date(new Date(form.startDate).getTime() + form.flashSaleDuration * 3600000).toLocaleString('vi-VN', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' })}
+                          </p>
+                        )}
+                      </Field>
+                    ) : (
+                      <Field label="Ngày kết thúc" required>
+                        <input type="datetime-local" required value={form.endDate} onChange={e=>f('endDate',e.target.value)} className={inputCls}/>
+                      </Field>
+                    )}
                   </div>
                 </section>
 
@@ -446,7 +776,7 @@ export default function AdminVoucherManagement() {
                     <select value={form.discountType} onChange={e=>f('discountType',e.target.value)} className={inputCls}>
                       <option value="percentage">Phần trăm (%)</option>
                       <option value="fixed">Số tiền cố định (₫)</option>
-                      {form.type!=='loyalty' && <option value="freeship">Miễn phí vận chuyển</option>}
+                      <option value="freeship">Miễn phí vận chuyển</option>
                     </select>
                   </Field>
                   {form.discountType !== 'freeship' && (
@@ -473,6 +803,160 @@ export default function AdminVoucherManagement() {
                 </section>
                 )}
 
+                {/* Apply-to scope — not for flash_sale (it has its own product section) */}
+                {form.type !== 'flash_sale' && (
+                <>
+                  <hr className="border-slate-100"/>
+                  <section className="space-y-3">
+                    <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Phạm vi sản phẩm áp dụng</h3>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { value: 'all',               label: 'Tất cả SP',      icon: '🌐' },
+                        { value: 'specific_products', label: 'Chọn SP cụ thể', icon: '📦' },
+                      ].map(opt => (
+                        <button key={opt.value} type="button"
+                          onClick={() => { f('applyTo', opt.value); f('productIds', []); }}
+                          className={`flex flex-col items-center gap-1 p-2.5 rounded-xl border-2 text-xs font-semibold transition-all ${
+                            form.applyTo === opt.value
+                              ? 'border-blue-500 bg-blue-50 text-blue-700'
+                              : 'border-slate-200 text-slate-500 hover:border-blue-300'
+                          }`}>
+                          <span className="text-xl">{opt.icon}</span>
+                          <span className="text-center leading-tight">{opt.label}</span>
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Product picker — grouped by category */}
+                    {form.applyTo === 'specific_products' && (() => {
+                      const getCatId = p => String(p.category?._id || p.category || '');
+                      const selectedIds = form.productIds || [];
+                      const q = addPromoProductId.toLowerCase();
+
+                      const toggleProduct = (p) => {
+                        const pid = String(p._id);
+                        f('productIds', selectedIds.includes(pid)
+                          ? selectedIds.filter(id => id !== pid)
+                          : [...selectedIds, pid]);
+                      };
+
+                      const toggleCategory = (items) => {
+                        const pids = items.map(p => String(p._id));
+                        const allSel = pids.every(pid => selectedIds.includes(pid));
+                        f('productIds', allSel
+                          ? selectedIds.filter(id => !pids.includes(id))
+                          : [...new Set([...selectedIds, ...pids])]);
+                      };
+
+                      // Build groups: categories + uncategorized at end
+                      const groups = [
+                        ...categories.map(cat => ({
+                          id: String(cat._id),
+                          name: cat.name,
+                          items: products.filter(p => getCatId(p) === String(cat._id)),
+                        })),
+                        {
+                          id: '__none__',
+                          name: 'Chưa phân loại',
+                          items: products.filter(p => !categories.some(c => String(c._id) === getCatId(p))),
+                        },
+                      ].filter(g => g.items.length > 0);
+
+                      // When searching: flat filtered list across all groups
+                      const isSearching = q.length > 0;
+                      const flatFiltered = isSearching
+                        ? products.filter(p => p.name.toLowerCase().includes(q))
+                        : [];
+
+                      return (
+                        <div className="space-y-2">
+                          {/* Search */}
+                          <input type="text" value={addPromoProductId}
+                            onChange={e => setAddPromoProductId(e.target.value)}
+                            placeholder="🔍 Tìm sản phẩm theo tên..."
+                            className={inputCls}/>
+
+                          {/* Summary bar */}
+                          <div className="flex items-center justify-between px-1">
+                            {selectedIds.length > 0
+                              ? <p className="text-[11px] text-blue-600 font-semibold">✓ Đã chọn {selectedIds.length} sản phẩm</p>
+                              : <p className="text-[11px] text-slate-400">Chưa chọn sản phẩm nào</p>}
+                            {selectedIds.length > 0 && (
+                              <button type="button" onClick={() => f('productIds', [])}
+                                className="text-[11px] text-rose-400 hover:text-rose-600 font-semibold">Bỏ chọn tất cả</button>
+                            )}
+                          </div>
+
+                          {/* List */}
+                          <div className="max-h-64 overflow-y-auto rounded-xl border border-slate-200 bg-white">
+                            {isSearching ? (
+                              /* Flat search results */
+                              flatFiltered.length === 0
+                                ? <p className="text-xs text-slate-400 text-center py-5">Không tìm thấy sản phẩm</p>
+                                : flatFiltered.map(p => {
+                                    const sel = selectedIds.includes(String(p._id));
+                                    const cat = categories.find(c => String(c._id) === getCatId(p));
+                                    return (
+                                      <label key={p._id} className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer border-b border-slate-100 last:border-0 transition-colors ${sel ? 'bg-blue-50' : 'hover:bg-slate-50'}`}>
+                                        <input type="checkbox" checked={sel} onChange={() => toggleProduct(p)}
+                                          className="accent-blue-600 w-4 h-4 flex-shrink-0"/>
+                                        <span className="text-sm text-slate-700 flex-1 truncate">{p.name}</span>
+                                        {cat && <span className="text-[10px] text-slate-400 flex-shrink-0">{cat.name}</span>}
+                                        {sel && <span className="text-blue-500 text-xs ml-1">✓</span>}
+                                      </label>
+                                    );
+                                  })
+                            ) : (
+                              /* Grouped by category */
+                              groups.map(group => {
+                                const selCount = group.items.filter(p => selectedIds.includes(String(p._id))).length;
+                                const allSel   = selCount === group.items.length;
+                                const someSel  = selCount > 0 && !allSel;
+                                return (
+                                  <div key={group.id}>
+                                    {/* Category header row */}
+                                    <label className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer border-b border-slate-200 transition-colors sticky top-0 z-10 ${
+                                      allSel ? 'bg-blue-600' : someSel ? 'bg-blue-50' : 'bg-slate-50'
+                                    }`}>
+                                      <input
+                                        type="checkbox"
+                                        checked={allSel}
+                                        ref={el => { if (el) el.indeterminate = someSel; }}
+                                        onChange={() => toggleCategory(group.items)}
+                                        className="accent-blue-600 w-4 h-4 flex-shrink-0"/>
+                                      <span className={`text-xs font-bold flex-1 uppercase tracking-wide ${allSel ? 'text-white' : 'text-slate-600'}`}>
+                                        📂 {group.name}
+                                      </span>
+                                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                        allSel  ? 'bg-white/25 text-white' :
+                                        someSel ? 'bg-blue-100 text-blue-600' :
+                                                  'bg-slate-200 text-slate-500'
+                                      }`}>{selCount}/{group.items.length}</span>
+                                    </label>
+                                    {/* Products under this category */}
+                                    {group.items.map(p => {
+                                      const sel = selectedIds.includes(String(p._id));
+                                      return (
+                                        <label key={p._id} className={`flex items-center gap-3 pl-10 pr-4 py-2.5 cursor-pointer border-b border-slate-100 last:border-0 transition-colors ${sel ? 'bg-blue-50' : 'hover:bg-slate-50'}`}>
+                                          <input type="checkbox" checked={sel} onChange={() => toggleProduct(p)}
+                                            className="accent-blue-600 w-4 h-4 flex-shrink-0"/>
+                                          <span className="text-sm text-slate-700 flex-1 truncate">{p.name}</span>
+                                          {sel && <span className="text-blue-500 text-xs">✓</span>}
+                                        </label>
+                                      );
+                                    })}
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </section>
+                </>
+                )}
+
                 <hr className="border-slate-100"/>
 
                 {/* Type-specific fields */}
@@ -481,10 +965,10 @@ export default function AdminVoucherManagement() {
                 {form.type === 'coupon' && (
                   <section className="space-y-3">
                     <h3 className="text-[10px] font-bold text-blue-500 uppercase tracking-widest">🎟️ Cấu hình Coupon</h3>
-                    <Field label="Mã coupon" required hint="Chỉ chữ hoa và số, không dấu">
-                      <input type="text" required value={form.code}
+                    <Field label="Mã coupon" hint="Để trống để hệ thống tự tạo mã ngẫu nhiên">
+                      <input type="text" value={form.code}
                         onChange={e=>f('code',e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,''))}
-                        disabled={!!editing} placeholder="VD: SUMMER25"
+                        disabled={!!editing} placeholder="Để trống → tự sinh mã (VD: SUMMER25)"
                         className={inputCls+(editing?' bg-slate-50 text-slate-400':'')}/>
                     </Field>
                     <div className="grid grid-cols-2 gap-3">
@@ -502,46 +986,134 @@ export default function AdminVoucherManagement() {
                 {form.type === 'flash_sale' && (
                   <section className="space-y-3">
                     <h3 className="text-[10px] font-bold text-amber-500 uppercase tracking-widest">⚡ Cấu hình Flash Sale</h3>
-                    <Field label="Sản phẩm" required hint="Chọn nhiều sản phẩm và nhập giá flash sale cho từng sản phẩm.">
-                      <div className="flex gap-2">
-                        <select
-                          value={flashAddProductId}
-                          onChange={(e) => setFlashAddProductId(e.target.value)}
-                          className={inputCls}
-                        >
-                          <option value="">-- Chọn sản phẩm --</option>
-                          {products
-                            .filter((p) => !(form.flashSaleItems || []).some((it) => String(it.productId) === String(p._id)))
-                            .map((p) => (
-                              <option key={p._id} value={p._id}>
-                                {p.name}
-                              </option>
-                            ))}
-                        </select>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!flashAddProductId) return;
-                            f('flashSaleItems', [...(form.flashSaleItems || []), { productId: flashAddProductId, price: '' }]);
-                            setFlashAddProductId('');
-                          }}
-                          className="px-3 py-2.5 rounded-xl text-sm font-semibold border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
-                        >
-                          + Thêm
-                        </button>
-                      </div>
-                    </Field>
 
+                    {/* Product picker — grouped by category */}
+                    {(() => {
+                      const getCatId   = p => String(p.category?._id || p.category || '');
+                      const selectedIds = (form.flashSaleItems || []).map(it => String(it.productId));
+                      const q = flashAddProductId.toLowerCase();
+
+                      const toggleProduct = (p) => {
+                        const pid = String(p._id);
+                        if (selectedIds.includes(pid)) {
+                          f('flashSaleItems', (form.flashSaleItems || []).filter(it => String(it.productId) !== pid));
+                        } else {
+                          f('flashSaleItems', [...(form.flashSaleItems || []), { productId: pid, price: '' }]);
+                        }
+                      };
+
+                      const toggleCategory = (items) => {
+                        const pids   = items.map(p => String(p._id));
+                        const allSel = pids.every(pid => selectedIds.includes(pid));
+                        if (allSel) {
+                          f('flashSaleItems', (form.flashSaleItems || []).filter(it => !pids.includes(String(it.productId))));
+                        } else {
+                          const toAdd = items
+                            .filter(p => !selectedIds.includes(String(p._id)))
+                            .map(p => ({ productId: String(p._id), price: '' }));
+                          f('flashSaleItems', [...(form.flashSaleItems || []), ...toAdd]);
+                        }
+                      };
+
+                      const groups = [
+                        ...categories.map(cat => ({
+                          id: String(cat._id), name: cat.name,
+                          items: products.filter(p => getCatId(p) === String(cat._id)),
+                        })),
+                        {
+                          id: '__none__', name: 'Chưa phân loại',
+                          items: products.filter(p => !categories.some(c => String(c._id) === getCatId(p))),
+                        },
+                      ].filter(g => g.items.length > 0);
+
+                      const isSearching  = q.length > 0;
+                      const flatFiltered = isSearching ? products.filter(p => p.name.toLowerCase().includes(q)) : [];
+
+                      return (
+                        <div className="space-y-2">
+                          <input type="text" value={flashAddProductId}
+                            onChange={e => setFlashAddProductId(e.target.value)}
+                            placeholder="🔍 Tìm sản phẩm theo tên..."
+                            className={inputCls}/>
+
+                          <div className="flex items-center justify-between px-1">
+                            {selectedIds.length > 0
+                              ? <p className="text-[11px] text-amber-600 font-semibold">✓ Đã chọn {selectedIds.length} sản phẩm</p>
+                              : <p className="text-[11px] text-slate-400">Chưa chọn sản phẩm nào</p>}
+                            {selectedIds.length > 0 && (
+                              <button type="button" onClick={() => f('flashSaleItems', [])}
+                                className="text-[11px] text-rose-400 hover:text-rose-600 font-semibold">Bỏ chọn tất cả</button>
+                            )}
+                          </div>
+
+                          <div className="max-h-56 overflow-y-auto rounded-xl border border-slate-200 bg-white">
+                            {isSearching ? (
+                              flatFiltered.length === 0
+                                ? <p className="text-xs text-slate-400 text-center py-5">Không tìm thấy sản phẩm</p>
+                                : flatFiltered.map(p => {
+                                    const sel = selectedIds.includes(String(p._id));
+                                    const cat = categories.find(c => String(c._id) === getCatId(p));
+                                    return (
+                                      <label key={p._id} className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer border-b border-slate-100 last:border-0 transition-colors ${sel ? 'bg-amber-50' : 'hover:bg-slate-50'}`}>
+                                        <input type="checkbox" checked={sel} onChange={() => toggleProduct(p)} className="accent-amber-500 w-4 h-4 flex-shrink-0"/>
+                                        <span className="text-sm text-slate-700 flex-1 truncate">{p.name}</span>
+                                        {cat && <span className="text-[10px] text-slate-400 flex-shrink-0">{cat.name}</span>}
+                                      </label>
+                                    );
+                                  })
+                            ) : (
+                              groups.map(group => {
+                                const selCount = group.items.filter(p => selectedIds.includes(String(p._id))).length;
+                                const allSel   = selCount === group.items.length;
+                                const someSel  = selCount > 0 && !allSel;
+                                return (
+                                  <div key={group.id}>
+                                    <label className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer border-b border-slate-200 sticky top-0 z-10 transition-colors ${
+                                      allSel ? 'bg-amber-500' : someSel ? 'bg-amber-50' : 'bg-slate-50'
+                                    }`}>
+                                      <input type="checkbox" checked={allSel}
+                                        ref={el => { if (el) el.indeterminate = someSel; }}
+                                        onChange={() => toggleCategory(group.items)}
+                                        className="accent-amber-500 w-4 h-4 flex-shrink-0"/>
+                                      <span className={`text-xs font-bold flex-1 uppercase tracking-wide ${allSel ? 'text-white' : 'text-slate-600'}`}>
+                                        📂 {group.name}
+                                      </span>
+                                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                        allSel  ? 'bg-white/25 text-white' :
+                                        someSel ? 'bg-amber-100 text-amber-600' :
+                                                  'bg-slate-200 text-slate-500'
+                                      }`}>{selCount}/{group.items.length}</span>
+                                    </label>
+                                    {group.items.map(p => {
+                                      const sel = selectedIds.includes(String(p._id));
+                                      return (
+                                        <label key={p._id} className={`flex items-center gap-3 pl-10 pr-4 py-2.5 cursor-pointer border-b border-slate-100 last:border-0 transition-colors ${sel ? 'bg-amber-50' : 'hover:bg-slate-50'}`}>
+                                          <input type="checkbox" checked={sel} onChange={() => toggleProduct(p)} className="accent-amber-500 w-4 h-4 flex-shrink-0"/>
+                                          <span className="text-sm text-slate-700 flex-1 truncate">{p.name}</span>
+                                          {sel && <span className="text-amber-500 text-xs">✓</span>}
+                                        </label>
+                                      );
+                                    })}
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Price cards for selected products */}
                     <div className="space-y-2">
                       {(form.flashSaleItems || []).length === 0 ? (
                         <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-400">
                           Chưa chọn sản phẩm nào
                         </div>
                       ) : (
-                        (form.flashSaleItems || []).map((it, idx) => {
+                        (form.flashSaleItems || []).map((it) => {
                           const selling = getSellingPriceInfo(it.productId);
                           return (
-                            <div key={`${it.productId}-${idx}`} className="rounded-2xl border border-slate-200 bg-white px-3 py-3 space-y-2">
+                            <div key={it.productId} className="rounded-2xl border border-amber-100 bg-white px-3 py-3 space-y-2">
                               <div className="flex items-start justify-between gap-3">
                                 <div className="min-w-0">
                                   <p className="truncate text-sm font-semibold text-slate-800">{productNameById(it.productId)}</p>
@@ -566,32 +1138,27 @@ export default function AdminVoucherManagement() {
                                 </div>
                                 <button
                                   type="button"
-                                  onClick={() => {
-                                    const next = (form.flashSaleItems || []).filter((_, i) => i !== idx);
-                                    f('flashSaleItems', next);
-                                  }}
+                                  onClick={() => f('flashSaleItems', (form.flashSaleItems || []).filter(x => String(x.productId) !== String(it.productId)))}
                                   className="px-3 py-2 rounded-xl text-sm font-semibold border border-slate-200 text-slate-500 hover:border-rose-200 hover:text-rose-600"
                                 >
                                   Xóa
                                 </button>
                               </div>
 
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                <div className="space-y-1">
-                                  <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">Giá flash sale (₫)</p>
-                                  <input
-                                    type="number"
-                                    min={0}
-                                    placeholder="VD: 199000"
-                                    value={it.price}
-                                    onChange={(e) => {
-                                      const next = [...(form.flashSaleItems || [])];
-                                      next[idx] = { ...next[idx], price: e.target.value };
-                                      f('flashSaleItems', next);
-                                    }}
-                                    className={inputCls}
-                                  />
-                                </div>
+                              <div className="space-y-1">
+                                <p className="text-[11px] font-bold text-amber-600 uppercase tracking-wide">Giá flash sale (₫)</p>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  placeholder="VD: 199000"
+                                  value={it.price}
+                                  onChange={(e) => {
+                                    f('flashSaleItems', (form.flashSaleItems || []).map(x =>
+                                      String(x.productId) === String(it.productId) ? { ...x, price: e.target.value } : x
+                                    ));
+                                  }}
+                                  className={inputCls}
+                                />
                               </div>
                             </div>
                           );
@@ -601,7 +1168,6 @@ export default function AdminVoucherManagement() {
                     <Field label="Số slot flash sale" hint="Số lượng người có thể mua với giá flash sale">
                       <input type="number" min={1} value={form.flashSaleStock} onChange={e=>f('flashSaleStock',e.target.value)} placeholder="VD: 50" className={inputCls}/>
                     </Field>
-                    <p className="text-[11px] text-slate-400">Thời gian chạy lấy theo Bắt đầu/Kết thúc ở phần thông tin chung.</p>
                   </section>
                 )}
 
@@ -626,40 +1192,90 @@ export default function AdminVoucherManagement() {
                   </section>
                 )}
 
-                {/* LOYALTY */}
-                {form.type === 'loyalty' && (
-                  <section className="space-y-3">
-                    <h3 className="text-[10px] font-bold text-violet-500 uppercase tracking-widest">👑 Cấu hình Loyalty</h3>
-                    <Field label="Áp dụng cho hạng">
-                      <select value={form.loyaltyTier} onChange={e=>f('loyaltyTier',e.target.value)} className={inputCls}>
-                        {LOYALTY_TIERS.map(t=>(
-                          <option key={t} value={t}>{TIER_LABEL[t]}</option>
-                        ))}
-                      </select>
-                    </Field>
-                    <div className="grid grid-cols-2 gap-3">
-                      <Field label="Điểm cần để dùng" hint="0 = không cần điểm">
-                        <input type="number" min={0} value={form.pointsRequired} onChange={e=>f('pointsRequired',e.target.value)} className={inputCls}/>
-                      </Field>
-                      <Field label="Điểm thưởng" hint="Điểm tặng khi dùng KM này">
-                        <input type="number" min={0} value={form.pointsReward} onChange={e=>f('pointsReward',e.target.value)} className={inputCls}/>
-                      </Field>
-                    </div>
-                    <div className="flex items-center justify-between p-3.5 bg-violet-50 rounded-xl border border-violet-200">
-                      <div>
-                        <p className="text-sm font-bold text-violet-700">Tự động áp dụng theo hạng</p>
-                        <p className="text-xs text-violet-400">Không cần nhập mã</p>
-                      </div>
-                      <button type="button" onClick={()=>f('autoApply',!form.autoApply)}
-                        className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent 
-                      transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 ${form.autoApply?'bg-blue-600' : 'bg-slate-300'}`}>
-                        <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 
-                        transition duration-200 ease-in-out ${form.autoApply?'translate-x-5':'translate-x-0'}`}/>
-                      </button>
+                <hr className="border-slate-100"/>
 
-                    </div>
-                  </section>
-                )}
+                {/* User scope */}
+                <section className="space-y-3">
+                  <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Đối tượng người dùng</h3>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { value: 'all',      label: 'Tất cả người dùng', icon: '👥' },
+                      { value: 'specific', label: 'Chỉ định người dùng', icon: '🎯' },
+                    ].map(opt => (
+                      <button key={opt.value} type="button"
+                        onClick={() => { f('userScope', opt.value); f('allowedUsers', []); setUserSearch(''); setUserSearchResults([]); }}
+                        className={`flex flex-col items-center gap-1 p-2.5 rounded-xl border-2 text-xs font-semibold transition-all ${
+                          form.userScope === opt.value
+                            ? 'border-blue-500 bg-blue-50 text-blue-700'
+                            : 'border-slate-200 text-slate-500 hover:border-blue-300'
+                        }`}>
+                        <span className="text-xl">{opt.icon}</span>
+                        <span className="text-center leading-tight">{opt.label}</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  {form.userScope === 'specific' && (() => {
+                    const addUser = (u) => {
+                      if ((form.allowedUsers || []).some(x => x._id === String(u._id))) return;
+                      f('allowedUsers', [...(form.allowedUsers || []), { _id: String(u._id), name: u.name || u.email, email: u.email }]);
+                      setUserSearch('');
+                      setUserSearchResults([]);
+                    };
+                    const removeUser = (id) => f('allowedUsers', (form.allowedUsers || []).filter(u => u._id !== id));
+
+                    return (
+                      <div className="space-y-2">
+                        {/* Selected users */}
+                        {(form.allowedUsers || []).length > 0 && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {form.allowedUsers.map(u => (
+                              <span key={u._id} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 border border-blue-200 text-xs font-semibold text-blue-700">
+                                <span>👤 {u.name || u.email}</span>
+                                <button type="button" onClick={() => removeUser(u._id)} className="text-blue-400 hover:text-rose-500 leading-none">✕</button>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {/* Search input */}
+                        <div className="relative">
+                          <input type="text" value={userSearch}
+                            onChange={e => setUserSearch(e.target.value)}
+                            placeholder="🔍 Tìm người dùng theo tên hoặc email..."
+                            className={inputCls}/>
+                          {userSearchLoading && (
+                            <div className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"/>
+                          )}
+                        </div>
+                        {userSearchResults.length > 0 && (
+                          <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm max-h-48 overflow-y-auto">
+                            {userSearchResults
+                              .filter(u => !(form.allowedUsers || []).some(x => x._id === String(u._id)))
+                              .map(u => (
+                                <button key={u._id} type="button"
+                                  onClick={() => addUser(u)}
+                                  className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-blue-50 text-left border-b border-slate-100 last:border-0 transition-colors">
+                                  <div className="w-7 h-7 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600 flex-shrink-0">
+                                    {(u.name || u.email || '?')[0].toUpperCase()}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <p className="text-sm font-semibold text-slate-800 truncate">{u.name || '(Chưa đặt tên)'}</p>
+                                    <p className="text-[11px] text-slate-400 truncate">{u.email}</p>
+                                  </div>
+                                  <span className="text-blue-500 text-xs ml-auto flex-shrink-0">+ Thêm</span>
+                                </button>
+                              ))}
+                          </div>
+                        )}
+                        {(form.allowedUsers || []).length === 0 && (
+                          <p className="text-[11px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                            Cần thêm ít nhất 1 người dùng khi chọn "Chỉ định"
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </section>
 
                 <hr className="border-slate-100"/>
 
@@ -704,6 +1320,94 @@ export default function AdminVoucherManagement() {
               </div>
             </form>
           </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Reward Form Modal ── */}
+      {showRewardForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <h2 className="text-base font-extrabold text-slate-900">
+                {editRewardId ? '✏️ Chỉnh sửa phần thưởng' : '⭐ Thêm phần thưởng đổi điểm'}
+              </h2>
+              <button onClick={closeRewardForm} className="p-2 hover:bg-slate-100 rounded-xl text-slate-500">✕</button>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              {rewardError && (
+                <div className="bg-rose-50 border border-rose-200 text-rose-700 text-sm rounded-xl px-4 py-2.5">{rewardError}</div>
+              )}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Tên phần thưởng <span className="text-rose-500">*</span></label>
+                <input className={inputCls} value={rewardForm.name} onChange={e => rF('name', e.target.value)} placeholder="Ví dụ: Phiếu giảm 10%" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Mô tả</label>
+                <input className={inputCls} value={rewardForm.description} onChange={e => rF('description', e.target.value)} placeholder="Mô tả ngắn (tuỳ chọn)" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Điểm cần đổi <span className="text-rose-500">*</span></label>
+                  <input type="number" min="1" className={inputCls} value={rewardForm.pointsRequired} onChange={e => rF('pointsRequired', e.target.value)} placeholder="500" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Hạng tối thiểu <span className="text-rose-500">*</span></label>
+                  <select className={inputCls} value={rewardForm.requiredTier} onChange={e => rF('requiredTier', e.target.value)}>
+                    {REWARD_TIERS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Loại giảm giá <span className="text-rose-500">*</span></label>
+                  <select className={inputCls} value={rewardForm.discountType} onChange={e => rF('discountType', e.target.value)}>
+                    <option value="percentage">Phần trăm (%)</option>
+                    <option value="fixed">Số tiền cố định</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">
+                    {rewardForm.discountType === 'percentage' ? 'Giảm (%)' : 'Giảm (VND)'} <span className="text-rose-500">*</span>
+                  </label>
+                  <input type="number" min="1" className={inputCls} value={rewardForm.discountValue} onChange={e => rF('discountValue', e.target.value)} placeholder={rewardForm.discountType === 'percentage' ? '10' : '50000'} />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                {rewardForm.discountType === 'percentage' && (
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Giảm tối đa (VND)</label>
+                    <input type="number" min="0" className={inputCls} value={rewardForm.maxDiscountAmount} onChange={e => rF('maxDiscountAmount', e.target.value)} placeholder="Để trống = không giới hạn" />
+                  </div>
+                )}
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Đơn tối thiểu (VND)</label>
+                  <input type="number" min="0" className={inputCls} value={rewardForm.minPurchaseAmount} onChange={e => rF('minPurchaseAmount', e.target.value)} placeholder="0" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Hiệu lực voucher (ngày) <span className="text-rose-500">*</span></label>
+                  <input type="number" min="1" className={inputCls} value={rewardForm.voucherValidDays} onChange={e => rF('voucherValidDays', e.target.value)} placeholder="30" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Giới hạn lượt đổi (tổng)</label>
+                  <input type="number" min="1" className={inputCls} value={rewardForm.maxRedeemCount} onChange={e => rF('maxRedeemCount', e.target.value)} placeholder="Để trống = không giới hạn" />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Giới hạn lượt đổi / người</label>
+                <input type="number" min="1" className={inputCls} value={rewardForm.maxRedeemPerUser} onChange={e => rF('maxRedeemPerUser', e.target.value)} placeholder="Để trống = không giới hạn" />
+              </div>
+            </div>
+            <div className="flex gap-3 px-6 py-4 border-t border-slate-100">
+              <button onClick={closeRewardForm} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-50">Huỷ</button>
+              <button onClick={handleSaveReward} disabled={savingReward}
+                className="flex-1 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-60">
+                {savingReward && <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>}
+                {savingReward ? 'Đang lưu...' : editRewardId ? 'Cập nhật' : 'Tạo phần thưởng'}
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -214,11 +214,14 @@ export default function CheckoutPage() {
   const [shippingFeeError,   setShippingFeeError]   = useState(true);
   const [expectedTime,       setExpectedTime]        = useState(null);
 
-  const [voucherCode,    setVoucherCode]    = useState('');
-  const [voucherLoading, setVoucherLoading] = useState(false);
-  const [appliedVoucher, setAppliedVoucher] = useState(null);
-  const [voucherError,   setVoucherError]   = useState('');
-  const [voucherSuccess, setVoucherSuccess] = useState('');
+  const [voucherCode,       setVoucherCode]       = useState('');
+  const [voucherLoading,    setVoucherLoading]    = useState(false);
+  const [appliedVoucher,    setAppliedVoucher]    = useState(null);
+  const [voucherError,      setVoucherError]      = useState('');
+  const [voucherSuccess,    setVoucherSuccess]    = useState('');
+  const [availableVouchers, setAvailableVouchers] = useState([]);
+  const [showVoucherPicker, setShowVoucherPicker] = useState(false);
+  const [showCodeInput,     setShowCodeInput]     = useState(false);
 
   const [formData, setFormData] = useState({
     fullName:      user?.name  || '',
@@ -254,7 +257,7 @@ export default function CheckoutPage() {
   useEffect(() => {
     const load = async () => {
       try {
-        const res  = await apiClient.get('/addresses');
+        const res = await apiClient.get('/addresses');
         const data = res.data?.data || [];
         setSavedAddresses(Array.isArray(data) ? data : []);
         const def = data.find(a => a.isDefault) || data[0];
@@ -263,7 +266,15 @@ export default function CheckoutPage() {
       } catch { setUseManual(true); }
     };
     load();
-  }, []);
+  }, [user]);
+
+  // Load available admin vouchers (re-fetch when subtotal changes)
+  useEffect(() => {
+    if (!user) return;
+    apiClient.get(`/promotions/available?orderAmount=${subtotal}`)
+      .then(res => setAvailableVouchers(res.data?.data || []))
+      .catch(() => setAvailableVouchers([]));
+  }, [user, subtotal]);
 
   // Fill form from saved address (text fields only, GHN IDs need separate handling)
   useEffect(() => {
@@ -331,7 +342,8 @@ export default function CheckoutPage() {
     if (!code) return;
     setVoucherError(''); setVoucherSuccess(''); setVoucherLoading(true);
     try {
-      const res     = await apiClient.post('/promotions/validate', { code, orderAmount: subtotal, itemCount: checkoutItems.length });
+      const productIds = checkoutItems.map(item => item._id || item.id).filter(Boolean);
+      const res     = await apiClient.post('/promotions/validate', { code, orderAmount: subtotal, itemCount: checkoutItems.length, productIds });
       const voucher = res.data?.data;
       setAppliedVoucher(voucher);
       setVoucherSuccess(`Tiết kiệm ${formatPrice(calcDiscount(voucher, subtotal))}!`);
@@ -344,6 +356,21 @@ export default function CheckoutPage() {
   const handleRemoveVoucher = () => {
     setAppliedVoucher(null); setVoucherCode('');
     setVoucherError('');     setVoucherSuccess('');
+  };
+
+  const handleSelectVoucher = async (voucher) => {
+    setShowVoucherPicker(false);
+    setVoucherError(''); setVoucherSuccess(''); setVoucherLoading(true);
+    try {
+      const productIds = checkoutItems.map(item => item._id || item.id).filter(Boolean);
+      const res = await apiClient.post('/promotions/validate', { code: voucher.code, orderAmount: subtotal, itemCount: checkoutItems.length, productIds });
+      const v   = res.data?.data;
+      setAppliedVoucher(v);
+      setVoucherCode(voucher.code);
+      setVoucherSuccess(`Tiết kiệm ${formatPrice(calcDiscount(v, subtotal))}!`);
+    } catch (err) {
+      setVoucherError(err.response?.data?.message || 'Voucher không áp dụng được cho đơn hàng này.');
+    } finally { setVoucherLoading(false); }
   };
 
   // ── Submit ──────────────────────────────────────────────────────────────────
@@ -562,44 +589,144 @@ export default function CheckoutPage() {
               </SectionCard>
 
               {/* Voucher */}
-              <SectionCard title="Mã giảm giá" icon="🏷️">
+              <SectionCard title="Voucher & Mã giảm giá" icon="🏷️">
                 {appliedVoucher ? (
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3.5">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center text-xl flex-shrink-0">🎉</div>
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <p className="font-black text-emerald-800 font-mono tracking-widest text-sm">{appliedVoucher.code}</p>
-                            <DiscountTypeBadge voucher={appliedVoucher}/>
-                          </div>
-                          <p className="text-xs text-emerald-600 mt-0.5 font-medium">{voucherSuccess}</p>
+                  <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3.5">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center text-xl flex-shrink-0">🎉</div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-black text-emerald-800 font-mono tracking-widest text-sm">{appliedVoucher.code}</p>
+                          <DiscountTypeBadge voucher={appliedVoucher}/>
                         </div>
+                        <p className="text-xs text-emerald-600 mt-0.5 font-medium">{voucherSuccess}</p>
                       </div>
-                      <button type="button" onClick={handleRemoveVoucher}
-                        className="p-2 hover:bg-rose-50 rounded-xl transition-colors text-emerald-400 hover:text-rose-500">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/>
-                        </svg>
-                      </button>
                     </div>
+                    <button type="button" onClick={handleRemoveVoucher}
+                      className="p-2 hover:bg-rose-50 rounded-xl transition-colors text-emerald-400 hover:text-rose-500">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                      </svg>
+                    </button>
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    <div className="flex gap-2">
-                      <div className="relative flex-1">
-                        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-300 text-base select-none">🏷️</span>
-                        <input type="text" value={voucherCode}
-                          onChange={e => { setVoucherCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '')); setVoucherError(''); }}
-                          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleApplyVoucher(); }}}
-                          placeholder="Nhập mã giảm giá" maxLength={20}
-                          className={`${inputCls} pl-10 font-mono tracking-[0.2em] uppercase ${voucherError ? 'border-rose-300' : ''}`}/>
-                      </div>
-                      <button type="button" onClick={handleApplyVoucher} disabled={voucherLoading || !voucherCode.trim()}
-                        className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl text-sm font-bold transition-colors whitespace-nowrap flex items-center gap-2 min-w-[100px] justify-center">
-                        {voucherLoading ? <><div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"/> Kiểm tra</> : '→ Áp dụng'}
+                    {/* Primary CTA: pick voucher */}
+                    {availableVouchers.length > 0 && (
+                      <button type="button" onClick={() => { setShowVoucherPicker(v => !v); setVoucherError(''); }}
+                        className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border-2 transition-all font-semibold text-sm ${
+                          showVoucherPicker
+                            ? 'border-blue-500 bg-blue-50 text-blue-700'
+                            : 'border-slate-200 text-slate-600 hover:border-blue-300'
+                        }`}>
+                        <span className="flex items-center gap-2">
+                          🎟️ Chọn voucher
+                          <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                            {availableVouchers.length} có sẵn
+                          </span>
+                        </span>
+                        <svg className={`w-4 h-4 transition-transform ${showVoucherPicker ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7"/>
+                        </svg>
                       </button>
+                    )}
+
+                    {/* Voucher picker panel */}
+                    {showVoucherPicker && (() => {
+                      const discountLabel = (v) => {
+                        if (v.discountType === 'freeship') return '🚚 Miễn phí vận chuyển';
+                        return v.discountType === 'percentage'
+                          ? `Giảm ${v.discountValue}%${v.maxDiscountAmount ? ` (tối đa ${formatPrice(v.maxDiscountAmount)})` : ''}`
+                          : `Giảm ${formatPrice(v.discountValue)}`;
+                      };
+
+                      return (
+                        <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm">
+                          {availableVouchers.map(v => (
+                            <button key={v._id} type="button"
+                              onClick={() => v.applicable ? handleSelectVoucher(v) : undefined}
+                              disabled={!v.applicable}
+                              className={`w-full flex items-center gap-3 px-4 py-3 border-b border-slate-100 last:border-0 text-left transition-colors ${
+                                v.applicable
+                                  ? 'hover:bg-emerald-50 cursor-pointer'
+                                  : 'opacity-50 cursor-not-allowed bg-slate-50'
+                              }`}>
+                              <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg flex-shrink-0 ${v.applicable ? 'bg-emerald-100' : 'bg-slate-200'}`}>
+                                {v.isFreeship ? '🚚' : '🎟️'}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <p className="text-xs font-black font-mono tracking-widest text-slate-800">{v.code}</p>
+                                  {!v.applicable && <span className="text-[10px] bg-rose-100 text-rose-600 px-1.5 py-0.5 rounded-full font-semibold">Chưa đủ điều kiện</span>}
+                                </div>
+                                <p className="text-xs text-slate-600 truncate">{v.name}</p>
+                                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                  <span className="text-[11px] font-semibold text-emerald-600">{discountLabel(v)}</span>
+                                  {v.minOrderAmount > 0 && (
+                                    <span className="text-[10px] text-slate-400">Đơn tối thiểu {formatPrice(v.minOrderAmount)}</span>
+                                  )}
+                                </div>
+                              </div>
+                              {v.applicable ? (
+                                <div className="flex flex-col items-end flex-shrink-0">
+                                  {v.discountAmount > 0 && (
+                                    <span className="text-xs font-black text-emerald-600">-{formatPrice(v.discountAmount)}</span>
+                                  )}
+                                  <span className="text-[11px] text-blue-500 font-semibold">Chọn →</span>
+                                </div>
+                              ) : (
+                                <span className="text-[10px] text-slate-400 flex-shrink-0 text-right">
+                                  Thiếu<br/>{formatPrice(v.minOrderAmount - subtotal)}
+                                </span>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      );
+                    })()}
+
+                    {/* Manual code input toggle */}
+                    <div>
+                      <button type="button" onClick={() => setShowCodeInput(v => !v)}
+                        className="text-xs text-slate-400 hover:text-blue-600 font-medium transition-colors">
+                        {showCodeInput ? '▲ Ẩn' : '▼ Nhập mã thủ công'}
+                      </button>
+                      {showCodeInput && (
+                        <div className="flex gap-2 mt-2">
+                          <div className="relative flex-1">
+                            <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-300 text-base select-none">🏷️</span>
+                            <input type="text" value={voucherCode}
+                              onChange={e => { setVoucherCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '')); setVoucherError(''); }}
+                              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleApplyVoucher(); }}}
+                              placeholder="Nhập mã giảm giá" maxLength={20}
+                              className={`${inputCls} pl-10 font-mono tracking-[0.2em] uppercase ${voucherError ? 'border-rose-300' : ''}`}/>
+                          </div>
+                          <button type="button" onClick={handleApplyVoucher} disabled={voucherLoading || !voucherCode.trim()}
+                            className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl text-sm font-bold transition-colors whitespace-nowrap flex items-center gap-2 min-w-[100px] justify-center">
+                            {voucherLoading ? <><div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"/> Kiểm tra</> : '→ Áp dụng'}
+                          </button>
+                        </div>
+                      )}
                     </div>
+
+                    {/* No vouchers available (show just manual input) */}
+                    {availableVouchers.length === 0 && !showCodeInput && (
+                      <div className="flex gap-2">
+                        <div className="relative flex-1">
+                          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-300 text-base select-none">🏷️</span>
+                          <input type="text" value={voucherCode}
+                            onChange={e => { setVoucherCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '')); setVoucherError(''); }}
+                            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleApplyVoucher(); }}}
+                            placeholder="Nhập mã giảm giá" maxLength={20}
+                            className={`${inputCls} pl-10 font-mono tracking-[0.2em] uppercase ${voucherError ? 'border-rose-300' : ''}`}/>
+                        </div>
+                        <button type="button" onClick={handleApplyVoucher} disabled={voucherLoading || !voucherCode.trim()}
+                          className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl text-sm font-bold transition-colors whitespace-nowrap flex items-center gap-2 min-w-[100px] justify-center">
+                          {voucherLoading ? <><div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"/> Kiểm tra</> : '→ Áp dụng'}
+                        </button>
+                      </div>
+                    )}
+
                     {voucherError && (
                       <div className="flex items-center gap-2 px-3.5 py-2.5 bg-rose-50 border border-rose-200 rounded-xl">
                         <span className="text-rose-500">⚠️</span>

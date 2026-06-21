@@ -75,6 +75,10 @@ const promotionSchema = new mongoose.Schema({
     holidayName: { type: String, default: '' },  // 'Tết Nguyên Đán', '8/3', ...
     autoApply:   { type: Boolean, default: false }, // tự động apply không cần mã
 
+    // ── Đối tượng áp dụng ────────────────────────────────────────────────────
+    userScope:    { type: String, enum: ['all', 'specific'], default: 'all' },
+    allowedUsers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+
     // ── LOYALTY fields ────────────────────────────────────────────────────────
     loyaltyTier: {
         type: String,

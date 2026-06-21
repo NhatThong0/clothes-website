@@ -418,6 +418,147 @@ async function applyPointsForCheckout({ userId, orderValue, pointsToUse, referen
   return result;
 }
 
+// ── Đổi điểm lấy voucher ─────────────────────────────────────────────────────
+const LoyaltyReward = require('../../model/LoyaltyReward');
+const Voucher       = require('../../model/Voucher');
+
+const TIER_ORDER = { bronze: 0, silver: 1, gold: 2, platinum: 3 };
+
+function generateVoucherCode(rewardId) {
+  const rand = Math.random().toString(36).substring(2, 7).toUpperCase();
+  const ts   = Date.now().toString(36).toUpperCase().slice(-4);
+  return `LYL${ts}${rand}`;
+}
+
+async function getAvailableRewards(userId) {
+  const user = await ensureUserLoyaltySnapshot(userId);
+  const spendable  = Number(user.loyalty?.spendablePoints) || 0;
+  const tierName   = (user.loyalty?.tier?.name || 'bronze').toLowerCase();
+  const tierLevel  = TIER_ORDER[tierName] ?? 0;
+
+  const rewards = await LoyaltyReward.find({ isActive: true }).lean();
+
+  return rewards.map(r => {
+    const reqLevel      = TIER_ORDER[r.requiredTier] ?? 0;
+    const userEntry     = (r.redeemedBy || []).find(x => x.userId.toString() === userId.toString());
+    const userRedeemed  = userEntry ? userEntry.count : 0;
+    const withinPerUser = r.maxRedeemPerUser === null || userRedeemed < r.maxRedeemPerUser;
+    const canRedeem     = spendable >= r.pointsRequired && tierLevel >= reqLevel
+      && (r.maxRedeemCount === null || r.redeemedCount < r.maxRedeemCount)
+      && withinPerUser;
+    return { ...r, canRedeem, userPoints: spendable, userTier: tierName, userRedeemed };
+  });
+}
+
+async function redeemReward(userId, rewardId) {
+  const reward = await LoyaltyReward.findById(rewardId);
+  if (!reward || !reward.isActive)
+    throw createHttpError(404, 'Phần thưởng không tồn tại hoặc đã hết.');
+  if (reward.maxRedeemCount !== null && reward.redeemedCount >= reward.maxRedeemCount)
+    throw createHttpError(400, 'Phần thưởng này đã hết lượt đổi.');
+  if (reward.maxRedeemPerUser !== null) {
+    const userEntry = (reward.redeemedBy || []).find(r => r.userId.toString() === userId.toString());
+    const userCount = userEntry ? userEntry.count : 0;
+    if (userCount >= reward.maxRedeemPerUser)
+      throw createHttpError(400, `Bạn đã đạt giới hạn ${reward.maxRedeemPerUser} lượt đổi cho phần thưởng này.`);
+  }
+
+  const eventId = randomUUID();
+
+  const result = await runWithOptionalTransaction(async (session) => {
+    const user = await ensureUserLoyaltySnapshot(userId, session);
+    const spendable = Number(user.loyalty?.spendablePoints) || 0;
+    const tierName  = (user.loyalty?.tier?.name || 'bronze').toLowerCase();
+    const tierLevel = TIER_ORDER[tierName] ?? 0;
+    const reqLevel  = TIER_ORDER[reward.requiredTier] ?? 0;
+
+    if (tierLevel < reqLevel)
+      throw createHttpError(403, `Cần hạng ${reward.requiredTier} để đổi phần thưởng này.`);
+    if (spendable < reward.pointsRequired)
+      throw createHttpError(400, `Không đủ điểm. Cần ${reward.pointsRequired}, hiện có ${spendable}.`);
+
+    // 1. Ghi log trừ điểm
+    await createPointLog({
+      eventId,
+      userId: user._id,
+      actionType: 'REDEEM',
+      deltaSpendable: -reward.pointsRequired,
+      deltaTier: 0,
+      referenceType: 'REWARD',
+      referenceId: String(reward._id),
+      metadata: { rewardName: reward.name, pointsRequired: reward.pointsRequired },
+    }, session);
+
+    // 2. Trừ điểm user
+    user.loyalty.spendablePoints = spendable - reward.pointsRequired;
+    user.loyalty.syncedAt = new Date();
+    user.updatedAt = new Date();
+    user.markModified('loyalty');
+    await user.save({ session });
+
+    // 3. Tạo voucher cá nhân hoá
+    const now     = new Date();
+    const endDate = new Date(now.getTime() + reward.voucherValidDays * 86400000);
+    const code    = generateVoucherCode(reward._id);
+
+    const [voucher] = await Voucher.create([{
+      code,
+      description:       `Đổi điểm: ${reward.name}`,
+      discountType:      reward.discountType,
+      discountValue:     reward.discountValue,
+      maxDiscountAmount: reward.maxDiscountAmount,
+      minPurchaseAmount: reward.minPurchaseAmount,
+      voucherType:       'all_products',
+      maxUsageCount:     1,
+      maxUsagePerUser:   1,
+      startDate:         now,
+      endDate,
+      isActive:          true,
+      assignedTo:        user._id,
+    }], session ? { session } : undefined);
+
+    // 4. Tăng số lượt đã đổi của reward (toàn hệ thống + per user)
+    const userAlreadyIn = reward.redeemedBy?.some(r => r.userId.toString() === userId.toString());
+    if (userAlreadyIn) {
+      await LoyaltyReward.findOneAndUpdate(
+        { _id: reward._id, 'redeemedBy.userId': userId },
+        { $inc: { redeemedCount: 1, 'redeemedBy.$.count': 1 } },
+        session ? { session } : undefined
+      );
+    } else {
+      await LoyaltyReward.findByIdAndUpdate(
+        reward._id,
+        { $inc: { redeemedCount: 1 }, $push: { redeemedBy: { userId, count: 1 } } },
+        session ? { session } : undefined
+      );
+    }
+
+    return {
+      voucher,
+      pointsUsed:     reward.pointsRequired,
+      remainingPoints: user.loyalty.spendablePoints,
+    };
+  });
+
+  await syncUserLoyaltySnapshot(userId);
+  return result;
+}
+
+async function getUserVouchers(userId) {
+  const vouchers = await Voucher.find({ assignedTo: userId }).sort({ createdAt: -1 }).lean();
+  const now = new Date();
+  return vouchers.map(v => {
+    const isExpired = now > new Date(v.endDate);
+    const isUsed    = v.maxUsageCount !== null && v.usageCount >= v.maxUsageCount;
+    return {
+      ...v,
+      isExpired,
+      isUsed,
+      isValid: v.isActive && !isExpired && !isUsed,
+    };
+  });
+}
+
 module.exports = {
   emitPointEvent,
   handlePointEvent,
@@ -425,4 +566,7 @@ module.exports = {
   syncUserLoyaltySnapshot,
   getUserLoyaltyDetails,
   applyPointsForCheckout,
+  getAvailableRewards,
+  redeemReward,
+  getUserVouchers,
 };

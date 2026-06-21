@@ -48,9 +48,47 @@ async function checkout(req, res, next) {
   }
 }
 
+async function getRewards(req, res, next) {
+  try {
+    const userId = req.userId || req.user?.userId;
+    if (!userId) return res.status(401).json({ status: 'error', message: 'Unauthorized' });
+    const rewards = await loyaltyService.getAvailableRewards(userId);
+    return res.status(200).json({ status: 'success', data: rewards });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function redeemReward(req, res, next) {
+  try {
+    const userId   = req.userId || req.user?.userId;
+    if (!userId) return res.status(401).json({ status: 'error', message: 'Unauthorized' });
+    const { rewardId } = req.body || {};
+    if (!rewardId) return res.status(400).json({ status: 'error', message: 'Thiếu rewardId' });
+    const result = await loyaltyService.redeemReward(userId, rewardId);
+    return res.status(200).json({ status: 'success', data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function getMyVouchers(req, res, next) {
+  try {
+    const userId = req.userId || req.user?.userId;
+    if (!userId) return res.status(401).json({ status: 'error', message: 'Unauthorized' });
+    const vouchers = await loyaltyService.getUserVouchers(userId);
+    return res.status(200).json({ status: 'success', data: vouchers });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   getMe,
   postEvent,
   checkout,
+  getRewards,
+  redeemReward,
+  getMyVouchers,
 };
 

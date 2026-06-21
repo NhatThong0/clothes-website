@@ -1,5 +1,6 @@
 const Promotion     = require('../../model/Promotion');
 const LoyaltyAccount = require('../../model/LoyaltyAccount');
+const Voucher       = require('../../model/Voucher');
 
 // ── Helper: tính discount amount ──────────────────────────────────────────────
 const calcDiscount = (promo, orderAmount) => {
@@ -15,7 +16,7 @@ const calcDiscount = (promo, orderAmount) => {
 };
 
 // ── Helper: validate một promotion với context ─────────────────────────────────
-const validatePromotion = async (promo, userId, orderAmount, itemCount = 1) => {
+const validatePromotion = async (promo, userId, orderAmount, itemCount = 1, cartProductIds = []) => {
     const now = new Date();
 
     if (!promo.isActive)          throw { status: 400, message: 'Khuyến mãi không còn hoạt động.' };
@@ -33,6 +34,29 @@ const validatePromotion = async (promo, userId, orderAmount, itemCount = 1) => {
     }
     if (promo.minQuantity > 0 && itemCount < promo.minQuantity) {
         throw { status: 400, message: `Cần ít nhất ${promo.minQuantity} sản phẩm để áp dụng.` };
+    }
+
+    // userScope: kiểm tra đối tượng người dùng
+    if (promo.userScope === 'specific' && userId) {
+        const allowed = (promo.allowedUsers || []).map(String);
+        if (!allowed.includes(String(userId))) {
+            throw { status: 403, message: 'Voucher này không dành cho bạn.' };
+        }
+    }
+
+    // applyTo scope: nếu có giới hạn sản phẩm/danh mục
+    if (promo.applyTo === 'specific_products' && promo.productIds?.length > 0 && cartProductIds.length > 0) {
+        const allowed = promo.productIds.map(String);
+        const hasMatch = cartProductIds.some(pid => allowed.includes(String(pid)));
+        if (!hasMatch) throw { status: 400, message: 'Mã không áp dụng cho sản phẩm trong giỏ hàng.' };
+    }
+    if (promo.applyTo === 'specific_categories' && promo.categoryIds?.length > 0 && cartProductIds.length > 0) {
+        const Product = require('../../model/Product');
+        const cartProducts = await Product.find({ _id: { $in: cartProductIds } }).select('category').lean();
+        const cartCategoryIds = cartProducts.map(p => String(p.category)).filter(Boolean);
+        const allowed = promo.categoryIds.map(String);
+        const hasMatch = cartCategoryIds.some(cid => allowed.includes(cid));
+        if (!hasMatch) throw { status: 400, message: 'Mã không áp dụng cho danh mục sản phẩm trong giỏ hàng.' };
     }
 
     // Flash sale: check remaining + giờ
@@ -71,36 +95,80 @@ const validatePromotion = async (promo, userId, orderAmount, itemCount = 1) => {
 };
 
 // ── POST /api/promotions/validate ─────────────────────────────────────────────
-// Dùng cho cả: nhập mã coupon, check auto-apply, flash sale
+// Dùng cho cả: nhập mã coupon, check auto-apply, flash sale, và loyalty voucher
 const validatePromotionCode = async (req, res) => {
     try {
-        const { code, orderAmount, itemCount } = req.body;
+        const { code, orderAmount, itemCount, productIds: cartProductIds } = req.body;
         const userId = req.user?.userId || req.userId;
 
         if (!code) return res.status(400).json({ status: 'error', message: 'Vui lòng nhập mã.' });
 
-        // Tìm theo code — chấp nhận tất cả loại có code (coupon, flash_sale, holiday, discount)
-        const promo = await Promotion.findOne({ code: code.toUpperCase() });
-        if (!promo) return res.status(404).json({ status: 'error', message: 'Mã khuyến mãi không tồn tại.' });
+        const upperCode = code.toUpperCase();
 
-        await validatePromotion(promo, userId, orderAmount || 0, itemCount || 1);
+        // 1. Tìm trong Promotion trước
+        const promo = await Promotion.findOne({ code: upperCode });
+        if (promo) {
+            await validatePromotion(promo, userId, orderAmount || 0, itemCount || 1, cartProductIds || []);
+            const discountAmount = calcDiscount(promo, orderAmount || 0);
+            return res.status(200).json({
+                status: 'success',
+                data: {
+                    _id:               promo._id,
+                    code:              promo.code,
+                    name:              promo.name,
+                    type:              promo.type,
+                    discountType:      promo.discountType,
+                    discountValue:     promo.discountValue,
+                    maxDiscountAmount: promo.maxDiscountAmount,
+                    minOrderAmount:    promo.minOrderAmount,
+                    discountAmount,
+                    isFreeship:        promo.discountType === 'freeship',
+                },
+            });
+        }
 
-        const discountAmount = calcDiscount(promo, orderAmount || 0);
-        const isFreeship = promo.discountType === 'freeship';
+        // 2. Fallback: tìm trong Voucher (voucher đổi điểm thưởng)
+        const voucher = await Voucher.findOne({ code: upperCode });
+        if (!voucher) return res.status(404).json({ status: 'error', message: 'Mã không tồn tại.' });
 
-        res.status(200).json({
+        const now = new Date();
+        if (!voucher.isActive)                                           throw { status: 400, message: 'Voucher đã bị vô hiệu hóa.' };
+        if (now < voucher.startDate)                                     throw { status: 400, message: 'Voucher chưa đến ngày áp dụng.' };
+        if (now > voucher.endDate)                                       throw { status: 400, message: 'Voucher đã hết hạn.' };
+        if (voucher.maxUsageCount !== null && voucher.usageCount >= voucher.maxUsageCount)
+            throw { status: 400, message: 'Voucher đã hết lượt sử dụng.' };
+        if ((orderAmount || 0) < voucher.minPurchaseAmount)
+            throw { status: 400, message: `Đơn hàng tối thiểu ${voucher.minPurchaseAmount.toLocaleString('vi-VN')}₫ để dùng voucher này.` };
+        if (userId && voucher.assignedTo && voucher.assignedTo.toString() !== userId.toString())
+            throw { status: 403, message: 'Voucher này không thuộc về bạn.' };
+        if (userId) {
+            const userUsage = voucher.usedBy?.find(u => u.userId.toString() === userId.toString());
+            if (userUsage && userUsage.usedCount >= voucher.maxUsagePerUser)
+                throw { status: 400, message: 'Bạn đã dùng hết lượt cho voucher này.' };
+        }
+
+        let discountAmount = 0;
+        if (voucher.discountType === 'percentage') {
+            discountAmount = ((orderAmount || 0) * voucher.discountValue) / 100;
+            if (voucher.maxDiscountAmount) discountAmount = Math.min(discountAmount, voucher.maxDiscountAmount);
+        } else {
+            discountAmount = voucher.discountValue;
+        }
+        discountAmount = Math.min(discountAmount, orderAmount || 0);
+
+        return res.status(200).json({
             status: 'success',
             data: {
-                _id:               promo._id,
-                code:              promo.code,
-                name:              promo.name,
-                type:              promo.type,
-                discountType:      promo.discountType,
-                discountValue:     promo.discountValue,
-                maxDiscountAmount: promo.maxDiscountAmount,
-                minOrderAmount:    promo.minOrderAmount,
+                _id:               voucher._id,
+                code:              voucher.code,
+                name:              voucher.description || voucher.code,
+                type:              'loyalty_voucher',
+                discountType:      voucher.discountType,
+                discountValue:     voucher.discountValue,
+                maxDiscountAmount: voucher.maxDiscountAmount,
+                minOrderAmount:    voucher.minPurchaseAmount,
                 discountAmount,
-                isFreeship,
+                isFreeship:        false,
             },
         });
     } catch (err) {
@@ -221,15 +289,18 @@ const createPromotion = async (req, res) => {
             return res.status(400).json({ status: 'error', message: 'Ngày kết thúc phải sau ngày bắt đầu.' });
         }
 
-        // Nếu có code → check unique (áp dụng cho mọi loại có code)
-        if (body.code) {
-            const exists = await Promotion.findOne({ code: body.code.toUpperCase() });
+        // Sinh mã ngẫu nhiên nếu không nhập
+        if (!body.code) {
+            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+            let code;
+            do {
+                code = Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+            } while (await Promotion.findOne({ code }));
+            body.code = code;
+        } else {
+            body.code = body.code.toUpperCase();
+            const exists = await Promotion.findOne({ code: body.code });
             if (exists) return res.status(400).json({ status: 'error', message: 'Mã khuyến mãi đã tồn tại.' });
-        }
-
-        // Coupon bắt buộc phải có code
-        if (body.type === 'coupon' && !body.code) {
-            return res.status(400).json({ status: 'error', message: 'Loại Coupon bắt buộc phải có mã code.' });
         }
 
         // Flash sale: require slot + items[{productId, price}], init remaining
@@ -352,6 +423,69 @@ const getUserLoyalty = async (req, res) => {
     }
 };
 
+// ── GET /api/promotions/available ────────────────────────────────────────────
+// Trả về tất cả voucher user có thể dùng (không cần nhập mã)
+const getAvailableVouchers = async (req, res) => {
+    try {
+        const userId     = req.user?.userId || req.userId;
+        const orderAmount = Number(req.query.orderAmount) || 0;
+        const now        = new Date();
+
+        const promos = await Promotion.find({
+            isActive:  true,
+            startDate: { $lte: now },
+            endDate:   { $gte: now },
+            code:      { $exists: true, $ne: null },
+            type:      { $nin: ['flash_sale'] },
+            $or: [
+                { userScope: { $exists: false } },
+                { userScope: 'all' },
+                { userScope: 'specific', allowedUsers: userId },
+            ],
+        }).select('-usedBy -flashSaleItems').lean();
+
+        const valid = [];
+        for (const p of promos) {
+            if (p.maxUsageCount !== null && p.usageCount >= p.maxUsageCount) continue;
+            if (p.type === 'flash_sale' && p.flashSaleRemaining !== null && p.flashSaleRemaining <= 0) continue;
+
+            let discountAmount = 0;
+            if (orderAmount > 0 && orderAmount >= p.minOrderAmount) {
+                discountAmount = calcDiscount(p, orderAmount);
+            }
+
+            valid.push({
+                _id:               p._id,
+                code:              p.code,
+                name:              p.name,
+                description:       p.description,
+                type:              p.type,
+                discountType:      p.discountType,
+                discountValue:     p.discountValue,
+                maxDiscountAmount: p.maxDiscountAmount,
+                minOrderAmount:    p.minOrderAmount,
+                endDate:           p.endDate,
+                usageCount:        p.usageCount,
+                maxUsageCount:     p.maxUsageCount,
+                userScope:         p.userScope || 'all',
+                discountAmount,
+                applicable:        orderAmount === 0 || orderAmount >= p.minOrderAmount,
+                isFreeship:        p.discountType === 'freeship',
+            });
+        }
+
+        // Sắp xếp: áp dụng được lên trước, giảm nhiều hơn lên đầu
+        valid.sort((a, b) => {
+            if (a.applicable !== b.applicable) return b.applicable - a.applicable;
+            return b.discountAmount - a.discountAmount;
+        });
+
+        return res.json({ status: 'success', data: valid });
+    } catch (err) {
+        res.status(500).json({ status: 'error', message: err.message });
+    }
+};
+
 // ── Admin: điều chỉnh điểm thủ công ──────────────────────────────────────────
 const adjustLoyaltyPoints = async (req, res) => {
     try {
@@ -374,6 +508,7 @@ const adjustLoyaltyPoints = async (req, res) => {
 module.exports = {
     validatePromotionCode,
     getAutoApplyPromotions,
+    getAvailableVouchers,
     getMyLoyalty,
     getPromotions,
     createPromotion,

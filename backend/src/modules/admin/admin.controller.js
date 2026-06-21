@@ -2,6 +2,7 @@ const User = require('../../model/User');
 const Product = require('../../model/Product');
 const Category = require('../../model/Category');
 const SizeChart = require('../../model/SizeChart');
+const LoyaltyReward = require('../../model/LoyaltyReward');
 const XLSX = require('xlsx');
 const mongoose = require('mongoose');
 const { pool } = require('../../db/mysql');
@@ -2168,5 +2169,73 @@ exports.previewCategorySizeChartImport = async (req, res) => {
             status: 'error',
             message: 'Không thể đọc file size chart.',
         });
+    }
+};
+
+// ── LOYALTY REWARD MANAGEMENT ──────────────────────────────────────────────────
+exports.adminGetLoyaltyRewards = async (req, res) => {
+    try {
+        const rewards = await LoyaltyReward.find().sort({ createdAt: -1 }).lean();
+        res.json({ status: 'success', data: rewards });
+    } catch (err) {
+        res.status(500).json({ status: 'error', message: 'Lỗi server' });
+    }
+};
+
+exports.adminCreateLoyaltyReward = async (req, res) => {
+    try {
+        const {
+            name, description, pointsRequired, requiredTier,
+            discountType, discountValue, maxDiscountAmount,
+            minPurchaseAmount, voucherValidDays, maxRedeemCount, maxRedeemPerUser,
+        } = req.body;
+
+        if (!name || !pointsRequired || !discountType || !discountValue) {
+            return res.status(400).json({ status: 'error', message: 'Thiếu thông tin bắt buộc' });
+        }
+
+        const reward = await LoyaltyReward.create({
+            name, description, pointsRequired, requiredTier,
+            discountType, discountValue,
+            maxDiscountAmount: maxDiscountAmount || null,
+            minPurchaseAmount: minPurchaseAmount || 0,
+            voucherValidDays: voucherValidDays || 30,
+            maxRedeemCount: maxRedeemCount || null,
+            maxRedeemPerUser: maxRedeemPerUser || null,
+            isActive: true,
+        });
+        res.status(201).json({ status: 'success', data: reward });
+    } catch (err) {
+        res.status(500).json({ status: 'error', message: 'Lỗi server' });
+    }
+};
+
+exports.adminUpdateLoyaltyReward = async (req, res) => {
+    try {
+        const { rewardId } = req.params;
+        const allowed = [
+            'name','description','pointsRequired','requiredTier',
+            'discountType','discountValue','maxDiscountAmount',
+            'minPurchaseAmount','voucherValidDays','maxRedeemCount','maxRedeemPerUser','isActive',
+        ];
+        const update = {};
+        allowed.forEach(k => { if (req.body[k] !== undefined) update[k] = req.body[k]; });
+
+        const reward = await LoyaltyReward.findByIdAndUpdate(rewardId, update, { returnDocument: 'after' });
+        if (!reward) return res.status(404).json({ status: 'error', message: 'Không tìm thấy phần thưởng' });
+        res.json({ status: 'success', data: reward });
+    } catch (err) {
+        res.status(500).json({ status: 'error', message: 'Lỗi server' });
+    }
+};
+
+exports.adminDeleteLoyaltyReward = async (req, res) => {
+    try {
+        const { rewardId } = req.params;
+        const reward = await LoyaltyReward.findByIdAndDelete(rewardId);
+        if (!reward) return res.status(404).json({ status: 'error', message: 'Không tìm thấy phần thưởng' });
+        res.json({ status: 'success', message: 'Đã xóa phần thưởng' });
+    } catch (err) {
+        res.status(500).json({ status: 'error', message: 'Lỗi server' });
     }
 };

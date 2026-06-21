@@ -556,8 +556,6 @@ export default function ProfilePage() {
                 {[
                   { id: 'profile',   icon: '👤', label: 'Thông tin'   },
                   { id: 'addresses', icon: '📍', label: 'Địa chỉ'     },
-                  // { id: 'orders',    icon: '📦', label: 'Đơn hàng',
-                  //   badge: orders.length > 0 ? orders.length : null },
                   { id: 'security',  icon: '🔐', label: 'Bảo mật'    },
                 ].map(item => (
                   <button key={item.id} onClick={() => setTab(item.id)}
@@ -575,6 +573,16 @@ export default function ProfilePage() {
                     )}
                   </button>
                 ))}
+                <button
+                  onClick={() => navigate('/loyalty')}
+                  className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-all text-left text-slate-600 hover:bg-amber-50 hover:text-amber-700 group"
+                >
+                  <span className="text-base">⭐</span>
+                  <span className="flex-1">Điểm thưởng</span>
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-600">
+                    {(user?.loyalty?.spendablePoints || 0).toLocaleString()} đ
+                  </span>
+                </button>
               </nav>
             </div>
           </div>

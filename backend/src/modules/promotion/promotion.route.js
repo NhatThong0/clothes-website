@@ -5,6 +5,7 @@ const auth    = require('../../middleware/authenticateToken');
 const {
     validatePromotionCode,
     getAutoApplyPromotions,
+    getAvailableVouchers,
     getMyLoyalty,
     getPromotions,
     createPromotion,
@@ -17,6 +18,7 @@ const {
 
 // ── User (cần đăng nhập) ──────────────────────────────────────────────────────
 router.post('/validate',        auth, validatePromotionCode);  // nhập mã coupon
+router.get('/available',        auth, getAvailableVouchers);   // voucher hiển thị khi checkout
 router.get('/auto-apply',       auth, getAutoApplyPromotions); // tự động lấy promo phù hợp
 router.get('/loyalty/my',       auth, getMyLoyalty);           // điểm & tier của mình
 

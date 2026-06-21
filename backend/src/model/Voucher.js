@@ -36,6 +36,8 @@ const voucherSchema = new mongoose.Schema({
     startDate: { type: Date, required: true },
     endDate:   { type: Date, required: true },
     isActive:  { type: Boolean, default: true },
+    // Dành riêng cho user khi đổi điểm thưởng
+    assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null, index: true },
 }, { timestamps: true });
 
 // Virtual: check còn hiệu lực không

@@ -20,6 +20,7 @@ import ProfilePage from '@features/auth/pages/ProfilePage';
 import OrdersPage from '@features/order/pages/OrdersPage';
 import OrderDetailPage from '@features/order/pages/OrderDetailPage';
 import WishlistPage from '@features/product/pages/WishlistPage';
+import LoyaltyPage from '@features/loyalty/pages/LoyaltyPage';
 import PaymentResultPage from '@features/payment/pages/PaymentResultPage';
 import ChatWidget from '@features/chat/components/ChatWidget';
 
@@ -81,6 +82,7 @@ function AppRoutes() {
               <Route path="/orders" element={<OrdersPage />} />
               <Route path="/orders/:id" element={<OrderDetailPage />} />
               <Route path="/wishlist" element={<WishlistPage />} />
+              <Route path="/loyalty" element={<LoyaltyPage />} />
             </Route>
           </Route>
 

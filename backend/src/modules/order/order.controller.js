@@ -121,6 +121,8 @@ const validateVoucherCode = async (code, userId, orderAmount) => {
         throw { status: 400, message: 'Voucher đã hết lượt sử dụng.' };
     if (orderAmount < voucher.minPurchaseAmount)
         throw { status: 400, message: `Đơn hàng tối thiểu ${voucher.minPurchaseAmount.toLocaleString('vi-VN')}₫ để dùng voucher này.` };
+    if (userId && voucher.assignedTo && voucher.assignedTo.toString() !== userId.toString())
+        throw { status: 403, message: 'Voucher này không thuộc về bạn.' };
     if (userId) {
         const userUsage = voucher.usedBy.find(u => u.userId.toString() === userId.toString());
         if (userUsage && userUsage.usedCount >= voucher.maxUsagePerUser)

@@ -59,4 +59,10 @@ router.post  ('/vouchers',            adminController.createVoucher);
 router.put   ('/vouchers/:voucherId', adminController.updateVoucher);
 router.delete('/vouchers/:voucherId', adminController.deleteVoucher);
 
+// ── LOYALTY REWARD MANAGEMENT ──────────────────────────────────────────────────
+router.get   ('/loyalty-rewards',            adminController.adminGetLoyaltyRewards);
+router.post  ('/loyalty-rewards',            adminController.adminCreateLoyaltyReward);
+router.put   ('/loyalty-rewards/:rewardId',  adminController.adminUpdateLoyaltyReward);
+router.delete('/loyalty-rewards/:rewardId',  adminController.adminDeleteLoyaltyReward);
+
 module.exports = router;
