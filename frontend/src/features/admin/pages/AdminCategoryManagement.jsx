@@ -548,7 +548,7 @@ const AdminCategoryManagement = () => {
                       {/* Section header */}
                       <div className="flex items-center gap-3 mb-4">
                         <span className="text-base font-bold text-slate-800">
-                          {isParentGroup ? '📁' : '📄'} {parent.name}
+                          {isParentGroup ? '' : '📄'} {parent.name}
                         </span>
                         {parent.isFeatured && <span className="text-xs bg-amber-100 text-amber-600 px-2 py-0.5 rounded-full">⭐ Nổi bật</span>}
                         <span className="text-xs text-slate-400">{parent.productCount || 0} sp trực tiếp</span>
